@@ -49,6 +49,15 @@ dependencies = [
     "owlrl>=7.0.0",
     "pyshacl>=0.26.0",
     "networkx>=3.0",
+    # Microsoft Entra ID credentials for Azure Database for PostgreSQL.
+    # The registry authenticates by presenting an Entra access token as the
+    # Postgres password (scope https://ossrdbms-aad.database.windows.net/.default),
+    # minted per physical connection because tokens live 5-60 min and cannot be
+    # refreshed inside an open session. A *core* dependency rather than an extra:
+    # ONTOBRICKS_PG_AUTH defaults to "entra", so an extra would make the default
+    # configuration fail to start. DefaultAzureCredential resolves the container's
+    # managed identity in a deployment and the developer's `az login` locally.
+    "azure-identity>=1.19.0",
 ]
 
 [project.optional-dependencies]
