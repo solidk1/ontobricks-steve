@@ -30,26 +30,24 @@ class DatabricksAuth:
 
     Supports three modes, resolved in priority order:
 
-    1. **Databricks Apps** — M2M OAuth via ``DATABRICKS_CLIENT_ID`` /
-       ``DATABRICKS_CLIENT_SECRET`` (auto-injected by the platform).
-    2. **Local Personal Access Token** — ``DATABRICKS_TOKEN``.
-    3. **Local Databricks CLI** — a profile in ``~/.databrickscfg`` populated
-       by ``databricks auth login``. Selected explicitly via
+    1. **Service principal** — M2M OAuth via ``DATABRICKS_CLIENT_ID`` /
+       ``DATABRICKS_CLIENT_SECRET``. The Databricks Apps runtime injects
+       these; a container deployment supplies them from its own secret
+       store. See :attr:`has_sp_credentials`.
+    2. **Personal Access Token** — ``DATABRICKS_TOKEN``.
+    3. **Databricks CLI profile** — a profile in ``~/.databrickscfg``
+       populated by ``databricks auth login``. Selected explicitly via
        ``DATABRICKS_CONFIG_PROFILE`` or implicitly via the default profile.
+
+    Mode selection depends only on which credentials are present, never on
+    where the process runs — that separation is what lets the same class
+    serve a Databricks App and a plain container.
     """
 
     # Class-level cache: { (host, warehouse_id): (capable, reason, ts) }
     _cloud_fetch_cache: Dict[Tuple[str, str], Tuple[bool, str, float]] = {}
     _cloud_fetch_resolve_lock = threading.RLock()
     _resolving_cloud_fetch: bool = False
-
-    @staticmethod
-    def is_databricks_app() -> bool:
-        """Return *True* when running inside a Databricks App.
-
-        The platform sets ``DATABRICKS_APP_PORT`` automatically.
-        """
-        return os.getenv("DATABRICKS_APP_PORT") is not None
 
     @staticmethod
     def normalize_host(host: str) -> str:
@@ -169,13 +167,12 @@ class DatabricksAuth:
 
         self.client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
         self.client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", "")
-        self.is_app_mode = self.is_databricks_app()
         self.config_profile = os.getenv("DATABRICKS_CONFIG_PROFILE", "").strip()
 
         explicit_host = DatabricksAuth.normalize_host(host) if host else ""
 
         self._cli_config: Optional[Any] = None
-        if not self.is_app_mode and not self.token:
+        if not self.has_sp_credentials and not self.token:
             self._cli_config = self._resolve_cli_config(
                 self.config_profile, explicit_host
             )
@@ -210,9 +207,26 @@ class DatabricksAuth:
             )
 
     @property
+    def has_sp_credentials(self) -> bool:
+        """Whether a service principal is configured for M2M OAuth.
+
+        Replaces the former ``is_app_mode`` attribute. Every use of that
+        attribute was really this question — it was invariably written as
+        ``is_app_mode and client_id and client_secret`` — and spelling it
+        this way lets a container with a service principal authenticate
+        exactly as a Databricks App does.
+        """
+        return bool(self.client_id and self.client_secret)
+
+    @property
     def auth_mode(self) -> str:
-        """Resolved auth mode: ``"app"``, ``"pat"``, ``"cli"``, or ``"none"``."""
-        if self.is_app_mode and self.client_id and self.client_secret:
+        """Resolved auth mode: ``"app"``, ``"pat"``, ``"cli"``, or ``"none"``.
+
+        ``"app"`` means service-principal M2M OAuth. The value is kept for
+        compatibility with ``/health`` output and the Settings UI; it no
+        longer implies the Databricks Apps platform.
+        """
+        if self.has_sp_credentials:
             return "app"
         if self.token:
             return "pat"
@@ -265,7 +279,7 @@ class DatabricksAuth:
 
     def get_auth_headers(self) -> dict:
         """Return ``Authorization`` + ``Content-Type`` headers for REST calls."""
-        if self.is_app_mode and self.client_id and self.client_secret:
+        if self.has_sp_credentials:
             token = self.get_oauth_token()
             return {
                 "Authorization": f"Bearer {token}",
@@ -303,7 +317,7 @@ class DatabricksAuth:
             "_socket_timeout": _SQL_SOCKET_TIMEOUT,
         }
         params["use_cloud_fetch"] = self.can_use_cloud_fetch()
-        if self.is_app_mode and self.client_id and self.client_secret:
+        if self.has_sp_credentials:
             params["access_token"] = self.get_oauth_token()
         elif self.token:
             params["access_token"] = self.token
@@ -384,7 +398,7 @@ class DatabricksAuth:
                 "_socket_timeout": _CLOUD_FETCH_PROBE_TIMEOUT_SECONDS,
                 "use_cloud_fetch": True,
             }
-            if self.is_app_mode and self.client_id and self.client_secret:
+            if self.has_sp_credentials:
                 probe_params["access_token"] = self.get_oauth_token()
             elif self.token:
                 probe_params["access_token"] = self.token
@@ -416,8 +430,8 @@ class DatabricksAuth:
 
     def has_valid_auth(self) -> bool:
         """Return *True* when usable credentials are available."""
-        if self.is_app_mode:
-            return bool(self.client_id and self.client_secret)
+        if self.has_sp_credentials:
+            return True
         if self.token:
             return True
         return self._cli_config is not None
@@ -429,7 +443,7 @@ class DatabricksAuth:
         pat = os.getenv("DATABRICKS_TOKEN", "")
         if pat:
             return pat
-        if self.is_app_mode:
+        if self.has_sp_credentials:
             return self.get_oauth_token()
         if self._cli_config is not None:
             headers = self._cli_config.authenticate()

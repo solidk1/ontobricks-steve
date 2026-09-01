@@ -26,7 +26,7 @@ safe_identifier = URIHelpers.safe_identifier
 
 from back.core.databricks import (  # noqa: F401  — re-exported for backward compat
     get_workspace_host,
-    is_databricks_app,
+    has_implicit_credentials,
     normalize_host,
 )
 

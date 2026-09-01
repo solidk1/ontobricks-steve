@@ -13,7 +13,7 @@ class TestUCFileServiceInit:
         svc = UCFileService(host="https://host.com", token="tok")
         assert svc._auth.host == "https://host.com"
         assert svc._auth.token == "tok"
-        assert svc._auth.is_app_mode is False
+        assert svc._auth.has_sp_credentials is False
 
     def test_volume_path(self, monkeypatch):
         monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)

@@ -66,19 +66,34 @@ class TestTestConnection:
         assert ok is False
         assert "DATABRICKS_HOST" in msg or "DATABRICKS_TOKEN" in msg
 
-    def test_missing_auth_app_mode_returns_false(self, monkeypatch):
-        monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
-        monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
-        monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
+    def test_no_credentials_at_all_returns_config_message(self, monkeypatch):
+        """With no credential of any kind, report configuration, not a dial-out.
+
+        Previously this test set ``DATABRICKS_APP_PORT`` and asserted an
+        Apps-specific OAuth message. That path also *masked* an available
+        PAT: being "in app mode" without client credentials reported an
+        error even when ``DATABRICKS_TOKEN`` was set. Credentials are now
+        judged on their own merits, so the case worth pinning is having
+        none.
+        """
+        for var in (
+            "DATABRICKS_CLIENT_ID",
+            "DATABRICKS_CLIENT_SECRET",
+            "DATABRICKS_TOKEN",
+            "DATABRICKS_CONFIG_PROFILE",
+        ):
+            monkeypatch.delenv(var, raising=False)
         auth = DatabricksAuth(
             host="https://h.databricks.com",
             token="",
             warehouse_id="wh-1",
         )
+        auth._cli_config = None
         sw = SQLWarehouse(auth)
         ok, msg = sw.test_connection()
         assert ok is False
-        assert "OAuth" in msg or "CLIENT_ID" in msg
+        assert "Missing configuration" in msg
+        assert "CLIENT_ID" in msg
 
     @patch("databricks.sql.connect")
     def test_success_mocks_sql_connect(self, mock_connect, monkeypatch):

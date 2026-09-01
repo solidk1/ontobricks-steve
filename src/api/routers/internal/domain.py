@@ -13,7 +13,7 @@ from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from shared.config.settings import get_settings, Settings
-from back.core.databricks import is_databricks_app
+from shared.config.RuntimeEnv import RuntimeEnv
 from back.core.errors import (
     InfrastructureError,
     NotFoundError,
@@ -78,7 +78,7 @@ async def get_current_user(
     In Databricks App mode the proxy headers carry the real user identity.
     Falls back to the SCIM /Me endpoint for local / PAT mode.
     """
-    if is_databricks_app():
+    if RuntimeEnv.auth_enabled():
         name = request.headers.get("x-forwarded-preferred-username", "")
         email = request.headers.get("x-forwarded-email", "")
         if name or email:

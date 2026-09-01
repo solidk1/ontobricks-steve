@@ -114,11 +114,11 @@ class SQLWarehouse:
             return False, "Missing SQL Warehouse ID"
 
         if not self._auth.has_valid_auth():
-            if self._auth.is_app_mode:
-                return False, "Missing OAuth credentials (DATABRICKS_CLIENT_ID/SECRET)"
             return False, (
-                "Missing configuration: DATABRICKS_HOST, DATABRICKS_TOKEN, "
-                "or a Databricks CLI profile (run `databricks auth login`)"
+                "Missing configuration: DATABRICKS_HOST plus one of "
+                "DATABRICKS_CLIENT_ID/SECRET (service principal), "
+                "DATABRICKS_TOKEN, or a Databricks CLI profile "
+                "(run `databricks auth login`)"
             )
 
         try:
@@ -126,13 +126,11 @@ class SQLWarehouse:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.fetchone()
-            auth_mode = (
-                "OAuth (Databricks App)"
-                if self._auth.is_app_mode
-                else "Databricks CLI profile"
-                if self._auth.auth_mode == "cli"
-                else "Personal Access Token"
-            )
+            auth_mode = {
+                "app": "OAuth (service principal)",
+                "cli": "Databricks CLI profile",
+                "pat": "Personal Access Token",
+            }.get(self._auth.auth_mode, self._auth.auth_mode)
             return True, f"Connection successful ({auth_mode})"
         except Exception as exc:
             return False, f"Connection failed: {exc}"
@@ -244,9 +242,13 @@ class SQLWarehouse:
         Uses the Databricks SDK in app mode, falling back to REST API.
         Returns list of dicts with ``id``, ``name``, ``state`` keys.
         """
-        logger.debug("Host: %s, App mode: %s", self._auth.host, self._auth.is_app_mode)
+        logger.debug(
+            "Host: %s, service-principal auth: %s",
+            self._auth.host,
+            self._auth.has_sp_credentials,
+        )
 
-        if self._auth.is_app_mode:
+        if self._auth.has_sp_credentials:
             try:
                 from databricks.sdk import WorkspaceClient
 

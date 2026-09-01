@@ -9,7 +9,7 @@ from shared.config.constants import HTTP_USER_AGENT
 from back.core.databricks import (
     DatabricksAuth,
     get_workspace_host,
-    is_databricks_app,
+    has_implicit_credentials,
     normalize_host,
 )
 
@@ -30,15 +30,29 @@ def _clear_databricks_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
-class TestIsDatabricksApp:
-    def test_false_when_port_not_set(self, monkeypatch):
-        _clear_databricks_env(monkeypatch)
-        assert is_databricks_app() is False
+class TestHasImplicitCredentials:
+    """Credential presence, not platform detection.
 
-    def test_true_when_port_set(self, monkeypatch):
+    This replaced ``is_databricks_app()``: the question every caller
+    actually had was whether credentials resolve without an explicit
+    host/token, and a service principal answers it anywhere.
+    """
+
+    def test_false_without_service_principal(self, monkeypatch):
+        _clear_databricks_env(monkeypatch)
+        assert has_implicit_credentials() is False
+
+    def test_true_with_service_principal(self, monkeypatch):
+        _clear_databricks_env(monkeypatch)
+        monkeypatch.setenv("DATABRICKS_CLIENT_ID", "cid")
+        monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "csec")
+        assert has_implicit_credentials() is True
+
+    def test_apps_port_alone_is_not_enough(self, monkeypatch):
+        """The old predicate said True here and was wrong to."""
         _clear_databricks_env(monkeypatch)
         monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
-        assert is_databricks_app() is True
+        assert has_implicit_credentials() is False
 
 
 class TestNormalizeHost:
@@ -90,7 +104,7 @@ class TestDatabricksAuthInit:
         assert auth.host == "https://explicit.databricks.com"
         assert auth.token == "explicit-token"
         assert auth.warehouse_id == "wh-123"
-        assert auth.is_app_mode is False
+        assert auth.has_sp_credentials is False
 
     def test_auto_detect_from_env(self, monkeypatch):
         _clear_databricks_env(monkeypatch)
@@ -165,14 +179,17 @@ class TestGetAuthHeaders:
         }
 
     @patch.object(DatabricksAuth, "get_oauth_token", return_value="oauth-header-token")
-    def test_app_mode_oauth_headers(self, mock_oauth, monkeypatch):
+    def test_service_principal_oauth_headers(self, mock_oauth, monkeypatch):
+        """No DATABRICKS_APP_PORT: SP credentials alone drive OAuth.
+
+        This is the container case the decoupling exists to support.
+        """
         _clear_databricks_env(monkeypatch)
-        monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
         monkeypatch.setenv("DATABRICKS_CLIENT_ID", "cid")
         monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "csec")
 
         auth = DatabricksAuth(host="https://ws.databricks.com", token="")
-        assert auth.is_app_mode is True
+        assert auth.has_sp_credentials is True
 
         headers = auth.get_auth_headers()
         assert headers == {
@@ -408,7 +425,7 @@ class TestCliMode:
     def test_auth_mode_is_cli_when_only_profile_resolves(self, monkeypatch):
         auth, _ = self._make_cli_auth(monkeypatch)
         assert auth.auth_mode == "cli"
-        assert auth.is_app_mode is False
+        assert auth.has_sp_credentials is False
         assert auth.token == ""
 
     def test_host_falls_back_to_cli_config_host(self, monkeypatch):

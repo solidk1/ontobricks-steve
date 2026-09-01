@@ -10,10 +10,10 @@ import os
 
 
 def _get_default_session_dir() -> str:
-    """Get the default session directory based on environment."""
-    if os.getenv("DATABRICKS_APP_PORT"):
-        return "/tmp/ontobricks_session"
-    return "./fastapi_session"
+    """Session directory appropriate to the runtime filesystem."""
+    from shared.config.RuntimeEnv import default_session_dir
+
+    return default_session_dir()
 
 
 class Settings(BaseSettings):

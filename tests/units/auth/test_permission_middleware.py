@@ -78,7 +78,7 @@ def _dispatch_with_roles(app_role, domain_role, method="GET", path="/ontology/")
     middleware = PermissionMiddleware(MagicMock())
 
     with (
-        patch("back.core.databricks.is_databricks_app", return_value=True),
+        patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
         patch.object(
             PermissionMiddleware, "_resolve_roles", return_value=(app_role, domain_role)
         ),
@@ -121,7 +121,7 @@ class TestBypassPaths:
 
         middleware = PermissionMiddleware(MagicMock())
 
-        with patch("back.core.databricks.is_databricks_app", return_value=True):
+        with patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True):
             _run(middleware.dispatch(req, call_next))
 
         assert req.state.user_role == ""
@@ -149,7 +149,7 @@ class TestLocalDevMode:
 
         middleware = PermissionMiddleware(MagicMock())
 
-        with patch("back.core.databricks.is_databricks_app", return_value=False):
+        with patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=False):
             _run(middleware.dispatch(req, call_next))
 
         assert req.state.user_role == "admin"
@@ -181,7 +181,7 @@ class TestRoleEnforcement:
             return MagicMock(status_code=200)
 
         with (
-            patch("back.core.databricks.is_databricks_app", return_value=True),
+            patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
             patch.object(
                 PermissionMiddleware,
                 "_resolve_roles",
@@ -209,7 +209,7 @@ class TestRoleEnforcement:
             return MagicMock(status_code=200)
 
         with (
-            patch("back.core.databricks.is_databricks_app", return_value=True),
+            patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
             patch.object(
                 PermissionMiddleware,
                 "_resolve_roles",
@@ -502,7 +502,7 @@ class TestRequestState:
         middleware = PermissionMiddleware(MagicMock())
 
         with (
-            patch("back.core.databricks.is_databricks_app", return_value=True),
+            patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
             patch.object(
                 PermissionMiddleware,
                 "_resolve_roles",
@@ -524,7 +524,7 @@ class TestRequestState:
 
         middleware = PermissionMiddleware(MagicMock())
 
-        with patch("back.core.databricks.is_databricks_app", return_value=False):
+        with patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=False):
             _run(middleware.dispatch(req, call_next))
 
         assert req.state.user_email == "alice@acme.com"
@@ -551,7 +551,7 @@ class TestResolveRolesFailure:
         middleware = PermissionMiddleware(MagicMock())
 
         with (
-            patch("back.core.databricks.is_databricks_app", return_value=True),
+            patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
             patch.object(
                 PermissionMiddleware, "_resolve_roles", side_effect=RuntimeError("boom")
             ),
@@ -983,7 +983,7 @@ def _dispatch_with_edit_lock(holder, *, app_role=ROLE_EDITOR, domain_role=ROLE_E
     middleware = PermissionMiddleware(MagicMock())
 
     with (
-        patch("back.core.databricks.is_databricks_app", return_value=True),
+        patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
         patch.object(
             PermissionMiddleware, "_resolve_roles",
             return_value=(app_role, domain_role),
@@ -1038,7 +1038,7 @@ class TestEditLockGate:
 
         middleware = PermissionMiddleware(MagicMock())
         with (
-            patch("back.core.databricks.is_databricks_app", return_value=True),
+            patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
             patch.object(
                 PermissionMiddleware, "_resolve_roles",
                 return_value=(ROLE_EDITOR, ROLE_EDITOR),
@@ -1072,7 +1072,7 @@ def _dispatch_with_status(
     middleware = PermissionMiddleware(MagicMock())
 
     with (
-        patch("back.core.databricks.is_databricks_app", return_value=True),
+        patch("shared.config.RuntimeEnv.RuntimeEnv.auth_enabled", return_value=True),
         patch.object(
             PermissionMiddleware, "_resolve_roles",
             return_value=(app_role, domain_role),

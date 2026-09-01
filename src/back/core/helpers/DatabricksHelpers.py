@@ -295,8 +295,9 @@ class DatabricksHelpers:
         warehouse_id = DatabricksHelpers.resolve_warehouse_id(domain, settings)
         use_cloud_fetch = DatabricksHelpers.resolve_use_cloud_fetch(domain, settings)
 
-        # In Databricks Apps mode, always create a client (SDK handles auth)
-        if _databricks.is_databricks_app():
+        # Credentials resolve implicitly from the service principal —
+        # always create a client and let the SDK authenticate.
+        if _databricks.has_implicit_credentials():
             return _databricks.DatabricksClient(
                 host=host,
                 token=token,
@@ -382,7 +383,7 @@ class DatabricksHelpers:
         if host and token:
             return _databricks.normalize_host(host), token
 
-        if _databricks.is_databricks_app():
+        if _databricks.has_implicit_credentials():
             if not host:
                 host = _databricks.get_workspace_host()
             if not token and host:

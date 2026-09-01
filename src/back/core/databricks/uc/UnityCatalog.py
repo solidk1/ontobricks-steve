@@ -42,10 +42,10 @@ class UnityCatalog:
         self._require_warehouse()
         try:
             logger.info(
-                "Connecting — host=%s, warehouse=%s, app_mode=%s",
+                "Connecting — host=%s, warehouse=%s, sp_auth=%s",
                 self._auth.host,
                 self._auth.warehouse_id,
-                self._auth.is_app_mode,
+                self._auth.has_sp_credentials,
             )
             params = self._auth.get_sql_connection_params()
             with sql.connect(**params) as conn:

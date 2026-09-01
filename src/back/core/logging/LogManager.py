@@ -13,6 +13,7 @@ from shared.config.constants import (
     LOG_BACKUP_COUNT,
     LOG_MAX_BYTES,
 )
+from shared.config.RuntimeEnv import RuntimeEnv
 
 
 class _JSONFormatter(logging.Formatter):
@@ -152,8 +153,8 @@ class LogManager:
     def _resolve_log_dir(log_dir: Optional[str] = None) -> str:
         """Return a writable log directory, creating it if needed.
 
-        On Databricks Apps the container filesystem is restricted, so we
-        try several candidate paths and fall back to ``/tmp/logs``.
+        A container filesystem is typically restricted, so we try several
+        candidate paths and fall back to ``/tmp/logs``.
         """
         candidates: list[str] = []
 
@@ -161,7 +162,7 @@ class LogManager:
             candidates.append(log_dir)
         elif os.getenv("LOG_DIR"):
             candidates.append(os.getenv("LOG_DIR"))
-        elif os.getenv("DATABRICKS_APP_PORT"):
+        elif RuntimeEnv.is_containerized():
             candidates.extend(LogManager._DATABRICKS_APP_LOG_CANDIDATES)
         else:
             candidates.append(os.path.join(os.getcwd(), "logs"))

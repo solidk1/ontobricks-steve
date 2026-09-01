@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 
-from back.core.databricks import is_databricks_app
+from back.core.databricks import has_implicit_credentials
 from back.core.helpers import get_databricks_host_and_token, resolve_delta_warehouse_id
 from back.core.logging import get_logger
 
@@ -28,10 +28,10 @@ def create_databricks_client(
             token = db.get("token", "")
             warehouse_id = db.get("warehouse_id", "") or db.get("sql_warehouse_id", "")
 
-        if not host and not is_databricks_app():
+        if not host and not has_implicit_credentials():
             logger.warning("Delta graph engine: missing host")
             return None
-        if not token and not is_databricks_app():
+        if not token and not has_implicit_credentials():
             logger.warning("Delta graph engine: missing token")
             return None
         if not warehouse_id:

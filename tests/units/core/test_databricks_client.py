@@ -6,20 +6,22 @@ from unittest.mock import Mock, patch, MagicMock
 from back.core.databricks import (
     DatabricksClient,
     get_workspace_host,
-    is_databricks_app,
+    has_implicit_credentials,
     normalize_host,
 )
 from back.core.errors import ValidationError
 
 
 class TestHelperFunctions:
-    def test_is_databricks_app_false(self, monkeypatch):
-        monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
-        assert is_databricks_app() is False
+    def test_has_implicit_credentials_false(self, monkeypatch):
+        monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
+        monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
+        assert has_implicit_credentials() is False
 
-    def test_is_databricks_app_true(self, monkeypatch):
-        monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
-        assert is_databricks_app() is True
+    def test_has_implicit_credentials_true(self, monkeypatch):
+        monkeypatch.setenv("DATABRICKS_CLIENT_ID", "cid")
+        monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "csec")
+        assert has_implicit_credentials() is True
 
     def test_normalize_host_empty(self):
         assert normalize_host("") == ""

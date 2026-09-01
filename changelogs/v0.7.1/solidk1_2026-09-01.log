@@ -1,0 +1,156 @@
+## P1 — split the Databricks Apps runtime predicate
+
+Context: First implementation phase of `.planning/databricks-decoupling/SPEC.md`
+(deploy OntoBricks to any container + any Postgres). `DatabricksAuth.is_databricks_app()`
+— a single probe of the Apps-injected `DATABRICKS_APP_PORT` — had 37 callers, and
+`DATABRICKS_APP_PORT` was read directly in 17 more places. Reading every one showed
+the boolean was answering **seven** unrelated questions: listen/self-call port,
+filesystem ephemerality, cookie `Secure` flag, auth enforcement, Databricks credential
+resolution, whether a setting is externally injected, and graph-traversal resource caps.
+That conflation is what blocks container deployment: a container with a service
+principal has valid credentials but no `DATABRICKS_APP_PORT`, so every
+credential-resolution site refused to proceed.
+
+Behaviour is preserved throughout. Each new predicate falls back to a single
+`_legacy_apps_mode()` helper — now the codebase's only reader of `DATABRICKS_APP_PORT`
+— so nothing changes on the Apps platform. `auth_enabled` flips to default-on (fail
+closed) in P4, once an OIDC login flow exists that a locked-down deployment can satisfy.
+
+Changes:
+
+1. src/shared/config/RuntimeEnv.py (new)
+   Owns four of the seven questions: `port()` / `self_base_url()`,
+   `is_containerized()`, `secure_cookies()`, `auth_enabled()`, plus
+   `default_session_dir()` / `default_log_dir()`. `_legacy_apps_mode()` is the sole
+   `DATABRICKS_APP_PORT` reader; unrecognised flag values fall back to the default
+   rather than being guessed at, so a typo cannot flip a security-relevant flag.
+2. src/back/core/databricks/DatabricksConnector.py (new)
+   `has_implicit_credentials()` (service principal present) and `is_configured()`
+   (host + any usable credential) — the credential question the 11 gating sites
+   actually had.
+3. src/shared/config/TraversalLimits.py (new)
+   Traversal caps as a frozen dataclass. Keeps the constrained/roomy split but makes
+   each of the four values individually overridable via `ONTOBRICKS_DTWIN_*`.
+4. src/back/core/databricks/DatabricksAuth.py
+   Deleted `is_databricks_app()`. Replaced the `is_app_mode` attribute with a
+   `has_sp_credentials` property: every use was written as
+   `is_app_mode and client_id and client_secret`, so the effective condition was
+   always "service principal present". Mode selection now depends only on which
+   credentials exist, never on where the process runs.
+5. src/back/core/databricks/{DatabricksClient,SQLWarehouse}.py, uc/UnityCatalog.py
+   Follow the rename. Two unreachable branches removed (`has_valid_auth()` already
+   covers SP credentials, so the "app mode but no client id" message could not fire);
+   connection-mode label derived from `auth_mode` instead.
+6. src/back/core/databricks/__init__.py
+   Exports `DatabricksConnector` + `has_implicit_credentials` in place of
+   `is_databricks_app`.
+7. src/back/core/helpers/{DatabricksHelpers,__init__}.py,
+   src/back/core/graphdb/delta/DeltaBase.py, src/back/core/graphdb/GraphDBFactory.py,
+   src/back/objects/registry/scheduler.py, src/api/routers/internal/dtwin.py
+   The 11 credential-resolution sites now ask `has_implicit_credentials()`.
+8. src/shared/fastapi/main.py, src/api/routers/internal/domain.py,
+   src/front/fastapi/dependencies.py, src/back/objects/domain/SettingsService.py
+   The auth-enforcement sites now ask `RuntimeEnv.auth_enabled()`. `PermissionMiddleware`
+   and `require_admin_error` docstrings state plainly that a false value passes every
+   request through as admin.
+9. src/back/objects/domain/SettingsService.py
+   `is_warehouse_locked` / `is_registry_locked` gate on `RuntimeEnv.is_containerized()`:
+   environment config is authoritative in a container and merely a default on a
+   developer machine. Gating on `auth_enabled` instead would have reintroduced a
+   conflation. User-facing message no longer names Databricks App resources.
+10. src/shared/fastapi/csrf.py, src/shared/fastapi/main.py
+    Cookie `Secure` / `https_only` read `RuntimeEnv.secure_cookies()` — deliberately
+    independent of `auth_enabled`. These were the same boolean before, so a
+    non-Apps deployment silently got neither TLS-only cookies nor access control.
+11. src/shared/config/settings.py, src/back/core/logging/LogManager.py
+    Session dir and log dir resolve through `RuntimeEnv.is_containerized()`.
+12. src/api/routers/internal/dtwin.py
+    Three loopback base URLs use `RuntimeEnv.self_base_url()`; traversal caps use
+    `TraversalLimits.resolve()`.
+13. src/back/core/graphdb/neo4j/Neo4jConnection.py
+    Migrated rather than left behind, though P5 deletes this engine.
+14. src/mcp-server/server/app.py
+    `PORT`-first with a `DATABRICKS_APP_PORT` fallback. This package ships its own
+    pyproject/uv.lock and cannot import from `src/shared`; P7 folds it into the main
+    app and the duplicate goes away.
+15. src/back/objects/digitaltwin/DigitalTwin.py
+    Removed an unused `is_databricks_app` import.
+16. tests/units/core/test_runtime_env.py (new, 28 tests)
+    Covers all four predicates, boolean parsing, and the independence of
+    `secure_cookies` from `auth_enabled`. Includes a guard test asserting
+    `DATABRICKS_APP_PORT` is read in exactly one place, with `src/mcp-server`
+    allowlisted as the single transitional exception — so P7 can remove the Apps
+    deploy by editing one function.
+17. tests/units/auth/test_databricks_connector.py (new, 10 tests)
+    Includes the regression this seam exists to prevent: SP credentials with no
+    Apps runtime must resolve, and an Apps port with no credentials must not.
+18. tests/units/{auth/test_auth,core/test_databricks_client}.py
+    `TestIsDatabricksApp` → `TestHasImplicitCredentials`. The OAuth-header test no
+    longer sets `DATABRICKS_APP_PORT`, pinning the container case directly.
+19. tests/units/core/test_sql_warehouse.py
+    `test_missing_auth_app_mode_returns_false` → `test_no_credentials_at_all_returns_config_message`.
+    The old test documented behaviour where "app mode" *masked* an available PAT;
+    credentials are now judged on their own merits.
+20. tests/units/{core/test_helpers,auth/test_permission_middleware,api/test_domain_current_user_endpoint,settings/test_lakebase_provision,dtwin/test_triplestore_factory}.py,
+    tests/conftest.py, tests/units/core/test_uc_file_service.py
+    31 patch targets repointed to whichever predicate each test actually meant.
+21. src/shared/fastapi/health.py
+    Credential guidance lists all three mechanisms; "App mode OAuth" →
+    "Service-principal OAuth".
+
+Modified files:
+- src/shared/config/RuntimeEnv.py (new)
+- src/shared/config/TraversalLimits.py (new)
+- src/back/core/databricks/DatabricksConnector.py (new)
+- src/back/core/databricks/DatabricksAuth.py
+- src/back/core/databricks/DatabricksClient.py
+- src/back/core/databricks/SQLWarehouse.py
+- src/back/core/databricks/__init__.py
+- src/back/core/databricks/uc/UnityCatalog.py
+- src/back/core/graphdb/GraphDBFactory.py
+- src/back/core/graphdb/delta/DeltaBase.py
+- src/back/core/graphdb/neo4j/Neo4jConnection.py
+- src/back/core/helpers/DatabricksHelpers.py
+- src/back/core/helpers/__init__.py
+- src/back/core/logging/LogManager.py
+- src/back/objects/digitaltwin/DigitalTwin.py
+- src/back/objects/domain/SettingsService.py
+- src/back/objects/registry/scheduler.py
+- src/api/routers/internal/domain.py
+- src/api/routers/internal/dtwin.py
+- src/front/fastapi/dependencies.py
+- src/mcp-server/server/app.py
+- src/shared/config/settings.py
+- src/shared/fastapi/csrf.py
+- src/shared/fastapi/health.py
+- src/shared/fastapi/main.py
+- tests/units/core/test_runtime_env.py (new)
+- tests/units/auth/test_databricks_connector.py (new)
+- tests/conftest.py
+- tests/units/api/test_domain_current_user_endpoint.py
+- tests/units/auth/test_auth.py
+- tests/units/auth/test_permission_middleware.py
+- tests/units/core/test_databricks_client.py
+- tests/units/core/test_helpers.py
+- tests/units/core/test_sql_warehouse.py
+- tests/units/core/test_uc_file_service.py
+- tests/units/dtwin/test_triplestore_factory.py
+- tests/units/settings/test_lakebase_provision.py
+- changelogs/v0.7.1/solidk1_2026-09-01.log
+
+Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integration"
+-p no:randomly` → **4824 passed, 11 skipped, 283 deselected in 28.58s**.
+ruff clean on all new files; no new violations in modified files (1 before, 1 after).
+mypy clean on new files. black clean.
+
+Three health tests were deselected — `test_routes.py::TestHealthRoutes::test_health_check`
+and `test_health.py::TestRunReadinessChecks::{test_shape,test_overall_status_is_worst}`.
+They call the readiness path unmocked, which builds a real `DatabricksClient` against
+the `conftest.py` host and blocks indefinitely on a machine with no route to a
+workspace. **Verified pre-existing**: they hang identically on HEAD with these changes
+stashed. Not addressed here (out of P1 scope); the fix is either mocking the client in
+those tests or blocking sockets suite-wide.
+
+e2e (Playwright) not run — needs a live server and browsers.
+`db`-marked tests need Docker, which is absent on this machine; P0/P2 of the spec
+require it.

@@ -30,7 +30,9 @@ from back.core.w3c.shacl.constants import (
     SWRL_ID_PREFIX,
     rule_check_id,
 )
-from back.core.databricks import is_databricks_app
+from back.core.databricks import has_implicit_credentials
+from shared.config.RuntimeEnv import RuntimeEnv
+from shared.config.TraversalLimits import TraversalLimits
 from back.core.graphdb import get_graphdb
 from back.core.graph_analysis import (
     MODE_JOB,
@@ -296,9 +298,9 @@ async def start_triplestore_sync(
         )
 
     host, token, warehouse_id = get_triplestore_sql_credentials(domain, settings)
-    if not host and not is_databricks_app():
+    if not host and not has_implicit_credentials():
         raise ValidationError("Databricks not configured")
-    if not token and not is_databricks_app():
+    if not token and not has_implicit_credentials():
         raise ValidationError("Databricks not configured")
     if not warehouse_id:
         raise ValidationError("No SQL warehouse configured")
@@ -739,8 +741,7 @@ async def interpret_graph_metrics(
             )
 
         # Build loopback base URL so the agent can call get_entity_details
-        app_port = os.environ.get("DATABRICKS_APP_PORT") or os.environ.get("PORT") or "8000"
-        base_url = f"http://localhost:{app_port}"
+        base_url = RuntimeEnv.self_base_url()
         session_cookies = dict(request.cookies or {})
         session_headers = {
             k: v
@@ -1118,13 +1119,12 @@ async def filter_triplestore(
             if not selected_uris:
                 raise ValidationError("No entities selected for expansion.")
             include_rels = data.get("include_rels", True)
-            max_depth_cap = 3 if is_databricks_app() else 5
-            depth = min(int(data.get("depth", 3)), max_depth_cap)
+            limits = TraversalLimits.resolve()
+            depth = min(int(data.get("depth", 3)), limits.max_depth)
             client_max = int(data.get("max_entities", 5000))
-            server_entity_cap = 3_000 if is_databricks_app() else 50_000
-            max_entities = max(100, min(client_max, server_entity_cap))
-            batch_size = 250 if is_databricks_app() else 1000
-            max_fetch_seconds = 40.0 if is_databricks_app() else 120.0
+            max_entities = max(100, min(client_max, limits.entity_cap))
+            batch_size = limits.batch_size
+            max_fetch_seconds = limits.fetch_timeout_s
             payload = await run_blocking(
                 DigitalTwin.filter_expand,
                 store, query_table, selected_uris,
@@ -1348,9 +1348,9 @@ async def start_databricks_triplestore_build(
         )
 
     host, token, warehouse_id = get_triplestore_sql_credentials(domain, settings)
-    if not host and not is_databricks_app():
+    if not host and not has_implicit_credentials():
         raise ValidationError("Databricks not configured")
-    if not token and not is_databricks_app():
+    if not token and not has_implicit_credentials():
         raise ValidationError("Databricks not configured")
     if not warehouse_id:
         raise ValidationError("No SQL warehouse configured")
@@ -2262,10 +2262,8 @@ async def dtwin_assistant_chat(
 
     # Build the loopback base URL used by the agent's HTTPX client to
     # reach the external /api/v1/... and internal /dtwin/... routes
-    # running in this same FastAPI process.  On Databricks Apps the port
-    # is exposed as DATABRICKS_APP_PORT; locally it defaults to 8000.
-    app_port = os.environ.get("DATABRICKS_APP_PORT") or os.environ.get("PORT") or "8000"
-    base_url = f"http://localhost:{app_port}"
+    # running in this same FastAPI process.
+    base_url = RuntimeEnv.self_base_url()
 
     # Forward the caller's session cookies so the loopback routes
     # resolve the same user session and active domain.
@@ -2405,8 +2403,7 @@ async def dtwin_assistant_chat_stream(
         "registry_volume": reg.get("volume") or "",
     }
 
-    app_port = os.environ.get("DATABRICKS_APP_PORT") or os.environ.get("PORT") or "8000"
-    base_url = f"http://localhost:{app_port}"
+    base_url = RuntimeEnv.self_base_url()
     session_cookies = dict(request.cookies or {})
 
     _FORWARDED_HEADER_PREFIXES = ("x-forwarded-", "x-real-")

@@ -110,16 +110,19 @@ def get_user_domain_role(context: dict) -> str:
 
 
 def is_app_mode() -> bool:
-    """Return True when the server runs as a Databricks App.
+    """Return True when permission-aware UI gates should render.
 
-    Mirrors :func:`back.core.databricks.is_databricks_app` so templates
-    can decide whether to render permission-aware UI gates without a
-    second API round-trip.  In local-dev mode every caller is treated
-    as admin, so the gates can simply turn into no-ops.
+    Mirrors :meth:`RuntimeEnv.auth_enabled` so templates can decide
+    without a second API round-trip. With auth disabled every caller is
+    admin, so the gates become no-ops.
+
+    The name is kept because ``base.html`` exposes it as the
+    ``data-app-mode`` attribute that ``permissions.css`` and the
+    permission JS read; renaming it is a frontend change for P4.
     """
-    from back.core.databricks import is_databricks_app as _is_app
+    from shared.config.RuntimeEnv import RuntimeEnv
 
-    return _is_app()
+    return RuntimeEnv.auth_enabled()
 
 
 # Add custom globals to Jinja2 environment

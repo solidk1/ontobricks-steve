@@ -2,8 +2,9 @@
 
 This endpoint backs the discussion pane's "Assign to me" shortcut: the
 browser asks the server who it is so the task assignee can be prefilled.
-Two identity sources exist — the Databricks Apps proxy headers (app mode)
-and the SCIM ``/Me`` lookup via the workspace client (local / PAT mode).
+Two identity sources exist — the proxy identity headers (when auth is
+enforced) and the SCIM ``/Me`` lookup via the workspace client (when it
+is not).
 These tests assert the branch selection and the response shape only;
 collaborators are mocked.
 """
@@ -24,7 +25,7 @@ def _request(headers=None):
 
 async def test_current_user_uses_app_proxy_headers():
     with (
-        patch.object(_domain, "is_databricks_app", return_value=True),
+        patch.object(_domain.RuntimeEnv, "auth_enabled", return_value=True),
         patch.object(_domain, "get_databricks_client") as gdc,
     ):
         result = await _domain.get_current_user(
@@ -42,7 +43,7 @@ async def test_current_user_app_mode_prefers_username_over_email():
         "x-forwarded-email": "alice@acme.com",
     }
     with (
-        patch.object(_domain, "is_databricks_app", return_value=True),
+        patch.object(_domain.RuntimeEnv, "auth_enabled", return_value=True),
         patch.object(_domain, "get_databricks_client"),
     ):
         result = await _domain.get_current_user(
@@ -54,7 +55,7 @@ async def test_current_user_app_mode_prefers_username_over_email():
 
 async def test_current_user_app_mode_falls_back_to_email_header():
     with (
-        patch.object(_domain, "is_databricks_app", return_value=True),
+        patch.object(_domain.RuntimeEnv, "auth_enabled", return_value=True),
         patch.object(_domain, "get_databricks_client"),
     ):
         result = await _domain.get_current_user(
@@ -69,7 +70,7 @@ async def test_current_user_local_mode_uses_workspace_client():
         get_current_user_email=lambda: "carol@acme.com"
     )
     with (
-        patch.object(_domain, "is_databricks_app", return_value=False),
+        patch.object(_domain.RuntimeEnv, "auth_enabled", return_value=False),
         patch.object(_domain, "get_domain", return_value=MagicMock()),
         patch.object(_domain, "get_databricks_client", return_value=client),
     ):
@@ -82,7 +83,7 @@ async def test_current_user_local_mode_uses_workspace_client():
 
 async def test_current_user_local_mode_without_client_returns_empty():
     with (
-        patch.object(_domain, "is_databricks_app", return_value=False),
+        patch.object(_domain.RuntimeEnv, "auth_enabled", return_value=False),
         patch.object(_domain, "get_domain", return_value=MagicMock()),
         patch.object(_domain, "get_databricks_client", return_value=None),
     ):

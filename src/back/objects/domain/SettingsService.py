@@ -16,7 +16,7 @@ from back.core.errors import (
 )
 from shared.config.constants import HTTP_USER_AGENT
 from shared.config.settings import Settings
-from back.core.databricks import is_databricks_app
+from shared.config.RuntimeEnv import RuntimeEnv
 from back.core.databricks.lakebase.grants import resolve_mcp_app_name
 from back.core.graphdb.neo4j.Neo4jStore import is_neo4j_password_from_secret
 from back.core.helpers import (
@@ -64,20 +64,32 @@ class SettingsService:
 
     @staticmethod
     def is_warehouse_locked(settings: Settings) -> bool:
-        """True when the SQL Warehouse is supplied by a Databricks App resource."""
-        return is_databricks_app() and bool(settings.sql_warehouse_id)
+        """True when the SQL Warehouse id is fixed by the deployment.
+
+        Environment config is authoritative in a container and merely a
+        default on a developer machine, so an injected value locks the UI
+        field only when containerized. Previously gated on Apps mode,
+        which conflated "deployed" with "on the Apps platform".
+        """
+        import os
+
+        return RuntimeEnv.is_containerized() and bool(
+            os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID")
+        )
 
     @staticmethod
     def is_registry_locked(settings: Settings) -> bool:
-        """True when registry params are injected by Apps (not editable via .env).
+        """True when registry params are fixed by the deployment.
 
-        Covers two binding styles:
-        - Volume backend: Apps injects REGISTRY_VOLUME_PATH.
-        - Lakebase backend: Apps injects PGHOST from the database resource.
+        Covers both binding styles: ``REGISTRY_VOLUME_PATH`` for the
+        Volume backend, ``PGHOST`` for the Postgres backend. Locked only
+        when containerized, for the reason given in
+        :meth:`is_warehouse_locked`.
         """
-        if not is_databricks_app():
-            return False
         import os
+
+        if not RuntimeEnv.is_containerized():
+            return False
         return bool(
             getattr(settings, "registry_volume_path", "")
             or os.environ.get("PGHOST", "")
@@ -143,8 +155,13 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
     ) -> None:
-        """Raise :class:`AuthorizationError` if the caller is not an admin in Databricks App mode."""
-        if not is_databricks_app():
+        """Raise :class:`AuthorizationError` unless the caller is an admin.
+
+        A no-op when authentication is disabled (local development), which
+        is why ``RuntimeEnv.auth_enabled`` must default to *on* in any
+        real deployment — see P4.
+        """
+        if not RuntimeEnv.auth_enabled():
             return
 
         _, host, token, _ = SettingsService._resolve_context(session_mgr, settings)
@@ -215,7 +232,7 @@ class SettingsService:
         if data.get("warehouse_id"):
             if SettingsService.is_warehouse_locked(settings):
                 raise ValidationError(
-                    "SQL Warehouse is configured via Databricks App resources and cannot be changed here.",
+                    "SQL Warehouse is fixed by the deployment environment and cannot be changed here.",
                 )
 
             SettingsService.require_admin_error(
@@ -314,7 +331,7 @@ class SettingsService:
         """Persist warehouse selection in session and attempt global registry update."""
         if SettingsService.is_warehouse_locked(settings):
             raise ValidationError(
-                "SQL Warehouse is configured via Databricks App resources and cannot be changed here.",
+                "SQL Warehouse is fixed by the deployment environment and cannot be changed here.",
             )
 
         if not warehouse_id:
@@ -3544,7 +3561,7 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
     ) -> Dict[str, Any]:
-        if not is_databricks_app():
+        if not RuntimeEnv.auth_enabled():
             return {
                 "email": email or "local-user",
                 "display_name": display_name or "Local User",
@@ -3627,7 +3644,7 @@ class SettingsService:
         diag: dict = {
             "email": email,
             "app_name": app_name,
-            "is_app_mode": is_databricks_app(),
+            "auth_enabled": RuntimeEnv.auth_enabled(),
             "user_token_present": bool(user_token),
             "display_name": display_name,
             "state_user_role": user_role,

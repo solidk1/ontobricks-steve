@@ -284,7 +284,10 @@ class GraphDBFactory:
         (health probes against a UC view/table).  Formerly ``backend="view"``.
         """
         try:
-            from back.core.databricks import DatabricksClient, is_databricks_app
+            from back.core.databricks import (
+                DatabricksClient,
+                has_implicit_credentials,
+            )
             from back.core.helpers import (
                 get_databricks_host_and_token,
                 resolve_delta_warehouse_id,
@@ -299,10 +302,10 @@ class GraphDBFactory:
                 host = db.get("host", "")
                 token = db.get("token", "")
                 warehouse_id = ""
-            if not host and not is_databricks_app():
+            if not host and not has_implicit_credentials():
                 logger.warning("Delta view store: missing host")
                 return None
-            if not token and not is_databricks_app():
+            if not token and not has_implicit_credentials():
                 logger.warning("Delta view store: missing token")
                 return None
             if not warehouse_id:

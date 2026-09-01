@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from back.core.logging import get_logger
+from shared.config.RuntimeEnv import RuntimeEnv
 
 logger = get_logger(__name__)
 
@@ -66,14 +67,13 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         if _CSRF_COOKIE not in request.cookies:
-            is_app = bool(os.getenv("DATABRICKS_APP_PORT"))
             response.set_cookie(
                 key=_CSRF_COOKIE,
                 value=secrets.token_hex(32),
                 path="/",
                 httponly=False,
                 samesite="lax",
-                secure=is_app,
+                secure=RuntimeEnv.secure_cookies(),
             )
 
         return response

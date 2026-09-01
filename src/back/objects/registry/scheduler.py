@@ -478,12 +478,12 @@ class BuildScheduler:
         Lakebase database and schema from the very first APScheduler
         tick.
         """
-        from back.core.databricks import is_databricks_app
+        from back.core.databricks import has_implicit_credentials
         from back.objects.registry.RegistryService import RegistryCfg
 
         host = settings.databricks_host
         token = settings.databricks_token
-        if (not host or not token) and is_databricks_app():
+        if (not host or not token) and has_implicit_credentials():
             from back.core.helpers import get_databricks_host_and_token
 
             class _Stub:

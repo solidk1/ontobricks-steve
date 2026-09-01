@@ -17,6 +17,7 @@ from starlette.responses import Response
 from contextlib import asynccontextmanager
 
 from shared.config.settings import get_settings
+from shared.config.RuntimeEnv import RuntimeEnv
 from shared.config.constants import APP_VERSION, SESSION_COOKIE_NAME
 from back.objects.session import FileSessionMiddleware, reap_expired_sessions
 from back.core.logging import setup_logging, get_logger
@@ -314,15 +315,15 @@ class PermissionMiddleware(BaseHTTPMiddleware):
       endpoints that the regular app flow needs (warehouse/registry
       config) open to non-admins.
 
-    Only active when running as a Databricks App (``DATABRICKS_APP_PORT``
-    is set).  In local-dev mode every request passes through as admin.
+    Only active when ``RuntimeEnv.auth_enabled`` is true. When it is
+    false every request passes through as admin — correct for local
+    development, catastrophic in a deployment.
 
     Sets ``request.state.user_role`` (app-level) and
     ``request.state.user_domain_role`` (effective role for the loaded domain).
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        from back.core.databricks import is_databricks_app
         from back.objects.registry import (
             ROLE_NONE,
             ROLE_VIEWER,
@@ -333,7 +334,7 @@ class PermissionMiddleware(BaseHTTPMiddleware):
         email = request.headers.get("x-forwarded-email", "")
         request.state.user_email = email
 
-        if not is_databricks_app():
+        if not RuntimeEnv.auth_enabled():
             # Local / PAT dev has no proxy identity header, so resolve the
             # developer's e-mail once via SCIM /Me. Without this, audit
             # attribution (review sign-offs, status changes) records an
@@ -609,7 +610,6 @@ def create_app() -> FastAPI:
     app.add_middleware(PermissionMiddleware)
 
     # Custom file-based session middleware
-    is_app = bool(os.getenv("DATABRICKS_APP_PORT"))
     app.add_middleware(
         FileSessionMiddleware,
         secret_key=settings.secret_key,
@@ -617,7 +617,7 @@ def create_app() -> FastAPI:
         session_cookie=SESSION_COOKIE_NAME,
         max_age=settings.session_max_age,
         same_site="lax",
-        https_only=is_app,
+        https_only=RuntimeEnv.secure_cookies(),
     )
 
     # Static files -- served from front/static/

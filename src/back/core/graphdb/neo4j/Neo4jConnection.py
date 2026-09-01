@@ -212,8 +212,10 @@ class Neo4jConnection:
 
     @staticmethod
     def _is_deployed_app() -> bool:
-        """True when running inside Databricks Apps (port var is set)."""
-        return bool(os.environ.get("DATABRICKS_APP_PORT"))
+        """True when running in a container rather than local development."""
+        from shared.config.RuntimeEnv import RuntimeEnv
+
+        return RuntimeEnv.is_containerized()
 
     def _resolve_auth(self) -> Tuple[str, str]:
         cfg = self._engine_config

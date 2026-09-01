@@ -13,7 +13,7 @@ from back.core.errors import (
     OntoBricksError,
     ValidationError,
 )
-from back.core.helpers import sql_escape as escape_sql_value, extract_local_name, is_databricks_app
+from back.core.helpers import sql_escape as escape_sql_value, extract_local_name
 from back.core.logging import get_logger
 from back.core.w3c.rdf_utils import uri_local_name
 from back.core.w3c.shacl.constants import (

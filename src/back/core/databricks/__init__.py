@@ -19,9 +19,10 @@ from back.core.databricks.DatabricksClient import DatabricksClient  # noqa: F401
 from back.core.databricks.WorkspaceService import WorkspaceService  # noqa: F401
 from back.core.databricks.DashboardService import DashboardService  # noqa: F401
 from back.core.databricks.DocumentExtractor import DocumentExtractor  # noqa: F401
+from back.core.databricks.DatabricksConnector import DatabricksConnector  # noqa: F401
 
 # Backward-compatible wrappers for previously module-level functions
-is_databricks_app = DatabricksAuth.is_databricks_app
+has_implicit_credentials = DatabricksConnector.has_implicit_credentials
 normalize_host = DatabricksAuth.normalize_host
 get_workspace_host = DatabricksAuth.get_workspace_host
 build_metadata_dict = MetadataService.build_metadata_dict
@@ -68,7 +69,8 @@ __all__ = [
     "MetadataService",
     "UCDomainIO",
     "DocumentExtractor",
-    "is_databricks_app",
+    "DatabricksConnector",
+    "has_implicit_credentials",
     "get_local_user_email",
     "normalize_host",
     "get_workspace_host",

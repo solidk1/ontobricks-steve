@@ -62,8 +62,8 @@ class DatabricksClient:
         return self.auth.warehouse_id
 
     @property
-    def is_app_mode(self) -> bool:
-        return self.auth.is_app_mode
+    def has_sp_credentials(self) -> bool:
+        return self.auth.has_sp_credentials
 
     def has_valid_auth(self) -> bool:
         return self.auth.has_valid_auth()

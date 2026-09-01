@@ -87,7 +87,7 @@ class TestGetGraphdb:
                 return_value=("", ""),
             ),
             patch("back.core.helpers.resolve_delta_warehouse_id", return_value="wh"),
-            patch("back.core.databricks.is_databricks_app", return_value=False),
+            patch("back.core.databricks.has_implicit_credentials", return_value=False),
         ):
             result = get_graphdb(
                 domain,

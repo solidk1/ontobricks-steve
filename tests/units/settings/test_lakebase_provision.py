@@ -432,7 +432,7 @@ class TestProvisionService:
         SettingsService = ss.SettingsService
 
         monkeypatch.setenv("PGUSER", "app-sp")
-        with patch.object(ss, "is_databricks_app", return_value=True), \
+        with patch.object(ss.RuntimeEnv, "auth_enabled", return_value=True), \
              patch.object(
                  SettingsService,
                  "_resolve_context",
@@ -459,7 +459,7 @@ class TestProvisionService:
 
         # Replace the provisioner with a no-op so the worker thread does
         # not touch the network.
-        with patch.object(ss, "is_databricks_app", return_value=False), \
+        with patch.object(ss.RuntimeEnv, "auth_enabled", return_value=False), \
              patch.object(
                  SettingsService,
                  "_resolve_context",

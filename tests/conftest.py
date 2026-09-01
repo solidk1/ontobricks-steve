@@ -258,7 +258,7 @@ def mock_databricks_client():
     client.host = "https://test.databricks.com"
     client.token = "test-token"
     client.warehouse_id = "test-warehouse"
-    client.is_app_mode = False
+    client.has_sp_credentials = False
     client.has_valid_auth.return_value = True
     client.test_connection.return_value = (
         True,

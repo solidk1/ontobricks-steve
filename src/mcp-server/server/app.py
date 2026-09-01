@@ -478,7 +478,10 @@ def _format_graphql_entity(lines: list[str], entity: dict, indent: int = 0) -> N
 def _base_url(mode: str) -> str:
     """Resolve the OntoBricks REST API base URL for the given mode."""
     if mode == "mounted":
-        port = os.getenv("DATABRICKS_APP_PORT", "8000")
+        # Mirrors shared.config.RuntimeEnv.port(). This package ships its own
+        # pyproject/uv.lock and so cannot import from src/shared; P7 folds it
+        # into the main app and this duplicate goes away.
+        port = os.getenv("PORT") or os.getenv("DATABRICKS_APP_PORT") or "8000"
         return f"http://localhost:{port}"
     return os.getenv("ONTOBRICKS_URL", "http://localhost:8000")
 
