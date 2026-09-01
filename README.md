@@ -103,14 +103,24 @@ not take. Open the app and click **Settings > Registry > Initialize**
 to create the Lakebase schema; re-run `make bootstrap-lakebase` once
 afterwards so the freshly created schema picks up `USAGE/DML`.
 
-> **One-click graph DB provisioning.** Admins can stand up a brand-new graph
-> store without the shell scripts: **Settings > Lakebase > Connection** has a
-> **"Create graph DB from scratch"** button that provisions the Lakebase
-> instance + database + schema and applies all grants (app + MCP service
-> principals) as an async job with live progress. It automates
-> `scripts/bootstrap/setup-lakebase.sh` + `scripts/bootstrap/lakebase-perms.sh` (which
-> remain the fallback when the app SP lacks instance-creation rights). See
-> `documentation/lakebase-graphdb.md` §3.1b.
+> **Graph DB provisioning was removed in favour of standard Postgres
+> administration.** The in-app *"Create graph DB from scratch"* flow and the
+> *Settings → Lakebase → Permissions* superuser-grant tab called Lakebase
+> control-plane APIs (instance/branch creation, `DATABRICKS_SUPERUSER`
+> membership) that have no equivalent on a generic PostgreSQL server — and
+> Azure Database for PostgreSQL grants no true superuser at all
+> (`azure_pg_admin` is deliberately not one). Create the schema and grants with
+> ordinary SQL instead:
+>
+> ```sql
+> CREATE SCHEMA ontobricks AUTHORIZATION <app_role>;
+> GRANT CONNECT ON DATABASE <existing_db> TO <app_role>;
+> GRANT USAGE, CREATE ON SCHEMA ontobricks TO <app_role>;
+> ```
+>
+> `scripts/bootstrap/setup-lakebase.sh` + `scripts/bootstrap/lakebase-perms.sh`
+> remain for existing Lakebase deployments. See
+> `.planning/databricks-decoupling/SPEC.md` §6.
 
 > **Lakebase deploy targets.** Pick a Databricks Lakebase Autoscaling
 > project + branch and a Postgres database, then set the
@@ -195,7 +205,7 @@ Engine *connection* config remains **workspace-global** and is configured under 
 > | Schema | When to run | Who runs it |
 > |---|---|---|
 > | Registry schema (e.g. `ontobricks_registry`) | After `Settings → Registry → Initialize` | `scripts/deploy.sh` automatically on every `dev-lakebase` deploy (coords: `LAKEBASE_PROJECT` / `LAKEBASE_BRANCH` / `LAKEBASE_REGISTRY_DATABASE` / `LAKEBASE_REGISTRY_SCHEMA`) |
-> | Graph schema (e.g. `ontobricks_graph`) | After first Knowledge Graph `Build` | The in-app "Create graph DB" flow, or a manual `bootstrap-lakebase-perms.sh` run |
+> | Graph schema (e.g. `ontobricks_graph`) | After first Knowledge Graph `Build` | A manual `bootstrap-lakebase-perms.sh` run, or plain `GRANT` statements (see above) |
 >
 > The deploy script is **registry-scoped** — it only grants on the registry schema. The graph DB connection is configured in-app (`Settings → Back end`) and may live in a **different** Lakebase project, so its grant is handled separately.
 

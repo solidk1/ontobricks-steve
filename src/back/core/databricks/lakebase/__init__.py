@@ -27,6 +27,12 @@ from back.core.databricks.lakebase.LakebaseConnectionPool import (  # noqa: F401
 from back.core.databricks.lakebase.psycopg_gate import require_psycopg  # noqa: F401
 
 __all__ = [
+    # grants
+    "resolve_app_service_principals",
+    "resolve_mcp_app_name",
+    "grant_can_use_on_project",
+    "grant_schema_privileges",
+    "grant_uc_catalog",
     # connection
     "LakebaseConnectionError",
     "LakebaseConnectionPool",
@@ -37,10 +43,4 @@ __all__ = [
     "LakebaseAuth",
     "BranchLakebaseAuth",
     "get_lakebase_auth",
-    # grants
-    "resolve_app_service_principals",
-    "resolve_mcp_app_name",
-    "grant_can_use_on_project",
-    "grant_schema_privileges",
-    "grant_uc_catalog",
 ]

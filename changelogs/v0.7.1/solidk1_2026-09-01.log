@@ -246,3 +246,75 @@ ruff + black clean on all changed files.
 
 Still deselected: the three pre-existing network-dependent health tests (verified to hang
 identically on HEAD — see the P1 entry above). e2e not run.
+
+## P5a — remove the Lakebase graph-DB provisioner and superuser-grant flow
+
+Context: Third increment of `.planning/databricks-decoupling/SPEC.md`. **Neo4j is now
+kept** — the earlier plan to delete it is reversed, so `SecretsService.py` survives too
+(it exists solely to back the Neo4j "Databricks secret" auth flow at
+Settings → Back end → Neo4j). What P5 removes instead is the Lakebase-only control-plane
+machinery: instance/branch/database creation and `DATABRICKS_SUPERUSER` grants. Neither
+has any equivalent on a generic PostgreSQL server, and Azure Database for PostgreSQL
+grants no true superuser at all — `azure_pg_admin` is deliberately not one, verified on
+the provisioned server (`rolsuper = f`).
+
+Removing this first also shrinks P2: `BranchLakebaseAuth` (projects/branches/endpoints)
+had far more consumers than the spec assumed, and the provisioner was one of the largest.
+
+Changes:
+
+1. src/back/core/graphdb/lakebase/provisioner.py — deleted (906 LOC)
+   `LakebaseGraphProvisioner`: created Lakebase instances, branches and databases through
+   the Postgres control-plane API and granted `DATABRICKS_SUPERUSER` to workspace admins.
+2. src/back/objects/domain/SettingsService.py — 282 lines removed
+   `graph_engine_lakebase_provision_result`, `graph_engine_lakebase_pg_roles_result`,
+   `graph_engine_lakebase_grant_superuser_result`.
+3. src/api/routers/internal/settings.py — 60 lines removed
+   Routes `/graph-engine/lakebase-provision`, `/graph-engine/lakebase-pg-roles`,
+   `/graph-engine/lakebase-grant-superuser`.
+4. src/front/static/config/js/settings.js — 358 lines removed
+   The provisioning flow (progress modal, task resumption via `sessionStorage`, live name
+   normalisation) and the whole Permissions-tab superuser UI. Verified with
+   `node --check` and balanced brace counts; no residual references.
+5. src/front/templates/settings.html — 147 lines removed
+   "Create graph DB" launch button, the Permissions tab nav item and pane, and the
+   provisioning modal. `<div>` (176/176) and `<li>` (11/11) balanced afterwards, and the
+   template still parses as Jinja.
+6. tests/units/settings/test_lakebase_provision.py — deleted (478 LOC)
+7. README.md
+   Replaced the "One-click graph DB provisioning" callout with the plain-SQL equivalent
+   (`CREATE SCHEMA … AUTHORIZATION`, `GRANT USAGE, CREATE`), and explained why the flow
+   went: it needed a superuser that Azure does not provide.
+8. src/back/core/databricks/lakebase/grants.py — kept, docstring corrected
+   **Mistake caught during verification:** I deleted this file, having concluded from an
+   earlier grep that the provisioner was its only consumer. That grep was piped through
+   `head` and truncated. `grants.py` is in fact used by
+   `LakebaseRegistryStore.grant_app_permissions` (four functions) and by
+   `SettingsService` via `resolve_mcp_app_name`. Restored, re-exported, and its docstring
+   updated to drop the reference to the now-deleted provisioner. The dangling-reference
+   check is what surfaced this.
+
+Modified files:
+- src/back/core/graphdb/lakebase/provisioner.py (deleted)
+- tests/units/settings/test_lakebase_provision.py (deleted)
+- src/back/objects/domain/SettingsService.py
+- src/api/routers/internal/settings.py
+- src/back/core/databricks/lakebase/__init__.py
+- src/back/core/databricks/lakebase/grants.py
+- src/front/static/config/js/settings.js
+- src/front/templates/settings.html
+- README.md
+- .planning/databricks-decoupling/SPEC.md
+- changelogs/v0.7.1/solidk1_2026-09-01.log
+
+Net: **51 insertions, 2257 deletions** across 10 files.
+
+Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integration"
+-p no:randomly` → **4812 passed, 18 skipped, 283 deselected in 23.29s** (12 fewer than
+the previous run — `test_lakebase_provision.py` is gone). No failures.
+
+Note on formatting: running `black` over `SettingsService.py` and `settings.py`
+reformatted ~125 lines unrelated to this change, because neither file was actually
+black-clean at the configured line length. That reformatting was reverted so the diff is
+pure deletion (0 insertions in both files) and stays reviewable. Whether to black-format
+those files is a separate decision.

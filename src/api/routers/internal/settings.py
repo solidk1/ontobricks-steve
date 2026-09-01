@@ -1221,66 +1221,6 @@ async def post_graph_engine_lakebase_drop_object(
         )
 
 
-@router.get(
-    "/graph-engine/lakebase-pg-roles",
-    dependencies=[Depends(require(ROLE_ADMIN))],
-)
-async def get_graph_engine_lakebase_pg_roles(
-    session_mgr: SessionManager = Depends(get_session_manager),
-    settings: Settings = Depends(get_settings),
-):
-    """List Postgres roles on the graph Lakebase branch + overlay app-user status (admin only)."""
-    with map_route_errors("graph engine Lakebase pg roles", logger):
-        return config_service.graph_engine_lakebase_pg_roles_result(session_mgr, settings)
-
-
-@router.post(
-    "/graph-engine/lakebase-grant-superuser",
-    dependencies=[Depends(require(ROLE_ADMIN))],
-)
-async def post_graph_engine_lakebase_grant_superuser(
-    request: Request,
-    session_mgr: SessionManager = Depends(get_session_manager),
-    settings: Settings = Depends(get_settings),
-):
-    """Grant DATABRICKS_SUPERUSER to a user on the graph Lakebase branch (admin only).
-
-    Body: ``{ "user_email": "user@example.com" }``
-    """
-    with map_route_errors("graph engine Lakebase grant superuser", logger):
-        data = await request.json()
-        user_email = (data.get("user_email") or "").strip()
-        return config_service.graph_engine_lakebase_grant_superuser_result(
-            user_email, session_mgr, settings
-        )
-
-
-@router.post(
-    "/graph-engine/lakebase-provision",
-    dependencies=[Depends(require(ROLE_ADMIN))],
-)
-async def post_graph_engine_lakebase_provision(
-    request: Request,
-    session_mgr: SessionManager = Depends(get_session_manager),
-    settings: Settings = Depends(get_settings),
-):
-    """Provision a new Lakebase graph DB from scratch (admin only, async).
-
-    Creates the Lakebase instance/project + Postgres database + graph schema
-    and grants the app + MCP service principals. Returns a ``task_id`` the UI
-    polls via ``GET /tasks/{id}``.
-
-    Body: ``{ name, capacity, branch, database, schema, mcp_app_name,
-    grant_uc_catalog }``.
-    """
-    data = await request.json()
-    email, _dn, user_token, _ur, _udr = _settings_request_identity(request)
-    with map_route_errors("provision Lakebase graph DB", logger):
-        return config_service.graph_engine_lakebase_provision_result(
-            data, email, user_token, session_mgr, settings
-        )
-
-
 @router.post("/graph-engine-config")
 async def set_graph_engine_config(
     request: Request,

@@ -35,7 +35,7 @@ Delta triple-store engine, UC Volume attachments, Lakeview dashboards,
 | Identity | Built-in OIDC (authorization-code + PKCE) against a Databricks custom OAuth app integration |
 | Background auth | Service-principal client credentials (`DATABRICKS_CLIENT_ID` / `_SECRET`); no workload identity federation |
 | Interactive queries | Run as the logged-in user's token → per-user UC enforcement |
-| Engines | Postgres + Delta. Neo4j deleted |
+| Engines | Postgres + Delta + **Neo4j** — all three retained (revised 2026-09-01; Neo4j was to be deleted) |
 | Registry | **Azure Database for PostgreSQL — Flexible Server**, PG ≥ 14 |
 | App-level roles | New `app_roles` table + `ONTOBRICKS_BOOTSTRAP_ADMIN` |
 | Auth default | `ONTOBRICKS_AUTH_ENABLED` defaults **on** (fail closed) |
@@ -308,11 +308,21 @@ correction. The residue-free invariant is demonstrated, not assumed.
 
 **Deleted** (~4–5k LOC):
 
-- `back/core/graphdb/neo4j/` (24 src files, 23 test files) and its Settings UI
 - `back/core/graphdb/lakebase/SyncedTableManager.py` (1104 LOC, Lakeflow managed-synced)
 - `back/core/graphdb/lakebase/provisioner.py` (906 LOC) and `_sync_uc_schema.py`
-- `back/core/databricks/lakebase/` (whole package)
-- `back/core/databricks/SecretsService.py` (existed for Neo4j)
+- `back/core/databricks/lakebase/LakebaseAuth.py` + `LakebaseConnectionPool.py`
+  (replaced in P2 by `back/core/postgres/`)
+
+**Retained**, contrary to the original plan:
+
+- `back/core/graphdb/neo4j/` — the Neo4j engine stays. Its removal would have
+  touched ~60 files (not the 24+23 first estimated): `DigitalTwin`,
+  `_build_pipeline`, `Domain`, `DomainSession`, `GlobalConfigService`, the SWRL
+  Cypher translator, the Help Center and `menu_config.json`.
+- `back/core/databricks/SecretsService.py` — it exists to back the Neo4j
+  "Databricks secret" auth flow (Settings → Back end → Neo4j), so it survives
+  with Neo4j. Connector-gated: without the Databricks connector, Neo4j
+  credentials come from the environment instead.
 - `app.yaml.template`, `src/mcp-server/app.yaml*`, `databricks.yml`
 - `scripts/deploy.sh`, `scripts/deploy.config.sh`, `scripts/update-deployed-app.sh`,
   `scripts/bootstrap/lakebase-perms.sh`, `scripts/bootstrap/setup-lakebase.sh`,
@@ -402,14 +412,15 @@ until P7.
 | P2 | `PostgresConnectionPool` + Entra `password_provider`; session `search_path` without `public`; drop pgcrypto; PG 14 floor; co-tenancy invariant test; reword the superuser remediation | The actual Lakebase removal |
 | P3 | Rename `lakebase` → `postgres` with `AliasChoices` back-compat | Mechanical; own commit so review is trivial |
 | P4 | OIDC login, `IdentitySession`, remove 25 header reads, `app_roles` + `AppRoleService` + admin screen | Depends on P1's auth predicate |
-| P5 | Delete Neo4j, `SyncedTableManager`, `provisioner`, `_sync_uc_schema`, `SecretsService` and their Settings UI | Pure subtraction |
+| P5 | Delete `SyncedTableManager`, `provisioner`, `_sync_uc_schema`, `grants.py` and the Settings UI driving them. Neo4j and `SecretsService` are **kept** | Pure subtraction; shrinks P2's surface |
 | P6 | `engine_base.py` base-URL LLM client + Databricks preset | Independent, small |
 | P7 | `src/mcp_server` rename + `/mcp` mount; Dockerfile; compose; Makefile; delete `app.yaml.template`, `databricks.yml`, `scripts/deploy*`; rewrite README and docs | Last, because it removes the reference deploy |
 
 ## 11. Testing strategy
 
-Deleted: `tests/units/auth/test_lakebase_auth.py`, ~23 Neo4j test files, and any
-test asserting Apps-mode behaviour or header-based identity.
+Deleted: `tests/units/auth/test_lakebase_auth.py` and any test asserting
+Apps-mode behaviour, header-based identity, Lakeflow managed-synced mode, or
+Lakebase provisioning. Neo4j tests are retained.
 
 Added:
 

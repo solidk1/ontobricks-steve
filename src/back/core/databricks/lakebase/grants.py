@@ -1,13 +1,17 @@
 """Reusable Lakebase grant primitives.
 
 In-app equivalents of the ``GRANT`` statements in
-``scripts/bootstrap-lakebase-perms.sh``. Two call sites share them so the
-grant logic lives in exactly one place:
+``scripts/bootstrap-lakebase-perms.sh``, used by:
 
-- :class:`~back.core.graphdb.lakebase.provisioner.LakebaseGraphProvisioner`
-  — the *Create graph DB* flow (graph schema).
 - :meth:`~back.objects.registry.store.lakebase.store.LakebaseRegistryStore.grant_app_permissions`
   — the *Initialize* / *Repair permissions* flow (registry schema).
+- :func:`resolve_mcp_app_name`, consumed by ``SettingsService`` for MCP
+  companion-app name derivation (unrelated to grants, but it lives here
+  because it resolves the same app-name inputs).
+
+The *Create graph DB* provisioner that was the other caller is gone; these
+control-plane grants are Lakebase-specific and are reworked for Azure in P2
+(see ``.planning/databricks-decoupling/SPEC.md``).
 
 Permission model (identical to the bash script):
 
