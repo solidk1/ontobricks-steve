@@ -201,10 +201,28 @@ Consequences:
   `azure.extensions` allowlist, so enabling pgcrypto is an instance-wide change
   affecting every co-tenant — and it outlives the schema drop. Both functions it
   provided are in core Postgres:
-  - `digest(object,'sha256')` in the `object_hash` generated column becomes
-    `sha256(convert_to(coalesce(object,''),'UTF8'))` — `sha256()` is core since
-    PG 11.
   - `gen_random_uuid()` is core since PG 13.
+  - `sha256()` is core since PG 11 — but it **cannot be used directly** in the
+    `object_hash` generated column. `convert_to()` is marked `STABLE`, and
+    PostgreSQL requires generation expressions to be `IMMUTABLE`, so
+    `sha256(convert_to(coalesce(object,''),'UTF8'))` is rejected with
+    *"generation expression is not immutable"* (verified — see §6.1).
+
+    The fix is a one-line `IMMUTABLE` wrapper **inside our own schema**, so it
+    drops with the schema and keeps the invariant:
+
+    ```sql
+    CREATE OR REPLACE FUNCTION <schema>.sha256_utf8(t TEXT) RETURNS BYTEA
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+      AS $$ SELECT sha256(convert_to(t, 'UTF8')) $$;
+
+    object_hash BYTEA GENERATED ALWAYS AS
+      (<schema>.sha256_utf8(coalesce(object,''))) STORED
+    ```
+
+    Marking it `IMMUTABLE` is sound: a given text value's UTF-8 byte encoding is
+    deterministic. `convert_to`'s `STABLE` marking is conservative because it
+    reads `server_encoding`, which is fixed for the life of a database.
   Therefore **PG 14 floor** (13 is EOL) and zero extensions.
 - **`search_path` names our schema only.** Today every pooled connection runs
   `SET search_path TO "<schema>", public`. As a privileged role that is a
@@ -261,6 +279,30 @@ per-session `SET` and cross-transaction temp tables, and Azure ships
 `prepare_threshold=5`. Moving to 6432 therefore needs `SET LOCAL search_path`
 per transaction and `prepare_threshold=None`. The COPY staging path already
 scopes each batch to its own transaction, so that part is already compatible.
+
+### 6.1 P0 verification (done, 2026-09-01)
+
+Verified against a real target rather than reasoned about — this is why P0 gates
+the design.
+
+**Target:** `pg-sshao-ontobricks.postgres.database.azure.com`, PostgreSQL
+**16.15**, `Standard_B1ms`, westus2, resource group `rg-sshao-ontobricks`,
+subscription `azure-sandbox-field-eng`, Entra + password auth both enabled,
+firewall limited to the dev host. Tagged `RemoveAfter=2026-10-01`. Server
+encoding `UTF8`; `pgcrypto` absent.
+
+| Check | Result |
+|---|---|
+| `pg_proc.provolatile` for `sha256` | `i` (immutable) — usable in a generated column |
+| `pg_proc.provolatile` for `convert_to` | **`s` (stable)** — *not* usable in a generated column |
+| Generated column using `sha256(convert_to(…))` | **rejected**: "generation expression is not immutable" |
+| Generated column via `IMMUTABLE` wrapper in-schema | accepted, together with the composite PK on `object_hash` |
+| Hash correctness | `p0test.sha256_utf8('café — ünïcode ✓')` equals `shasum -a 256` of the same UTF-8 bytes, byte for byte |
+| `gen_random_uuid()` with no `pgcrypto` | works |
+| `DROP SCHEMA … CASCADE` residue | schema, table **and function** gone; `public` still empty; no extensions beyond built-in `plpgsql` |
+
+**Verdict:** the no-extensions design holds, with the wrapper-function
+correction. The residue-free invariant is demonstrated, not assumed.
 
 ## 7. Removals and rename
 
@@ -355,7 +397,7 @@ until P7.
 
 | Phase | Work | Rationale |
 |---|---|---|
-| P0 | Verify on a real PG 14 that `sha256(convert_to(…))` equals `digest(…,'sha256')`, that `gen_random_uuid()` resolves without pgcrypto, and that the generated-column expression is accepted | Gates the no-extensions design |
+| ~~P0~~ | **Done** (§6.1). Found that `convert_to` is `STABLE`, so the generated column needs an `IMMUTABLE` in-schema wrapper; everything else confirmed on PG 16.15 | Gated the no-extensions design |
 | P1 | `RuntimeEnv` split: 37 `is_databricks_app()` + 17 `DATABRICKS_APP_PORT` sites → `PORT` / `ONTOBRICKS_AUTH_ENABLED` / `DatabricksConnector.is_configured()`. No behaviour change on Apps | Riskiest and least visible; do it while old behaviour is still runnable as a reference |
 | P2 | `PostgresConnectionPool` + Entra `password_provider`; session `search_path` without `public`; drop pgcrypto; PG 14 floor; co-tenancy invariant test; reword the superuser remediation | The actual Lakebase removal |
 | P3 | Rename `lakebase` → `postgres` with `AliasChoices` back-compat | Mechanical; own commit so review is trivial |
@@ -404,9 +446,11 @@ Routine command stays `uv run --frozen pytest -q -m "not scenario"`. `db`- and
 4. **The 1134-site rename** can break string-keyed config silently. Mitigation:
    separate mechanical commit, `AliasChoices`, and a normalizer accepting the old
    `graph_backend` value.
-5. **No local Postgres and no Docker on this dev machine**, so `db`- and
-   `e2e`-marked tests cannot be verified. P0 and P2 need either Docker or a
-   reachable Flexible Server (with a firewall rule for this host).
+5. **`db`-marked tests now have a real target** (§6.1), so P2 is verifiable.
+   Docker is still absent, so `testcontainers`-based tests must either be
+   repointed at `ONTOBRICKS_TEST_DSN` or skipped; CI needs its own instance or
+   Docker. `e2e` (Playwright) remains unrun — it needs a live server and
+   browsers.
 6. **`sslmode=verify-full` needs the Azure root CA** in the image. Defaulting to
    `require` is weaker than it should be, so the Dockerfile carries the cert and
    the docs recommend `verify-full`.
