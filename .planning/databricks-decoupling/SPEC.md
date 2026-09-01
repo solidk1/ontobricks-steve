@@ -36,13 +36,16 @@ Delta triple-store engine, UC Volume attachments, Lakeview dashboards,
 | Background auth | Service-principal client credentials (`DATABRICKS_CLIENT_ID` / `_SECRET`); no workload identity federation |
 | Interactive queries | Run as the logged-in user's token → per-user UC enforcement |
 | Engines | Postgres + Delta. Neo4j deleted |
-| Registry | Any PostgreSQL ≥ 14 |
+| Registry | **Azure Database for PostgreSQL — Flexible Server**, PG ≥ 14 |
 | App-level roles | New `app_roles` table + `ONTOBRICKS_BOOTSTRAP_ADMIN` |
 | Auth default | `ONTOBRICKS_AUTH_ENABLED` defaults **on** (fail closed) |
 | Attachments | UC Volume, unchanged |
 | LLM | OpenAI-compatible base URL; Databricks FMAPI as a preset |
+| Postgres auth | Microsoft Entra ID via `DefaultAzureCredential`: token-as-password, minted per physical connection |
+| Postgres connection | Direct port 5432 (no PgBouncer) |
 | Artifact | One container image, MCP mounted at `/mcp`, compose for local dev |
 | Postgres install | One new schema in an existing database, no extensions, residue-free uninstall |
+| Container host | Azure Container Apps, pinned to a single replica |
 
 ### 2.1 Connector-gated capabilities kept as-is
 
@@ -112,13 +115,25 @@ roughly 120 LOC over `psycopg_pool`. Deleted: Databricks-API endpoint discovery,
 JWT minting, pre-expiry refresh.
 
 - Config: `DATABASE_URL`, or discrete `PGHOST` / `PGPORT` / `PGDATABASE` /
-  `PGUSER` / `PGPASSWORD` / `PGSSLMODE`.
-- `search_path` is set through the conninfo (`options=-csearch_path=<schema>`),
-  not a per-checkout `SET` — one fewer round trip and PgBouncer-safe.
-- Retains one idea from `LakebaseAuth`: an optional `password_provider`
-  callable, so IAM-auth Postgres (RDS IAM, Cloud SQL) — or Lakebase itself —
-  can return later as a plug-in.
-- Pool bounds default to min 1 / max 8, both configurable (§6).
+  `PGUSER` / `PGSSLMODE`. No `PGPASSWORD` on the Azure path — see below.
+- **`password_provider` is required, not optional.** Entra ID authenticates by
+  presenting an access token *as the password*; tokens live 5–60 minutes and
+  cannot be refreshed inside an open session, so a fresh token must be minted for
+  every new **physical** connection. `psycopg_pool` supports this via a
+  connection-creation hook. This is the one idea carried over from
+  `LakebaseAuth`, and Azure turns it from a convenience into a requirement.
+- Token acquisition uses `DefaultAzureCredential` (`azure-identity`), scope
+  `https://ossrdbms-aad.database.windows.net/.default`. One call resolves both
+  the Container Apps **managed identity** in a deployment and the developer's
+  `az login` session locally, so there is a single code path and no password
+  fallback. `PGUSER` is the Entra principal name, mapped once with
+  `pgaadauth_create_principal`.
+- `search_path` stays a session-level `SET` on each new connection, which is
+  correct on a direct 5432 connection — see §6 for why it must *not* move into
+  the conninfo.
+- Pool bounds default to min 1 / max 8, both configurable. Azure caps
+  `max_connections` by SKU (a B1ms allows roughly 35) and co-tenants share that
+  budget, so the default does not assume the server is ours.
 
 ### 5.2 `IdentitySession`
 
@@ -181,9 +196,11 @@ nothing outside it**. The testable invariant:
 
 Consequences:
 
-- **No database-scoped objects, so no `pgcrypto`.** Not a privilege limit — an
-  extension is database-scoped, outlives the schema drop, and is shared with
-  co-tenants. Both functions it provided are in core Postgres:
+- **No database-scoped objects, so no `pgcrypto`.** On Azure this is stronger
+  than a preference: `CREATE EXTENSION` is gated behind the **server-level**
+  `azure.extensions` allowlist, so enabling pgcrypto is an instance-wide change
+  affecting every co-tenant — and it outlives the schema drop. Both functions it
+  provided are in core Postgres:
   - `digest(object,'sha256')` in the `object_hash` generated column becomes
     `sha256(convert_to(coalesce(object,''),'UTF8'))` — `sha256()` is core since
     PG 11.
@@ -192,9 +209,23 @@ Consequences:
 - **`search_path` names our schema only.** Today every pooled connection runs
   `SET search_path TO "<schema>", public`. As a privileged role that is a
   foot-gun aimed at a neighbour: unqualified DDL can land in `public`, and a
-  shadowing object there can resolve ahead of ours. Use
-  `options=-csearch_path=<schema>`, no `public`, and fully-qualified identifiers
-  in DDL where practical.
+  shadowing object there can resolve ahead of ours. Keep the session-level `SET`
+  (correct on a direct 5432 connection), drop `, public`, and prefer
+  fully-qualified identifiers in DDL.
+
+  **Do not** move this into the conninfo as `options=-csearch_path=…`. Azure's
+  built-in PgBouncer may reject the `options` startup packet, and the usual
+  remedy (`pgbouncer.ignore_startup_parameters`) makes it *ignore* the parameter
+  — `search_path` would then be silently unset, and since generated SQL relies
+  on it (`GraphDBBackend.py:135`) unqualified DDL could resolve into a
+  co-tenant's schema. That is exactly the hazard this contract exists to prevent.
+- **Nothing may require superuser.** `azure_pg_admin` is deliberately not a true
+  superuser on Flexible Server. This design needs none, but
+  `LakebaseFlatStore.py:571` tells the user to "connect to Lakebase with a
+  superuser" — unreachable advice on Azure. P2 rewords it to name the schema
+  owner.
+- **TLS is mandatory.** Azure requires SSL: `sslmode=require` at minimum,
+  `verify-full` with the Azure root CA shipped in the image.
 - **Nothing instance- or database-wide.** No `CREATE DATABASE`, `ALTER SYSTEM`,
   `ALTER DATABASE … SET`, or role creation. Temp tables are fine — session temp
   schema, gone with the connection.
@@ -222,10 +253,14 @@ GRANT USAGE, CREATE ON SCHEMA ontobricks TO ontobricks_app;
 `CREATE` on the schema is required: graph tables are created per domain-version
 at build time, so runtime DDL is inherent to the design.
 
-**PgBouncer.** Transaction-mode pooling breaks per-session `SET` and
-cross-transaction temp tables. `options=-c` handles the first; the COPY staging
-path already scopes each batch to its own transaction, which handles the second.
-A test pins both, because either is easy to regress silently.
+**PgBouncer is out of scope** (direct 5432 only), but the reasons are recorded
+because Azure's built-in pooler is one server parameter away and someone will
+reach for it when connection counts bite. Transaction-mode pooling breaks
+per-session `SET` and cross-transaction temp tables, and Azure ships
+`pgbouncer.max_prepared_statements=0` while psycopg3 defaults
+`prepare_threshold=5`. Moving to 6432 therefore needs `SET LOCAL search_path`
+per transaction and `prepare_threshold=None`. The COPY staging path already
+scopes each batch to its own transaction, so that part is already compatible.
 
 ## 7. Removals and rename
 
@@ -272,14 +307,33 @@ A test pins both, because either is easy to regress silently.
   `shared/fastapi/main.py`.
 - `docker-compose.yml` (app + postgres) for local dev only; real deployments
   point at an existing instance.
-- Secrets by env or pydantic-settings `secrets_dir` (already supported).
+- Secrets by env or pydantic-settings `secrets_dir` (already supported). On the
+  Azure path there is no DB secret at all — the managed identity supplies it.
+
+**Single replica is a hard constraint, and Container Apps' defaults violate
+it.** APScheduler runs in-process and sessions live on local disk, so the
+container app must pin `minReplicas: 1, maxReplicas: 1`:
+
+- `maxReplicas > 1` duplicates every scheduled build and splits sessions across
+  replicas.
+- `minReplicas: 0` (scale-to-zero, which Container Apps allows) stops the
+  scheduler, so scheduled builds silently never run.
+
+Session state is ephemeral, so a revision restart signs users out; with OIDC that
+costs one redirect. Lifting the constraint needs advisory-lock leader election
+plus a shared session store — deferred (§13).
 
 ## 9. Configuration surface
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `8000` | HTTP listen port |
-| `DATABASE_URL` | — | Postgres conninfo; or use discrete `PG*` vars |
+| `DATABASE_URL` | — | Postgres conninfo; or the discrete `PG*` vars |
+| `PGHOST` | — | `<server>.postgres.database.azure.com` |
+| `PGUSER` | — | Entra principal name (see `pgaadauth_create_principal`) |
+| `PGSSLMODE` | `require` | Azure mandates TLS; prefer `verify-full` |
+| `ONTOBRICKS_PG_AUTH` | `entra` | `entra` (token-as-password) or `password` |
+| `AZURE_CLIENT_ID` | — | Only for a *user-assigned* managed identity |
 | `ONTOBRICKS_PG_SCHEMA` | `ontobricks` | Schema holding registry + graph tables |
 | `ONTOBRICKS_PG_GRAPH_SCHEMA` | *(unset)* | Optional separate graph schema |
 | `ONTOBRICKS_PG_POOL_MIN` / `_MAX` | `1` / `8` | Pool bounds |
@@ -303,7 +357,7 @@ until P7.
 |---|---|---|
 | P0 | Verify on a real PG 14 that `sha256(convert_to(…))` equals `digest(…,'sha256')`, that `gen_random_uuid()` resolves without pgcrypto, and that the generated-column expression is accepted | Gates the no-extensions design |
 | P1 | `RuntimeEnv` split: 37 `is_databricks_app()` + 17 `DATABRICKS_APP_PORT` sites → `PORT` / `ONTOBRICKS_AUTH_ENABLED` / `DatabricksConnector.is_configured()`. No behaviour change on Apps | Riskiest and least visible; do it while old behaviour is still runnable as a reference |
-| P2 | `PostgresConnectionPool`; conninfo `search_path`; drop pgcrypto; PG 14 floor; co-tenancy invariant test | The actual Lakebase removal |
+| P2 | `PostgresConnectionPool` + Entra `password_provider`; session `search_path` without `public`; drop pgcrypto; PG 14 floor; co-tenancy invariant test; reword the superuser remediation | The actual Lakebase removal |
 | P3 | Rename `lakebase` → `postgres` with `AliasChoices` back-compat | Mechanical; own commit so review is trivial |
 | P4 | OIDC login, `IdentitySession`, remove 25 header reads, `app_roles` + `AppRoleService` + admin screen | Depends on P1's auth predicate |
 | P5 | Delete Neo4j, `SyncedTableManager`, `provisioner`, `_sync_uc_schema`, `SecretsService` and their Settings UI | Pure subtraction |
@@ -320,8 +374,9 @@ Added:
 - **Co-tenancy invariant** (`db`): snapshot `pg_catalog`, install the schema, run
   a full domain build, `DROP SCHEMA … CASCADE`, assert the catalog diff is empty
   — no leftover extensions, types, functions, or objects in `public`.
-- **PgBouncer transaction mode** (`db`): the COPY insert/delete path succeeds
-  behind a transaction-pooling proxy.
+- **Entra token minting** (`unit`): `password_provider` is called once per new
+  physical connection, never reused past expiry, and a token failure surfaces as
+  `InfrastructureError` rather than a bare psycopg error.
 - **OIDC** (`unit`): `state` mismatch rejected, PKCE verifier round-trips,
   refresh-on-401, group extraction from SCIM `/Me`.
 - **Fail closed** (`integration`): with `ONTOBRICKS_AUTH_ENABLED=true` and OIDC
@@ -342,14 +397,19 @@ Routine command stays `uv run --frozen pytest -q -m "not scenario"`. `db`- and
    read a table *through the SP* may no longer be able to. More correct, but a
    visible behaviour change — needs a release note and probably a config to keep
    SP identity for queries.
-3. **Single replica only.** APScheduler runs in-process and sessions are on local
-   disk, so two replicas means duplicate scheduled builds. Either document the
-   constraint or add Postgres advisory-lock leader election (small).
+3. **Single replica only**, and Container Apps' defaults break it: autoscaling
+   duplicates scheduled builds, scale-to-zero stops them entirely. Pinning
+   `minReplicas: 1, maxReplicas: 1` is a deployment *requirement*, not a
+   footnote.
 4. **The 1134-site rename** can break string-keyed config silently. Mitigation:
    separate mechanical commit, `AliasChoices`, and a normalizer accepting the old
    `graph_backend` value.
-5. **No Docker on the current dev machine**, so `db`- and `e2e`-marked tests
-   cannot be verified locally. P0 and P2 need Docker available.
+5. **No local Postgres and no Docker on this dev machine**, so `db`- and
+   `e2e`-marked tests cannot be verified. P0 and P2 need either Docker or a
+   reachable Flexible Server (with a firewall rule for this host).
+6. **`sslmode=verify-full` needs the Azure root CA** in the image. Defaulting to
+   `require` is weaker than it should be, so the Dockerfile carries the cert and
+   the docs recommend `verify-full`.
 
 ## 13. Deferred
 
@@ -360,4 +420,10 @@ Routine command stays `uv run --frozen pytest -q -m "not scenario"`. `db`- and
   SQL Warehouse, so **document import does not work without the Databricks
   connector**. Known functional gap.
 - Multi-replica support (leader election, shared session store).
-- Lakebase as an optional `password_provider` plug-in.
+- Further `password_provider` plug-ins (Lakebase, AWS RDS IAM, Cloud SQL) — the
+  seam is built for Entra and these reuse it.
+- PgBouncer (port 6432): needs `SET LOCAL search_path` per transaction and
+  `prepare_threshold=None`, because Azure ships
+  `pgbouncer.max_prepared_statements=0` while psycopg3 defaults
+  `prepare_threshold=5`, giving intermittent "prepared statement does not
+  exist" errors.
