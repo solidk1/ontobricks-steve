@@ -30,17 +30,36 @@ LAKEFLOW_SYNC_PRIMARY_KEY: tuple[str, ...] = (
     "object_hash",
 )
 
-_TRIPLE_TABLE_COLUMNS = """
+HASH_FUNCTION_NAME = "sha256_utf8"
+
+
+def hash_function_ref(schema: str = "") -> str:
+    """Qualified reference to the per-schema hash function.
+
+    Unqualified when *schema* is empty: ``search_path`` names only the
+    OntoBricks schema (never ``public``), so resolution cannot reach a
+    co-tenant's object.
+    """
+    return f'"{schema}".{HASH_FUNCTION_NAME}' if schema else HASH_FUNCTION_NAME
+
+
+def _hash_expr(schema: str = "") -> str:
+    return f"{hash_function_ref(schema)}(coalesce(object, ''))"
+
+
+def _triple_table_columns(schema: str = "") -> str:
+    return f"""
             subject TEXT NOT NULL,
             predicate TEXT NOT NULL,
             object TEXT NOT NULL,
             object_hash BYTEA GENERATED ALWAYS AS (
-                digest(coalesce(object, ''), 'sha256')
+                {_hash_expr(schema)}
             ) STORED,
             datatype TEXT,
             lang TEXT,
             PRIMARY KEY (subject, predicate, object_hash)
 """
+
 
 _TRIPLE_TABLE_INDEXES: tuple[tuple[str, str], ...] = (
     ("sp", "subject, predicate"),
@@ -77,9 +96,35 @@ def _idx_name(table: str, suffix: str) -> str:
     return base[:63]
 
 
-def ensure_pgcrypto(cur: Any) -> None:
-    """Enable ``digest()`` for generated ``object_hash`` columns."""
-    cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+def ensure_hash_function(cur: Any, schema: str = "") -> None:
+    """Create the ``object_hash`` helper, without any extension.
+
+    Replaces ``CREATE EXTENSION pgcrypto``. Two reasons the extension had to
+    go: it is *database*-scoped, so it outlives ``DROP SCHEMA ... CASCADE`` and
+    is shared with every co-tenant of the database; and on Azure Database for
+    PostgreSQL ``CREATE EXTENSION`` is gated behind the **server-level**
+    ``azure.extensions`` allowlist, making it an instance-wide change.
+
+    ``sha256()`` has been in core since PG 11, but it cannot be used directly
+    in a generated column: ``convert_to()`` is ``STABLE`` and PostgreSQL
+    requires generation expressions to be ``IMMUTABLE``, so
+    ``sha256(convert_to(object, 'UTF8'))`` is rejected with *"generation
+    expression is not immutable"*. This one-line wrapper carries the
+    ``IMMUTABLE`` marker instead, which is sound because a given text value's
+    UTF-8 encoding is deterministic — ``convert_to``'s ``STABLE`` marking is
+    conservative, reflecting that it reads ``server_encoding``, which is fixed
+    for the life of a database.
+
+    The function lives inside the OntoBricks schema, so it is removed by
+    ``DROP SCHEMA ... CASCADE`` and leaves no residue.
+    """
+    if schema:
+        cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+    cur.execute(
+        f"CREATE OR REPLACE FUNCTION {hash_function_ref(schema)}(t TEXT) "
+        "RETURNS BYTEA LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT "
+        "AS $ob$ SELECT sha256(convert_to(t, 'UTF8')) $ob$"
+    )
 
 
 def wrap_triple_view_sql_for_lakeflow(spark_sql: str) -> str:
@@ -127,7 +172,9 @@ def _has_object_hash_column(cur: Any, bare_name: str) -> bool:
     return cur.fetchone() is not None
 
 
-def upgrade_legacy_triple_table_to_object_hash(cur: Any, table_ref: str) -> None:
+def upgrade_legacy_triple_table_to_object_hash(
+    cur: Any, table_ref: str, schema: str = ""
+) -> None:
     """Migrate pre-0.6.2 triple tables that still key on full ``object`` text.
 
     ``CREATE TABLE IF NOT EXISTS`` leaves legacy companions in place; without
@@ -138,7 +185,7 @@ def upgrade_legacy_triple_table_to_object_hash(cur: Any, table_ref: str) -> None
     if not _table_exists(cur, bare) or _has_object_hash_column(cur, bare):
         return
 
-    ensure_pgcrypto(cur)
+    ensure_hash_function(cur, schema)
 
     for sfx, _ in _TRIPLE_TABLE_INDEXES:
         cur.execute(f"DROP INDEX IF EXISTS {_idx_name(bare, sfx)}")
@@ -146,13 +193,12 @@ def upgrade_legacy_triple_table_to_object_hash(cur: Any, table_ref: str) -> None
     cur.execute(
         f"ALTER TABLE {table_ref} "
         "ADD COLUMN IF NOT EXISTS object_hash BYTEA GENERATED ALWAYS AS "
-        "(digest(coalesce(object, ''), 'sha256')) STORED"
+        f"({_hash_expr(schema)}) STORED"
     )
     cur.execute(f"ALTER TABLE {table_ref} ADD COLUMN IF NOT EXISTS datatype TEXT")
     cur.execute(f"ALTER TABLE {table_ref} ADD COLUMN IF NOT EXISTS lang TEXT")
 
-    cur.execute(
-        f"""
+    cur.execute(f"""
         DO $$ DECLARE pk_name text;
         BEGIN
           SELECT c.conname INTO pk_name
@@ -167,11 +213,9 @@ def upgrade_legacy_triple_table_to_object_hash(cur: Any, table_ref: str) -> None
             EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', {bare!r}, pk_name);
           END IF;
         END $$;
-        """
-    )
+        """)
     cur.execute(
-        f"ALTER TABLE {table_ref} "
-        "ADD PRIMARY KEY (subject, predicate, object_hash)"
+        f"ALTER TABLE {table_ref} " "ADD PRIMARY KEY (subject, predicate, object_hash)"
     )
 
 
@@ -190,15 +234,13 @@ def ensure_graph_indexes(cur: Any, table_ref: str) -> None:
 
 
 def _create_triple_table(cur: Any, schema: str, table: str) -> None:
-    cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-    cur.execute(
-        f"""
+    ensure_hash_function(cur, schema)
+    cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {table} (
-        {_TRIPLE_TABLE_COLUMNS}
+        {_triple_table_columns(schema)}
         )
-        """
-    )
-    upgrade_legacy_triple_table_to_object_hash(cur, table)
+        """)
+    upgrade_legacy_triple_table_to_object_hash(cur, table, schema)
     ensure_graph_indexes(cur, table)
 
 
@@ -209,7 +251,6 @@ def ensure_synced(cur: Any, schema: str, synced: str) -> None:
     warehouse-streamed triples.  In ``managed_synced`` mode this table is
     created by Lakebase/Lakeflow instead.
     """
-    ensure_pgcrypto(cur)
     _create_triple_table(cur, schema, synced)
 
 
@@ -250,7 +291,6 @@ def drop_synced(cur: Any, synced: str) -> None:
 
 def ensure_companion(cur: Any, schema: str, companion: str) -> None:
     """Create the writable companion table + standard B-tree indexes if absent."""
-    ensure_pgcrypto(cur)
     _create_triple_table(cur, schema, companion)
 
 

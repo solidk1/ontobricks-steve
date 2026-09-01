@@ -210,7 +210,7 @@ class LakebaseConnectionPool:
                     kwargs["dbname"] = self._database
                 conn = psycopg.connect(autocommit=True, **kwargs)
                 with conn.cursor() as cur:
-                    cur.execute(f'SET search_path TO "{self._schema}", public')
+                    cur.execute(f'SET search_path TO "{self._schema}"')
                 return conn
             except Exception as exc:  # noqa: BLE001
                 sqlstate = getattr(exc, "sqlstate", "") or ""
@@ -341,5 +341,5 @@ def lakebase_cursor(
     with pool.connection() as conn:
         cur_kwargs = {"row_factory": row_factory} if row_factory is not None else {}
         with conn.cursor(**cur_kwargs) as cur:
-            cur.execute(f'SET search_path TO "{schema}", public')
+            cur.execute(f'SET search_path TO "{schema}"')
             yield cur

@@ -214,5 +214,5 @@ class LakebaseBase(GraphDBBackend):
         pool = self._pool()
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(f'SET search_path TO "{self._schema}", public')
+                cur.execute(f'SET search_path TO "{self._schema}"')
                 yield cur

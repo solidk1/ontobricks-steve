@@ -154,3 +154,95 @@ those tests or blocking sockets suite-wide.
 e2e (Playwright) not run — needs a live server and browsers.
 `db`-marked tests need Docker, which is absent on this machine; P0/P2 of the spec
 require it.
+
+## P2 (part 1) — Azure-compatible graph schema, verified against a real server
+
+Context: Second phase of `.planning/databricks-decoupling/SPEC.md`, targeting Azure
+Database for PostgreSQL. Provisioned `pg-sshao-ontobricks` (PG 16.15, `Standard_B1ms`,
+westus2, co-located with the existing Databricks workspace) and ran the P0 gate against
+it rather than reasoning from documentation. **P0 found a real error in the spec.**
+
+`convert_to()` is `STABLE`, and PostgreSQL requires generation expressions to be
+`IMMUTABLE`, so the `sha256(convert_to(object,'UTF8'))` expression the spec prescribed is
+rejected outright with *"generation expression is not immutable"*. Reasoning that
+"`sha256()` has been in core since PG 11" was correct but insufficient — the function's
+*volatility* is what actually governs. The fix is a one-line `IMMUTABLE` wrapper created
+inside the OntoBricks schema, so it is still removed by `DROP SCHEMA ... CASCADE` and the
+residue-free guarantee holds.
+
+Also reordered the remaining phases. The spec had P2 before P5, but `BranchLakebaseAuth`
+(a Lakebase-only concept — projects/branches/endpoints, with no Azure equivalent) has far
+more consumers than assumed: ~10 sites in `health.py`, a dozen in `SettingsService.py`,
+plus `GraphDBFactory` and the registry store. Most live in the Lakebase provisioner and
+Settings UI that P5 deletes, so P5 must come first or P2 reworks code about to be
+removed. New order: P5 → P2 → P3.
+
+Changes:
+
+1. src/back/core/graphdb/lakebase/_companion_ddl.py
+   `ensure_pgcrypto()` → `ensure_hash_function(cur, schema)`, creating
+   `"<schema>".sha256_utf8(text)` as `IMMUTABLE PARALLEL SAFE STRICT`. Dropped
+   `CREATE EXTENSION IF NOT EXISTS pgcrypto` entirely: an extension is *database*-scoped,
+   so it outlives the schema drop and is shared with every co-tenant, and on Azure
+   `CREATE EXTENSION` is gated behind the **server-level** `azure.extensions` allowlist —
+   an instance-wide change. `_TRIPLE_TABLE_COLUMNS` became `_triple_table_columns(schema)`
+   so the generated column is schema-qualified; added `hash_function_ref()` /
+   `_hash_expr()`. `upgrade_legacy_triple_table_to_object_hash` takes an optional
+   `schema`, keeping its existing two-argument call sites working.
+2. src/back/core/graphdb/lakebase/schema.sql
+   Reference DDL rewritten: no extensions, wrapper function, and the reasoning recorded
+   so the pgcrypto removal is not undone by reflex.
+3. src/back/core/databricks/lakebase/LakebaseConnectionPool.py (2 sites),
+   src/back/core/graphdb/lakebase/LakebaseFlatStore.py (2 sites),
+   src/back/core/graphdb/lakebase/LakebaseBase.py (1 site)
+   `SET search_path TO "<schema>", public` → `SET search_path TO "<schema>"`. On a shared
+   instance with privileges, `public` on the path is a foot-gun aimed at a neighbour:
+   unqualified DDL can land there, and a shadowing object can resolve ahead of ours.
+   (The spec originally proposed moving this into the conninfo as
+   `options=-csearch_path=…`; that was dropped, because Azure's built-in PgBouncer may
+   reject the `options` startup packet and the usual remedy makes it *ignore* the
+   parameter — silently leaving `search_path` unset.)
+4. src/back/core/graphdb/lakebase/LakebaseFlatStore.py
+   The "connect to Lakebase with a superuser" remediation is unreachable advice on Azure
+   Flexible Server, where `azure_pg_admin` is deliberately not a superuser. Reworded to
+   name the schema owner.
+5. tests/fixtures/factories/databricks/lakebase_pg_fixture.py
+   DSN-first: `ONTOBRICKS_TEST_DSN` → testcontainers → skip. Testing against the real
+   product catches what an ephemeral local container cannot (TLS, PG version, privilege
+   model). Added `pg_conn` and `throwaway_schema` fixtures; each test gets its own
+   *schema*, mirroring how OntoBricks installs, which is what makes running against a
+   shared remote server safe. The testcontainers guard now wraps construction as well as
+   `start()` — the constructor itself probes the Docker socket.
+6. tests/units/graphdb/test_pg_cotenancy.py (new, 7 tests)
+   The co-tenancy contract as an executable gate: no extension is created; pgcrypto stays
+   absent; the inlined `convert_to` form is *still* rejected (so a future PostgreSQL
+   marking it immutable shows up as a signal to simplify, not a defect); wrapper output
+   equals `hashlib.sha256` byte for byte, including the empty-string case through the
+   `STRICT` marker; `DROP SCHEMA ... CASCADE` restores an identical catalog snapshot; and
+   `public` is absent from `current_schemas(false)`.
+7. tests/units/core/test_lakebase_flat_store.py
+   Assertions inverted: no `CREATE EXTENSION` is emitted, and the DDL goes through
+   `sha256_utf8` with the `IMMUTABLE` marker.
+8. pyproject.toml, uv.lock
+   Added `azure-identity` (committed separately as 436f8d87).
+
+Modified files:
+- src/back/core/graphdb/lakebase/_companion_ddl.py
+- src/back/core/graphdb/lakebase/schema.sql
+- src/back/core/graphdb/lakebase/LakebaseFlatStore.py
+- src/back/core/graphdb/lakebase/LakebaseBase.py
+- src/back/core/databricks/lakebase/LakebaseConnectionPool.py
+- tests/fixtures/factories/databricks/lakebase_pg_fixture.py
+- tests/units/graphdb/test_pg_cotenancy.py (new)
+- tests/units/core/test_lakebase_flat_store.py
+- .planning/databricks-decoupling/SPEC.md
+- changelogs/v0.7.1/solidk1_2026-09-01.log
+
+Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integration"
+-p no:randomly` → **4824 passed, 18 skipped, 283 deselected in 22.55s**.
+The 7 new `db` tests run green **against the live Azure server**
+(`ONTOBRICKS_TEST_DSN` set) in 19.82s, and skip cleanly with no target configured.
+ruff + black clean on all changed files.
+
+Still deselected: the three pre-existing network-dependent health tests (verified to hang
+identically on HEAD — see the P1 entry above). e2e not run.

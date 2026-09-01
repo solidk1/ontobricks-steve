@@ -78,8 +78,16 @@ def test_create_table_issues_schema_ddl_and_indexes(auth):
     # Union view must be created.
     assert any("CREATE OR REPLACE VIEW" in s and "mydomain_v1" in s for s in executed)
     assert any("CREATE INDEX" in s for s in executed)
-    assert any("CREATE EXTENSION IF NOT EXISTS pgcrypto" in s for s in executed)
-    assert any("object_hash" in s and "digest" in s for s in create_tables)
+    # No extension: pgcrypto is database-scoped (survives DROP SCHEMA CASCADE,
+    # shared with co-tenants) and on Azure needs a server-level allowlist entry.
+    assert not any("CREATE EXTENSION" in s for s in executed)
+    # The hash goes through an IMMUTABLE wrapper because convert_to() is STABLE
+    # and generation expressions must be IMMUTABLE.
+    assert any(
+        "sha256_utf8" in s and "IMMUTABLE" in s and "sha256(convert_to(" in s
+        for s in executed
+    )
+    assert any("object_hash" in s and "sha256_utf8" in s for s in create_tables)
     assert any("PRIMARY KEY (subject, predicate, object_hash)" in s for s in create_tables)
 
 

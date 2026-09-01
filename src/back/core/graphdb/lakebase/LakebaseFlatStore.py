@@ -476,7 +476,7 @@ class LakebaseFlatStore(LakebaseBase):
         pool = self._pool()
         with pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(f'SET search_path TO "{self._schema}", public')
+                cur.execute(f'SET search_path TO "{self._schema}"')
                 cur.execute(query)
                 if cur.description:
                     return [dict(row) for row in cur.fetchall()]
@@ -568,7 +568,8 @@ class LakebaseFlatStore(LakebaseBase):
                 raise RuntimeError(
                     f"Table '{synced}' exists but is owned by a different database role "
                     f"— cannot add missing columns. "
-                    f"Fix: connect to Lakebase with a superuser and run: "
+                    f"Fix: as the owner of schema '{self._schema}' (or a member of "
+                    f"that owning role), run: "
                     f"DROP TABLE IF EXISTS \"{self._schema}\".\"{synced}\" CASCADE;"
                 ) from _col_err
             _companion_ddl.ensure_companion(cur, self._schema, companion)
@@ -639,7 +640,7 @@ class LakebaseFlatStore(LakebaseBase):
         with pool.connection() as conn:
             with conn.transaction():
                 with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(f'SET search_path TO "{self._schema}", public')
+                    cur.execute(f'SET search_path TO "{self._schema}"')
                     yield conn, cur
 
     def _copy_insert_batch_phy(self, phy: str, batch: List[Dict[str, str]]) -> int:
