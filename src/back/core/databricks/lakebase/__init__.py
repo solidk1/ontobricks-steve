@@ -14,7 +14,6 @@ from back.core.databricks.lakebase.grants import (  # noqa: F401
     resolve_mcp_app_name,
 )
 from back.core.databricks.lakebase.LakebaseAuth import (  # noqa: F401
-    BranchLakebaseAuth,
     LakebaseAuth,
     get_graph_auth,
     get_lakebase_auth,
@@ -42,7 +41,6 @@ __all__ = [
     "require_psycopg",
     # auth
     "LakebaseAuth",
-    "BranchLakebaseAuth",
     "get_lakebase_auth",
     "get_graph_auth",
 ]

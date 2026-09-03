@@ -437,7 +437,7 @@ def _check_lakebase(settings: Settings) -> Tuple[str, str]:
         return (
             _WARNING,
             "Lakebase not bound (PG* env vars unset) — registry is unavailable; "
-            "set LAKEBASE_PROJECT + LAKEBASE_BRANCH + PGUSER in .env (local) or bind a database "
+            "set PGHOST + PGUSER + PGDATABASE in .env, or bind a database "
             "resource in app.yaml (deployed)",
         )
 
@@ -765,7 +765,7 @@ def _check_lakebase_env_vars() -> Tuple[str, str]:
 
     In a Databricks App these are injected automatically when a ``database``
     resource is bound in ``app.yaml``. In local development they must be set
-    in ``.env`` (or ``LAKEBASE_PROJECT`` + ``LAKEBASE_BRANCH`` + ``LAKEBASE_DATABASE``
+    in ``.env``
     can be used instead of raw ``PG*`` values — see ``LakebaseAuth`` docs).
     """
     missing: List[str] = []
@@ -779,33 +779,15 @@ def _check_lakebase_env_vars() -> Tuple[str, str]:
 
     port = os.environ.get("PGPORT", "5432")
 
-    # Check alternative local-dev vars if PG* are absent
-    alt_project  = os.environ.get("LAKEBASE_PROJECT", "").strip()
-    alt_branch   = os.environ.get("LAKEBASE_BRANCH", "").strip()
-    alt_database = os.environ.get("LAKEBASE_DATABASE", "").strip()
-    alt_present  = [v for v, val in (
-        ("LAKEBASE_PROJECT", alt_project),
-        ("LAKEBASE_BRANCH", alt_branch),
-        ("LAKEBASE_DATABASE", alt_database),
-    ) if val]
-
     if missing:
-        if alt_project and alt_branch:
-            return (
-                _WARNING,
-                f"PG* vars not set ({', '.join(missing)} missing) — using alternative "
-                f"local-dev vars: {', '.join(alt_present)}. "
-                "In a deployed Databricks App, add a ``database`` resource binding in app.yaml.",
-            )
         pghost_present = "PGHOST" in present
         return (
             _ERROR,
-            f"Required Lakebase env vars missing: {', '.join(missing)}. "
+            f"Required Postgres env vars missing: {', '.join(missing)}. "
             f"Present: {', '.join(present) or 'none'}. "
-            "In a deployed Databricks App these are injected automatically from the "
-            "``database`` resource binding in app.yaml. "
-            "In local development: set PGHOST, PGDATABASE, PGUSER in .env, or "
-            "set LAKEBASE_PROJECT + LAKEBASE_BRANCH + LAKEBASE_DATABASE instead.",
+            "In a deployed Databricks App these are injected from the ``database`` "
+            "resource binding. Otherwise set PGHOST, PGDATABASE and PGUSER — "
+            "Lakebase is reached the same way as any other PostgreSQL server.",
         )
     pghost = os.environ.get("PGHOST", "")
     pgdb   = os.environ.get("PGDATABASE", "")

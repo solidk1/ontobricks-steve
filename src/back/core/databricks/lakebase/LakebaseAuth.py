@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Optional
 
 from back.core.databricks.lakebase.constants import TOKEN_TTL_S as _TOKEN_TTL_S
 from back.core.errors import ValidationError
@@ -63,21 +62,13 @@ class LakebaseAuth:
     call so that volume-only environments never need the Databricks
     SDK to be importable.
 
-    **Host resolution order** (first non-empty wins):
-
-    1. ``PGHOST`` — auto-injected by Databricks Apps at runtime; or
-       set directly in ``.env`` if you already know the endpoint URL.
-    2. ``LAKEBASE_PROJECT`` + ``LAKEBASE_BRANCH`` — resolved via
-       the Postgres API (``/api/2.0/postgres/projects/<name>/branches``
-       → endpoints). Use these in local ``.env`` to select a branch
-       without looking up the endpoint hostname manually.
-
-    **Database resolution order** (first non-empty wins):
-
-    1. ``PGDATABASE`` — auto-injected by Databricks Apps.
-    2. ``LAKEBASE_DATABASE`` — explicit override for local dev or
-       when you want to point at a database that differs from the
-       bound default.
+    Lakebase is reached like any other PostgreSQL server: ``PGHOST``,
+    ``PGPORT``, ``PGDATABASE``, ``PGUSER``. There is no parallel
+    ``LAKEBASE_*`` variable set — a Lakebase endpoint is just a Postgres
+    endpoint, and the only thing that makes it special is that the
+    password is a short-lived JWT this class mints rather than a static
+    secret. Databricks Apps injects the ``PG*`` values from a bound
+    ``database`` resource; set them yourself otherwise.
     """
 
     def __init__(self) -> None:
@@ -86,15 +77,15 @@ class LakebaseAuth:
         self._token_ts: float = 0.0
         # Project_id (final segment of ``projects/<id>``) — populated
         # by the Postgres API endpoint walk.
-        self._instance_name: Optional[str] = None
+        self._instance_name: str | None = None
         # Full endpoint resource path
         # (``projects/<project_id>/branches/<branch_id>/endpoints/<endpoint_id>``)
         # — populated alongside ``_instance_name`` and required by
         # :meth:`password` to mint a JWT scoped to that endpoint.
-        self._endpoint_resource: Optional[str] = None
+        self._endpoint_resource: str | None = None
         # Resolved host cache — avoids re-walking the API on every access
         # when PGHOST is absent and we resolved via branch resolution.
-        self._cached_host: Optional[str] = None
+        self._cached_host: str | None = None
 
     # ------------------------------------------------------------------
     # Connection parameters (read directly from environment)
@@ -104,12 +95,13 @@ class LakebaseAuth:
     def host(self) -> str:
         host = os.environ.get("PGHOST", "")
         if not host:
-            host = self._cached_host or self._resolve_host_from_project_branch() or ""
+            host = self._cached_host or ""
         if not host:
             raise ValidationError(
-                "Cannot determine Lakebase host: set PGHOST (or both "
-                "LAKEBASE_PROJECT and LAKEBASE_BRANCH) in .env, "
-                "or bind a Lakebase 'database' resource to the Databricks App."
+                "PGHOST is not set. Lakebase is reached like any other "
+                "PostgreSQL server — point PGHOST at its endpoint hostname "
+                "(Compute → Lakebase → <branch> → Connection details), or bind "
+                "a 'database' resource to the Databricks App, which injects it."
             )
         return host
 
@@ -119,11 +111,7 @@ class LakebaseAuth:
 
     @property
     def database(self) -> str:
-        return (
-            os.environ.get("PGDATABASE")
-            or os.environ.get("LAKEBASE_DATABASE")
-            or "ontobricks_registry"
-        )
+        return os.environ.get("PGDATABASE") or "ontobricks_registry"
 
     @property
     def user(self) -> str:
@@ -136,48 +124,6 @@ class LakebaseAuth:
         return user
 
     @property
-    def branch_name(self) -> str:
-        """Return the branch name extracted from the resolved endpoint resource path.
-
-        Forces endpoint resolution via :attr:`instance_name` (cached) so the
-        value is available even when the caller only checked ``instance_name``
-        previously.  Returns an empty string when the endpoint path cannot be
-        parsed (e.g. provisioned legacy instances).
-
-        Endpoint resource path format:
-        ``projects/<project_id>/branches/<branch_id>/endpoints/<endpoint_id>``
-        """
-        # Trigger resolution so _endpoint_resource is populated.
-        try:
-            _ = self.instance_name
-        except Exception:  # noqa: BLE001
-            return ""
-        if not self._endpoint_resource:
-            return ""
-        parts = self._endpoint_resource.split("/")
-        # Expected: ["projects", "<proj>", "branches", "<branch>", "endpoints", "<ep>"]
-        if len(parts) >= 4 and parts[0] == "projects" and parts[2] == "branches":
-            return parts[3]
-        return ""
-
-    @property
-    def branch_path(self) -> str:
-        """Return ``projects/<proj>/branches/<branch>`` for the bound Lakebase.
-
-        Triggers endpoint resolution on the first call (same cost as
-        :attr:`host`).  Returns an empty string on failure so callers
-        can guard with ``if auth.branch_path``.
-        """
-        try:
-            inst = self.instance_name
-            branch = self.branch_name
-            if inst and branch:
-                return f"projects/{inst}/branches/{branch}"
-        except Exception:  # noqa: BLE001
-            pass
-        return ""
-
-    @property
     def is_available(self) -> bool:
         """Return True when the Lakebase connection can be established.
 
@@ -185,16 +131,8 @@ class LakebaseAuth:
 
         - ``PGHOST`` + ``PGUSER`` (auto-injected by Databricks Apps, or set
           directly in ``.env`` with the raw endpoint URL), or
-        - ``LAKEBASE_PROJECT`` + ``LAKEBASE_BRANCH`` + ``PGUSER``
-          (local dev with branch-based host resolution).
         """
-        has_user = bool(os.environ.get("PGUSER"))
-        has_host = bool(os.environ.get("PGHOST"))
-        has_branch_coords = bool(
-            os.environ.get("LAKEBASE_PROJECT")
-            and os.environ.get("LAKEBASE_BRANCH")
-        )
-        return has_user and (has_host or has_branch_coords)
+        return bool(os.environ.get("PGUSER")) and bool(os.environ.get("PGHOST"))
 
     # ------------------------------------------------------------------
     # Token (Postgres password)
@@ -248,75 +186,8 @@ class LakebaseAuth:
         )
         return self._instance_name
 
-    def _resolve_host_from_project_branch(self) -> Optional[str]:
-        """Resolve the Lakebase endpoint hostname from project + branch name.
 
-        Reads ``LAKEBASE_PROJECT`` (project) and ``LAKEBASE_BRANCH``
-        (branch) from the environment, then walks
-        ``GET /api/2.0/postgres/projects/<project>/branches`` →
-        ``GET /api/2.0/postgres/<branch_path>/endpoints`` to find the
-        primary endpoint host for that branch.
-
-        On success also populates ``_instance_name`` and
-        ``_endpoint_resource`` so subsequent :meth:`password` calls do
-        not need to re-walk the API. Returns ``None`` (never raises) on
-        any configuration gap or API error — the caller falls back to a
-        descriptive ``ValidationError``.
-        """
-        project = os.environ.get("LAKEBASE_PROJECT", "").strip()
-        branch_name = os.environ.get("LAKEBASE_BRANCH", "").strip()
-        if not project or not branch_name:
-            return None
-        try:
-            self._ensure_workspace()
-            api = getattr(self._w, "api_client", None)
-            if api is None or not hasattr(api, "do"):
-                return None
-            branches = (
-                api.do(
-                    "GET",
-                    f"/api/2.0/postgres/projects/{project}/branches",
-                )
-                or {}
-            ).get("branches") or []
-            for branch in branches:
-                branch_path = branch.get("name") or ""
-                if not branch_path:
-                    continue
-                if branch_path.rsplit("/", 1)[-1] != branch_name:
-                    continue
-                endpoints = (
-                    api.do("GET", f"/api/2.0/postgres/{branch_path}/endpoints")
-                    or {}
-                ).get("endpoints") or []
-                for endpoint in endpoints:
-                    hosts = (endpoint.get("status") or {}).get("hosts") or {}
-                    host = (hosts.get("host") or "").strip()
-                    if not host:
-                        continue
-                    endpoint_path = endpoint.get("name") or ""
-                    if endpoint_path:
-                        self._endpoint_resource = endpoint_path
-                    self._instance_name = project
-                    self._cached_host = host
-                    logger.info(
-                        "Resolved Lakebase host %r from project=%r branch=%r",
-                        host,
-                        project,
-                        branch_name,
-                    )
-                    return host
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "Branch-based Lakebase host resolution failed "
-                "(project=%r branch=%r): %s",
-                project,
-                branch_name,
-                exc,
-            )
-        return None
-
-    def _lookup_via_postgres_api(self, host: str) -> Optional[str]:
+    def _lookup_via_postgres_api(self, host: str) -> str | None:
         """Match ``host`` against Lakebase Autoscaling endpoints.
 
         Walks ``/api/2.0/postgres/projects`` → branches → endpoints
@@ -350,8 +221,7 @@ class LakebaseAuth:
                 if not branch_path:
                     continue
                 endpoints = (
-                    api.do("GET", f"/api/2.0/postgres/{branch_path}/endpoints")
-                    or {}
+                    api.do("GET", f"/api/2.0/postgres/{branch_path}/endpoints") or {}
                 ).get("endpoints") or []
                 for endpoint in endpoints:
                     hosts = (endpoint.get("status") or {}).get("hosts") or {}
@@ -444,11 +314,14 @@ class LakebaseAuth:
                 "WorkspaceClient.api_client unavailable; cannot mint "
                 "Lakebase JWT via Postgres API."
             )
-        resp = api.do(
-            "POST",
-            "/api/2.0/postgres/credentials",
-            body={"endpoint": endpoint_resource},
-        ) or {}
+        resp = (
+            api.do(
+                "POST",
+                "/api/2.0/postgres/credentials",
+                body={"endpoint": endpoint_resource},
+            )
+            or {}
+        )
         return resp.get("token") or ""
 
     def invalidate(self) -> None:
@@ -501,199 +374,6 @@ class LakebaseAuth:
         }
 
 
-class BranchLakebaseAuth:
-    """Lakebase auth for an explicit branch resource path.
-
-    Identical interface to :class:`LakebaseAuth` but resolves the Postgres
-    host and mints JWTs for a specific branch
-    (``projects/<proj>/branches/<branch>``) rather than reading PGHOST from
-    the environment.  Use this when the graph engine should target a
-    different Lakebase project than the bound registry instance.
-
-    Token caching follows the same ~55-minute TTL as :class:`LakebaseAuth`.
-    The SP identity (``PGUSER``) and port (``PGPORT``) are still read from
-    the environment — they belong to the app regardless of which project it
-    connects to.
-    """
-
-    def __init__(self, branch_path: str, database: str = "") -> None:
-        # branch_path: full resource path, e.g. "projects/xxx/branches/yyy"
-        self._branch_path = branch_path.strip()
-        self._database_override = (database or "").strip()
-        self._w = None
-        self._token: str = ""
-        self._token_ts: float = 0.0
-        self._host: str = ""
-        self._endpoint_resource: str = ""
-
-    # ------------------------------------------------------------------
-    # Availability
-    # ------------------------------------------------------------------
-
-    @property
-    def is_available(self) -> bool:
-        if not self._branch_path:
-            return False
-        try:
-            return bool(self._resolved_host())
-        except Exception:  # noqa: BLE001
-            return False
-
-    # ------------------------------------------------------------------
-    # Connection parameters
-    # ------------------------------------------------------------------
-
-    @property
-    def host(self) -> str:
-        h = self._resolved_host()
-        if not h:
-            raise ValidationError(
-                f"Could not resolve Lakebase endpoint host for branch {self._branch_path!r}"
-            )
-        return h
-
-    @property
-    def port(self) -> int:
-        return int(os.environ.get("PGPORT", "5432"))
-
-    @property
-    def database(self) -> str:
-        return self._database_override or os.environ.get("PGDATABASE", "") or "postgres"
-
-    @property
-    def user(self) -> str:
-        u = os.environ.get("PGUSER", "").strip()
-        if not u:
-            raise ValidationError(
-                "PGUSER is not set — required for Lakebase psycopg connections"
-            )
-        return u
-
-    @property
-    def instance_name(self) -> str:
-        """Return the project name (segment after 'projects/' in the resource path)."""
-        parts = self._branch_path.split("/")
-        # "projects/<proj>/branches/<branch>" → parts[1] = project name
-        return parts[1] if len(parts) >= 2 else self._branch_path
-
-    @property
-    def branch_name(self) -> str:
-        """Return the branch name (last segment of the resource path)."""
-        parts = self._branch_path.split("/")
-        # "projects/<proj>/branches/<branch>" → parts[-1] = branch name
-        return parts[-1] if parts else ""
-
-    @property
-    def branch_path(self) -> str:
-        """Return the full branch resource path (``projects/<proj>/branches/<branch>``)."""
-        return self._branch_path
-
-    # ------------------------------------------------------------------
-    # Token minting
-    # ------------------------------------------------------------------
-
-    def password(self) -> str:
-        now = time.time()
-        if self._token and (now - self._token_ts) < _TOKEN_TTL_S:
-            return self._token
-        _ = self._resolved_host()
-        if not self._endpoint_resource:
-            raise ValidationError(
-                f"No endpoint resolved for branch {self._branch_path!r}; cannot mint JWT"
-            )
-        self._ensure_workspace()
-        api = getattr(self._w, "api_client", None)
-        if api is None or not hasattr(api, "do"):
-            raise ValidationError("WorkspaceClient.api_client unavailable")
-        resp = (
-            api.do(
-                "POST",
-                "/api/2.0/postgres/credentials",
-                body={"endpoint": self._endpoint_resource},
-            )
-            or {}
-        )
-        token = resp.get("token") or ""
-        if not token:
-            raise ValidationError(
-                f"Failed to mint Lakebase JWT for endpoint {self._endpoint_resource!r}"
-            )
-        self._token = token
-        self._token_ts = now
-        return self._token
-
-    def invalidate(self) -> None:
-        self._token = ""
-        self._token_ts = 0.0
-
-    # ------------------------------------------------------------------
-    # Convenience
-    # ------------------------------------------------------------------
-
-    def kwargs(
-        self,
-        *,
-        application_name: str = "ontobricks",
-        connect_timeout: int = 10,
-    ) -> dict:
-        return {
-            "host": self.host,
-            "port": self.port,
-            "dbname": self.database,
-            "user": self.user,
-            "password": self.password(),
-            "sslmode": "require",
-            "connect_timeout": connect_timeout,
-            "application_name": application_name,
-            "keepalives": 1,
-            "keepalives_idle": 10,
-            "keepalives_interval": 5,
-            "keepalives_count": 3,
-        }
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _ensure_workspace(self) -> None:
-        if self._w is None:
-            from databricks.sdk import WorkspaceClient
-
-            self._w = WorkspaceClient()
-
-    def _resolved_host(self) -> str:
-        if self._host:
-            return self._host
-        if not self._branch_path:
-            return ""
-        try:
-            self._ensure_workspace()
-            api = getattr(self._w, "api_client", None)
-            if api is None or not hasattr(api, "do"):
-                return ""
-            endpoints = (
-                api.do("GET", f"/api/2.0/postgres/{self._branch_path}/endpoints") or {}
-            ).get("endpoints") or []
-            for ep in endpoints:
-                h = ((ep.get("status") or {}).get("hosts") or {}).get("host", "").strip()
-                if h:
-                    self._host = h
-                    self._endpoint_resource = ep.get("name") or ""
-                    logger.info(
-                        "BranchLakebaseAuth resolved host %r for branch %r",
-                        h,
-                        self._branch_path,
-                    )
-                    return h
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "BranchLakebaseAuth endpoint resolution failed (branch=%r): %s",
-                self._branch_path,
-                exc,
-            )
-        return ""
-
-
 #: Cached auth objects, keyed by resolved mode, so switching modes in tests (or
 #: across a config reload) does not hand back a stale object.
 _defaults: dict = {}
@@ -727,27 +407,24 @@ def resolve_pg_auth_mode() -> str:
 
 
 def get_graph_auth(branch_path: str = "", database_override: str = ""):
-    """Return the auth object for a Postgres connection, honouring a branch.
+    """Return the auth object for the graph store's Postgres connection.
 
-    ``branch_path`` is a Lakebase concept (``projects/<p>/branches/<b>``) that
-    lets the graph store live on a different branch from the registry. It only
-    means anything in ``lakebase`` mode: an Azure Database for PostgreSQL server
-    has no branches, and :class:`BranchLakebaseAuth` would fail against one.
+    The graph store shares the registry's *server* — one ``PGHOST`` — and may
+    differ only by database and schema, both of which come from
+    ``graph_engine_config``.
 
-    Six call sites previously repeated this selection inline — ``GraphDBFactory``,
-    three in ``SettingsService`` and three in ``health`` — each with its own
-    subtly different fallback. Centralising it is what makes the branch override
-    correctly inert on Azure rather than a crash.
+    ``branch_path`` used to select a different Lakebase project/branch: a
+    control-plane addressing concept with no equivalent on any other PostgreSQL
+    server. Lakebase is now treated as exactly that — a Postgres endpoint
+    reached via ``PGHOST`` — so the parameter is retained only to keep the six
+    call sites' shape, and a non-empty value is logged and ignored.
     """
-    mode = resolve_pg_auth_mode()
-    if mode == "lakebase" and branch_path:
-        return BranchLakebaseAuth(branch_path, database_override)
-    if mode != "lakebase" and branch_path:
+    _ = database_override
+    if branch_path:
         logger.debug(
-            "Ignoring graph branch override %r: auth mode is %s, which has no "
-            "concept of branches",
+            "Ignoring graph branch override %r: the graph store shares the "
+            "registry server, addressed by PGHOST",
             branch_path,
-            mode,
         )
     return get_lakebase_auth()
 

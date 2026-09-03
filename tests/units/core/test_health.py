@@ -328,7 +328,8 @@ class TestCheckLakebase:
             status, detail = health._check_lakebase(MagicMock())
         assert status == "warning"
         assert "not bound" in detail
-        assert "LAKEBASE_PROJECT" in detail
+        # LAKEBASE_* is retired; the message now names the standard PG* vars.
+        assert "PGHOST" in detail
 
     def test_initialized_returns_ok(self):
         auth = MagicMock(is_available=True)

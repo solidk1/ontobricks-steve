@@ -733,3 +733,59 @@ the new name winning.
 
 Tests: **4835 passed, 21 skipped, 283 deselected**. The 7 co-tenancy `db` tests still pass
 against the live Azure server (19.58s). No new ruff violations (1 before, 1 after).
+
+## P3b — retire the LAKEBASE_* environment variables
+
+Context: feedback on P3 — *"don't keep lakebase related env var stay because lakebase is
+also a PG"*. Correct, and it goes further than the aliases P3 added. A Lakebase endpoint is
+a PostgreSQL endpoint; the only thing that differs is that its password is a short-lived JWT
+rather than a static secret, and `ONTOBRICKS_PG_AUTH` already selects that. A parallel
+variable set was never justified.
+
+Retired: `LAKEBASE_SCHEMA`, `LAKEBASE_DATABASE`, `LAKEBASE_PROJECT`, `LAKEBASE_BRANCH`.
+Every server — Azure, Lakebase, anything else — now uses `PGHOST` / `PGPORT` /
+`PGDATABASE` / `PGUSER` / `PGSSLMODE` plus `ONTOBRICKS_PG_SCHEMA` / `ONTOBRICKS_PG_DATABASE`.
+
+**Design decision: remove `BranchLakebaseAuth` entirely.** It existed to point the graph
+store at a different Lakebase *project/branch* — a control-plane addressing concept with no
+equivalent on any other PostgreSQL server. With Lakebase reached via `PGHOST` like anything
+else, the graph store shares the registry's server and differs only by database and schema,
+both already in `graph_engine_config`. `get_graph_auth` keeps its `branch_path` parameter so
+the six call sites' shape is unchanged, but logs and ignores a non-empty value.
+`graph_engine_config.lakebase_project` / `lakebase_branch` join the tolerated-legacy key
+list beside the retired `sync_*` keys, so stored configs still validate.
+
+**Design decision: the `Settings` attribute names stay `lakebase_schema` /
+`lakebase_database`.** They are also keys in persisted registry settings
+(`domain.settings["registry"]`, read by `RegistryCfg.from_domain`), so renaming needs a data
+migration. Only the *environment* alias list narrowed — and deliberately excludes the field
+name itself, because `case_sensitive=False` would otherwise let a stale `LAKEBASE_SCHEMA`
+match the attribute and keep working. That was caught by a test asserting the retired name
+is ignored; the first attempt at this change still resolved `LAKEBASE_SCHEMA` for exactly
+that reason.
+
+Changes: `LakebaseAuth` lost its project/branch host-resolution fallback, `branch_name`,
+`branch_path` and `is_available`'s branch-coordinate path; its docstring now states plainly
+that Lakebase is reached like any other server. `Settings.lakebase_branch` removed.
+`SettingsService` (8 sites) and `health` (3 sites) no longer read or advertise the retired
+variables. `.env.example` now documents one unified variable set.
+
+**Two bugs caught while verifying, both from over-wide excision:**
+
+1. Deleting `BranchLakebaseAuth` by line range also swallowed two module-level assignments
+   that sat between it and the next function (`_defaults`, `AZURE_PG_SUFFIX`), breaking auth
+   mode resolution. The excision script *printed* them as "module-level lines caught in
+   range" and I did not act on the warning.
+2. Removing `instance_name` broke `password()`, which calls it to populate the endpoint
+   resource path needed to mint the JWT — the code even carried a comment predicting exactly
+   this ("Reaching here means a future refactor broke that invariant"). It resolves the
+   endpoint by matching `PGHOST`, not by reading the retired variables, so it should never
+   have been removed. Restoring it from HEAD then re-included
+   `_resolve_host_from_project_branch`, which genuinely did read them, so that was excised
+   again separately.
+
+Tests: **4840 passed, 21 skipped, 283 deselected**. The 7 co-tenancy `db` tests still pass
+against the live Azure server (19.94s). No new ruff violations (1 before, 1 after).
+`tests/units/postgres/test_graph_auth_selection.py` rewritten (11 tests) to assert the
+branch override is inert, the class is gone, and a stale `LAKEBASE_SCHEMA` is ignored while
+`ONTOBRICKS_PG_SCHEMA` is honoured.

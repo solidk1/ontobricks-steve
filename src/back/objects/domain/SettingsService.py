@@ -669,19 +669,16 @@ class SettingsService:
         Returns an empty block when the Lakebase resource is not bound.
         Never raises and never includes the OAuth token.
 
-        Accepts two binding styles:
-        - Apps runtime: ``PGHOST``/``PGPORT``/``PGDATABASE``/``PGUSER``
-          auto-injected by the platform.
-        - Local dev: ``LAKEBASE_PROJECT`` + ``LAKEBASE_BRANCH``
-          + ``LAKEBASE_DATABASE`` + ``PGUSER`` — endpoint resolved via
-          the Postgres API by :class:`LakebaseAuth`.
+        Coordinates are the standard ``PGHOST``/``PGPORT``/``PGDATABASE``/
+        ``PGUSER``, auto-injected by the Databricks Apps runtime from a bound
+        ``database`` resource and set by hand otherwise.
 
         When bound, also tries to enrich the payload with Databricks
         metadata about the bound instance (name, tier, state,
         pg_version, node_count). The lookup is best-effort and
         degrades silently on failure.
 
-        ``database`` is the bound ``PGDATABASE`` / ``LAKEBASE_DATABASE``.
+        ``database`` is the bound ``PGDATABASE``.
         ``database_override`` is the (optional) admin-selected override
         stored in the registry config. ``effective_database`` is
         whichever of the two the store actually connects to — the
@@ -711,9 +708,9 @@ class SettingsService:
             }
 
         host = os.environ.get("PGHOST", "")
-        bound_db = os.environ.get("PGDATABASE", "") or os.environ.get("LAKEBASE_DATABASE", "")
-        branch = os.environ.get("LAKEBASE_BRANCH", "")
-        project = os.environ.get("LAKEBASE_PROJECT", "")
+        bound_db = os.environ.get("PGDATABASE", "")
+        branch = ""
+        project = ""
         effective_db = override_db or bound_db
 
         # Single probe: returns ``{initialized, populated}``. ``populated``
@@ -1725,7 +1722,7 @@ class SettingsService:
     ) -> Dict[str, Any]:
         """Return the engine-specific JSON configuration.
 
-        Empty ``lakebase_project``, ``lakebase_branch``, and ``database``
+        An empty ``database``
         fields are overlaid with env-var fallbacks so the Connection tab
         always reflects the current platform binding, even when the user
         has not yet explicitly saved those fields through the UI.
@@ -1743,13 +1740,7 @@ class SettingsService:
         )
         lb = dict(cfg.get("lakebase") or {})
 
-        _env_project = _os.environ.get("LAKEBASE_PROJECT", "")
-        _env_branch = _os.environ.get("LAKEBASE_BRANCH", "")
-        _env_db = _os.environ.get("PGDATABASE", "") or _os.environ.get("LAKEBASE_DATABASE", "")
-        if not lb.get("lakebase_project") and _env_project:
-            lb["lakebase_project"] = _env_project
-        if not lb.get("lakebase_branch") and _env_branch:
-            lb["lakebase_branch"] = _env_branch
+        _env_db = _os.environ.get("PGDATABASE", "")
         if not lb.get("database") and _env_db:
             lb["database"] = _env_db
         cfg["lakebase"] = lb
@@ -2005,12 +1996,12 @@ class SettingsService:
         try:
             host_display = auth.host
         except Exception:  # noqa: BLE001
-            host_display = os.environ.get("PGHOST", "") or os.environ.get("LAKEBASE_PROJECT", "")
+            host_display = os.environ.get("PGHOST", "")
 
         if not auth.is_available:
             raise ValidationError(
-                "Lakebase not available — set LAKEBASE_PROJECT + LAKEBASE_BRANCH + PGUSER "
-                "in .env (local), or bind a Databricks App postgres resource (deployed)."
+                "Postgres not available — set PGHOST + PGUSER + PGDATABASE in .env, "
+                "or bind a Databricks App postgres resource (deployed)."
             )
 
         try:
@@ -2648,7 +2639,7 @@ class SettingsService:
             )
             if not auth.is_available:
                 raise ValidationError(
-                    "Lakebase resource not bound (LAKEBASE_PROJECT/LAKEBASE_BRANCH/PGUSER missing)"
+                    "Postgres not configured (PGHOST/PGUSER/PGDATABASE missing)"
                 )
             psycopg, _ = _require_psycopg()
             kwargs = auth.kwargs(application_name="ontobricks-schema-list")

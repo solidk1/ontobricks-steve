@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover -- typing only
     from back.objects.registry.RegistryService import RegistryCfg
 
 
-_DEFAULT_LAKEBASE_SCHEMA = "ontobricks_registry"
+_DEFAULT_PG_SCHEMA = "ontobricks_registry"
 
 
 class RegistryFactory:
@@ -52,7 +52,7 @@ class RegistryFactory:
     def lakebase(
         *,
         registry_cfg: "RegistryCfg",
-        schema: str = _DEFAULT_LAKEBASE_SCHEMA,
+        schema: str = _DEFAULT_PG_SCHEMA,
         database: str = "",
     ) -> RegistryStore:
         """Build a Lakebase (Postgres) store.
@@ -69,7 +69,7 @@ class RegistryFactory:
 
         return PostgresRegistryStore(
             registry_cfg=registry_cfg,
-            schema=schema or _DEFAULT_LAKEBASE_SCHEMA,
+            schema=schema or _DEFAULT_PG_SCHEMA,
             database=database,
         )
 

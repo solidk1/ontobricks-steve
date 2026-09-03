@@ -70,10 +70,10 @@ class TestEntraLive:
         refreshed inside an open session, so it must be minted per connection.
         """
         pytest.importorskip("psycopg")
+        from back.core.postgres import PostgresAuth
         from back.core.postgres.PostgresConnectionPool import (
             PostgresConnectionPool,
         )
-        from back.core.postgres import PostgresAuth
 
         auth = PostgresAuth(auth_mode="entra")
         calls: list[int] = []

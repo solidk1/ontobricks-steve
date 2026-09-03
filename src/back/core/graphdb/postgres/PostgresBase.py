@@ -64,6 +64,11 @@ _IGNORED_LEGACY_SYNC_KEYS = (
     "sync_timeout_s",
     "sync_uc_catalog",
     "sync_uc_schema",
+    # Lakebase control-plane addressing. A Lakebase endpoint is now reached the
+    # same way as any other PostgreSQL server — via PGHOST — so a stored
+    # project/branch no longer selects anything.
+    "lakebase_project",
+    "lakebase_branch",
 )
 
 

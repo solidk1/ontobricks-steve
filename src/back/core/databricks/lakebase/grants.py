@@ -30,7 +30,7 @@ human-readable strings the caller aggregates into its task/route result.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from back.core.logging import get_logger
 
@@ -41,7 +41,7 @@ def resolve_mcp_app_name(
     app_name: str = "",
     *,
     explicit: str = "",
-    env: Optional[Dict[str, str]] = None,
+    env: dict[str, str] | None = None,
 ) -> str:
     """Resolve the MCP companion Databricks App name.
 
@@ -76,16 +76,16 @@ def resolve_mcp_app_name(
 
 
 def resolve_app_service_principals(
-    api: Any, app_names: List[str]
-) -> Tuple[Dict[str, str], List[str]]:
+    api: Any, app_names: list[str]
+) -> tuple[dict[str, str], list[str]]:
     """Resolve each app's ``service_principal_client_id`` via the Apps API.
 
     Missing apps are skipped with a warning (mirrors the bash ``SKIP``
     path). Returns an ordered ``{app_name: sp_client_id}`` mapping plus the
     list of warnings for apps that could not be resolved.
     """
-    sp_ids: Dict[str, str] = {}
-    warnings: List[str] = []
+    sp_ids: dict[str, str] = {}
+    warnings: list[str] = []
     for app_name in app_names:
         if not app_name:
             continue
@@ -106,8 +106,8 @@ def resolve_app_service_principals(
 
 
 def grant_can_use_on_project(
-    api: Any, project_short: str, sp_ids: Dict[str, str]
-) -> Tuple[List[str], List[str]]:
+    api: Any, project_short: str, sp_ids: dict[str, str]
+) -> tuple[list[str], list[str]]:
     """Grant ``CAN_USE`` on the Lakebase project to each service principal.
 
     Tries both the Autoscaling (``database-projects``) and Provisioned
@@ -120,8 +120,8 @@ def grant_can_use_on_project(
     points operators at the bootstrap script rather than implying the
     privilege is missing.
     """
-    granted: List[str] = []
-    warnings: List[str] = []
+    granted: list[str] = []
+    warnings: list[str] = []
     for app_name, sp_id in sp_ids.items():
         ok = False
         for securable in ("database-projects", "database-instances"):
@@ -160,8 +160,8 @@ def grant_can_use_on_project(
 
 
 def grant_schema_privileges(
-    conn: Any, schema: str, sp_ids: Dict[str, str]
-) -> Tuple[List[str], List[str]]:
+    conn: Any, schema: str, sp_ids: dict[str, str]
+) -> tuple[list[str], list[str]]:
     """Grant ``USAGE``/``CREATE``/DML + default privileges on *schema*.
 
     ``conn`` is an open (autocommit) psycopg connection owned by the
@@ -169,8 +169,8 @@ def grant_schema_privileges(
     on one SP (e.g. its Postgres role does not exist yet) does not stop the
     others.
     """
-    granted: List[str] = []
-    warnings: List[str] = []
+    granted: list[str] = []
+    warnings: list[str] = []
     sch = schema
     for app_name, sp_id in sp_ids.items():
         try:
@@ -208,15 +208,15 @@ def grant_schema_privileges(
 
 
 def grant_uc_catalog(
-    api: Any, uc_catalog: str, sp_ids: Dict[str, str]
-) -> Tuple[List[str], List[str]]:
+    api: Any, uc_catalog: str, sp_ids: dict[str, str]
+) -> tuple[list[str], list[str]]:
     """Grant ``ALL_PRIVILEGES`` on the Unity Catalog catalog to each SP.
 
     Required so the SP can read back synced tables regardless of who
     created them. Best-effort — needs ``MANAGE`` on the catalog.
     """
-    granted: List[str] = []
-    warnings: List[str] = []
+    granted: list[str] = []
+    warnings: list[str] = []
     for app_name, sp_id in sp_ids.items():
         try:
             api.do(

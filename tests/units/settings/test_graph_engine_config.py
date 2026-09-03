@@ -559,7 +559,7 @@ class TestGraphEngineLakebaseHealth:
         auth = MagicMock()
         auth.is_available = False
         with patch("back.core.databricks.get_graph_auth", return_value=auth):
-            with pytest.raises(ValidationError, match="Lakebase not available"):
+            with pytest.raises(ValidationError, match="Postgres not available"):
                 SettingsService.graph_engine_lakebase_health_result(session_mgr, settings)
 
     def test_probe_success_schema_exists(self):

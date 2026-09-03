@@ -4,7 +4,6 @@ from functools import lru_cache
 
 from back.core.databricks.DatabricksAuth import DatabricksAuth  # noqa: F401
 from back.core.databricks.lakebase import (  # noqa: F401
-    BranchLakebaseAuth,
     LakebaseAuth,
     get_graph_auth,
     get_lakebase_auth,
@@ -59,7 +58,6 @@ def get_local_user_email() -> str:
 __all__ = [
     "DatabricksAuth",
     "LakebaseAuth",
-    "BranchLakebaseAuth",
     "get_lakebase_auth",
     "get_graph_auth",
     "DatabricksClient",

@@ -3,7 +3,7 @@
 This is the single technical connection layer shared by every Lakebase
 consumer — the registry store and the graph triple store. Those two remain
 **independent databases**: each caller supplies its own ``auth`` object
-(``LakebaseAuth`` or ``BranchLakebaseAuth``), ``schema`` and optional
+(``PostgresAuth`` or ``LakebaseAuth``), ``schema`` and optional
 ``database`` override, so different projects / databases / schemas never
 share a pool.
 

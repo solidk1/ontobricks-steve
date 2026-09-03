@@ -3,10 +3,10 @@
 Used across the codebase (HTML routes, objects, external ``api`` package, FastAPI).
 """
 
-from pydantic_settings import BaseSettings
-from pydantic import AliasChoices, ConfigDict, Field
 from functools import lru_cache
-import os
+
+from pydantic import AliasChoices, ConfigDict, Field
+from pydantic_settings import BaseSettings
 
 
 def _get_default_session_dir() -> str:
@@ -47,40 +47,29 @@ class Settings(BaseSettings):
     # existing database as this one schema and touches nothing outside it, so
     # ``DROP SCHEMA <this> CASCADE`` uninstalls it completely.
     #
-    # The field keeps its ``lakebase_`` name because it is surfaced as a key in
-    # ``RegistryCfg.as_dict()``, which is consumed widely; renaming it would be
-    # churn with no benefit. ``ONTOBRICKS_PG_SCHEMA`` is the forward-looking
-    # env name and wins, with ``LAKEBASE_SCHEMA`` still honoured so existing
-    # deployments keep working.
+    # ``ONTOBRICKS_PG_SCHEMA`` is the only environment name. ``LAKEBASE_SCHEMA``
+    # is retired: Lakebase is a PostgreSQL server like any other and uses the
+    # same variables.
+    #
+    # The *attribute* keeps its ``lakebase_`` name because it is also a key in
+    # persisted registry settings (``domain.settings["registry"]``, read in
+    # ``RegistryCfg.from_domain``); renaming it would need a data migration.
+    # Only the alias list is narrowed — and deliberately does not include the
+    # field name, because ``case_sensitive=False`` would then let a stale
+    # ``LAKEBASE_SCHEMA`` match it again.
     lakebase_schema: str = Field(
         default="ontobricks_registry",
-        validation_alias=AliasChoices(
-            "ONTOBRICKS_PG_SCHEMA",
-            "LAKEBASE_SCHEMA",
-            "lakebase_schema",
-        ),
+        validation_alias=AliasChoices("ONTOBRICKS_PG_SCHEMA"),
     )
 
     # Optional override of the Postgres database name. Empty (the default)
     # means "use PGDATABASE". Setting it points the registry at a different
     # database on the same server; the connecting principal needs ``CONNECT``
-    # on it. Naming rationale as for ``lakebase_schema`` above.
+    # on it. ``LAKEBASE_DATABASE`` is retired — see above.
     lakebase_database: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "ONTOBRICKS_PG_DATABASE",
-            "LAKEBASE_DATABASE",
-            "lakebase_database",
-        ),
+        validation_alias=AliasChoices("ONTOBRICKS_PG_DATABASE"),
     )
-
-    # Lakebase: branch within the project to connect to.
-    # In production the Apps runtime resolves the branch implicitly via
-    # the ``database`` resource binding (PGHOST already encodes the
-    # branch endpoint). In local dev, set this together with
-    # ``LAKEBASE_PROJECT`` so ``LakebaseAuth`` can resolve the
-    # endpoint hostname without requiring the raw URL.
-    lakebase_branch: str = "main"
 
     # Databricks App name (for permission management).
     # Reads ``ONTOBRICKS_APP_NAME`` first (explicit override, e.g. via .env
@@ -217,16 +206,15 @@ class Settings(BaseSettings):
         env_prefix="",
         case_sensitive=False,
         env_file=".env",
-        # ``PGHOST``/``PGPORT``/``PGDATABASE``/``PGUSER`` and
-        # ``LAKEBASE_PROJECT`` are consumed directly via
-        # ``os.environ`` by :class:`back.core.databricks.lakebase.LakebaseAuth`
-        # — they don't need to be Pydantic fields. ``ignore`` keeps
-        # the .env file tolerant of extra Lakebase-related entries.
+        # ``PGHOST``/``PGPORT``/``PGDATABASE``/``PGUSER`` are read directly
+        # from ``os.environ`` by the Postgres auth classes, so they need no
+        # Pydantic fields. ``ignore`` keeps a ``.env`` carrying retired
+        # ``LAKEBASE_*`` entries from failing to load.
         extra="ignore",
     )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
