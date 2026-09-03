@@ -20,7 +20,7 @@ import hashlib
 
 import pytest
 
-from tests.fixtures.factories.databricks.lakebase_pg_fixture import (  # noqa: F401
+from tests.fixtures.factories.databricks.postgres_dsn_fixture import (  # noqa: F401
     lakebase_pg,
     pg_conn,
     throwaway_schema,

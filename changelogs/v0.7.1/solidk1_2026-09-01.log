@@ -956,3 +956,75 @@ Also fixed: `tests/units/graphdb/test_neo4j_store.py` signalled "production" wit
 Tests: **4796 passed, 21 skipped, 283 deselected**. 16 new app-role route tests cover the
 admin guard across five non-admin roles, group grants, and the last-admin protection. No new
 ruff violations (1 before, 1 after).
+
+## P7b — close the loose ends
+
+### The three deselected health tests
+
+Diagnosed rather than worked around. The stall was **not** DNS or `connect` — a
+`SIGALRM` stack dump showed it inside `urllib3`'s `Retry._sleep_backoff`: the
+databricks-sql-connector catches the connection failure and sleeps through an
+exponential retry chain. Blocking sockets could never fix it, because the library
+swallows the error.
+
+Real fix: an autouse fixture stubbing `health._build_health_client` to `None` — the
+documented "no credentials" path — in `TestRunReadinessChecks` and `TestHealthRoutes`.
+15 checks now complete instantly. **The suite runs clean with no `--deselect` at all.**
+
+Deselecting had also been hiding a stale assertion: `test_shape` still expected a check
+named `lakebase`, renamed to `postgres` back in P3d. A test that never runs cannot fail.
+
+Added a `no_network` autouse fixture anyway (blocks `connect`, `connect_ex` and
+`getaddrinfo` to non-loopback, exempting `db` / `external` / `live_integration` / `e2e` /
+`eval` / `spark` / `allow_network`). It does not solve the retry-backoff case, but it makes
+the *category* fail fast and self-identifying for the next mistake.
+
+### Dead health check removed
+
+`_check_lakebase_accelerated_sync` probed the Database Synced Tables API — the feature P5b
+deleted. It was reporting on a capability nothing uses, registered twice. Removed, along
+with its two registrations and its user-agent test. Remaining ids aligned:
+`lakebase.permissions` → `postgres.permissions`, `graphdb.lakebase` → `graphdb.postgres`,
+and the functions renamed to match.
+
+### CI now runs the `db` tests
+
+`.github/workflows/ci.yml` gained a `postgres:16-alpine` service and sets
+`ONTOBRICKS_TEST_DSN` against it. Docker-in-Docker is unavailable on the runner, so
+testcontainers cannot be used — the DSN path in the fixture exists for exactly this. The
+co-tenancy contract and the migration round-trip were previously unverified in CI because
+those tests silently skipped.
+
+### Legacy config proven against a real database
+
+`test_legacy_config_roundtrip.py` (5 tests) writes a 0.7-shaped `graph_engine_config` — the
+bucket keyed `lakebase`, carrying `sync_mode`, `sync_uc_catalog`, `lakebase_branch` — into a
+real `jsonb` column, reads it back through psycopg, and asserts it resolves, that a read
+leaves the stored row untouched, that a rewrite emits `postgres` and drops `lakebase`, and
+that the retired keys still validate. The previous 17 tests were in-memory only, which is
+not the same as surviving a real read-modify-write cycle. **Passes against the live Azure
+server.**
+
+`lakebase_pg_fixture.py` renamed to `postgres_dsn_fixture.py`.
+
+### Frontend guard
+
+The P3d break — ~25 JS sites comparing against `'lakebase'` after the backend switched to
+`postgres`, so those branches could never fire — was found by grepping, with the whole
+Python suite green. `test_frontend_canonical_values.py` (12 tests) now asserts no JS
+defaults to or compares solely against the retired value, that engine label maps carry the
+canonical key, that the domain picker writes `value="postgres"`, and that every touched JS
+file parses under `node --check`.
+
+**Verified the guard actually works**: re-injecting the exact P3d regression
+(`|| 'lakebase'`) makes it fail, and reverting makes it pass. A guard that has not been
+seen to fail is not a guard.
+
+Two deliberate compromises, both recorded in the file: the two remaining `s === 'lakebase'`
+lines are *sidebar section ids*, not engine values, so they are allowlisted individually
+rather than by loosening the pattern; and a hand-rolled brace counter was replaced with
+`node --check` after it gave false positives on regex literals — it skips honestly when node
+is absent rather than approximating a parser.
+
+Tests: **4811 passed, 24 skipped, 280 deselected** — and for the first time in this work,
+**with no `--deselect` flags**. No new ruff violations (1 before, 1 after).

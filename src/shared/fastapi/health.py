@@ -40,15 +40,15 @@ import shutil
 import sys
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from shared.config.constants import APP_VERSION, HTTP_USER_AGENT
-from shared.config.settings import Settings, get_settings
-
 from back.core.helpers import run_blocking
 from back.core.logging import get_logger
+from shared.config.constants import APP_VERSION
+from shared.config.settings import Settings, get_settings
 
 logger = get_logger(__name__)
 
@@ -65,7 +65,7 @@ _SEVERITY_RANK = {_OK: 0, _WARNING: 1, _ERROR: 2}
 # ---------------------------------------------------------------------------
 
 
-def _safely_run(name: str, label: str, fn: Callable[[], Tuple[str, str]]) -> Dict[str, Any]:
+def _safely_run(name: str, label: str, fn: Callable[[], tuple[str, str]]) -> dict[str, Any]:
     """Run *fn* and convert it to a stable check dict.
 
     *fn* is expected to return ``(status, detail)``. Any exception is
@@ -96,7 +96,7 @@ def _format_gb(num_bytes: int) -> str:
     return f"{num_bytes / (1024 ** 3):.2f} GB"
 
 
-def _check_directory_writable(path: str, *, low_warn_gb: float = 1.0, low_err_gb: float = 0.1) -> Tuple[str, str]:
+def _check_directory_writable(path: str, *, low_warn_gb: float = 1.0, low_err_gb: float = 0.1) -> tuple[str, str]:
     """Generic "this directory is usable" probe.
 
     Verifies the directory exists (creating it if missing), is
@@ -131,17 +131,17 @@ def _check_directory_writable(path: str, *, low_warn_gb: float = 1.0, low_err_gb
     return _OK, base_msg
 
 
-def _check_tmp() -> Tuple[str, str]:
+def _check_tmp() -> tuple[str, str]:
     return _check_directory_writable("/tmp", low_warn_gb=1.0, low_err_gb=0.1)
 
 
-def _check_session_dir(settings: Settings) -> Tuple[str, str]:
+def _check_session_dir(settings: Settings) -> tuple[str, str]:
     return _check_directory_writable(
         settings.session_dir, low_warn_gb=0.5, low_err_gb=0.05
     )
 
 
-def _check_log_dir() -> Tuple[str, str]:
+def _check_log_dir() -> tuple[str, str]:
     """Resolve the live log directory and verify it is writable."""
     from back.core.logging.LogManager import LogManager
 
@@ -161,7 +161,7 @@ def _check_log_dir() -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_databricks_auth() -> Tuple[str, str]:
+def _check_databricks_auth() -> tuple[str, str]:
     """Verify the app has usable Databricks credentials.
 
     Exercises the active auth path eagerly (M2M OAuth for a service
@@ -199,7 +199,7 @@ def _check_databricks_auth() -> Tuple[str, str]:
     return _OK, f"Personal Access Token configured (host={auth.host})"
 
 
-def _build_health_client(settings: Optional[Settings] = None):
+def _build_health_client(settings: Settings | None = None):
     """Instantiate a ``DatabricksClient`` with no domain/session.
 
     ``get_databricks_client`` already supports a ``None`` domain via
@@ -211,7 +211,7 @@ def _build_health_client(settings: Optional[Settings] = None):
     return get_databricks_client(None, settings or get_settings())
 
 
-def _check_warehouse(settings: Optional[Settings] = None) -> Tuple[str, str]:
+def _check_warehouse(settings: Settings | None = None) -> tuple[str, str]:
     client = _build_health_client(settings)
     if client is None:
         return _WARNING, "No Databricks credentials available — warehouse not probed"
@@ -221,7 +221,7 @@ def _check_warehouse(settings: Optional[Settings] = None) -> Tuple[str, str]:
     return (_OK if ok else _ERROR), msg
 
 
-def _check_cloud_fetch(settings: Optional[Settings] = None) -> Tuple[str, str]:
+def _check_cloud_fetch(settings: Settings | None = None) -> tuple[str, str]:
     """Report CloudFetch capability via the real runtime probe.
 
     Always calls :meth:`DatabricksAuth.probe_cloud_fetch_capability`,
@@ -252,7 +252,7 @@ def _resolve_registry_cfg(settings: Settings):
     return RegistryCfg.from_domain(None, settings)
 
 
-def _check_registry_cfg(settings: Settings) -> Tuple[str, str]:
+def _check_registry_cfg(settings: Settings) -> tuple[str, str]:
     cfg = _resolve_registry_cfg(settings)
     if not (cfg.catalog and cfg.schema and cfg.volume):
         return (
@@ -267,7 +267,7 @@ def _check_registry_cfg(settings: Settings) -> Tuple[str, str]:
     )
 
 
-def _check_registry_volume_read(settings: Settings) -> Tuple[str, str]:
+def _check_registry_volume_read(settings: Settings) -> tuple[str, str]:
     cfg = _resolve_registry_cfg(settings)
     if not (cfg.catalog and cfg.schema and cfg.volume):
         return _WARNING, "Registry volume not configured — skipped"
@@ -285,7 +285,7 @@ def _check_registry_volume_read(settings: Settings) -> Tuple[str, str]:
     return _ERROR, f"Cannot list {vol_path}: {msg}"
 
 
-def _check_registry_volume_write(settings: Settings) -> Tuple[str, str]:
+def _check_registry_volume_write(settings: Settings) -> tuple[str, str]:
     """End-to-end write probe — write a tiny sentinel and delete it.
 
     Far stronger than ``SHOW GRANTS`` because it actually exercises the
@@ -320,7 +320,7 @@ def _check_registry_volume_write(settings: Settings) -> Tuple[str, str]:
     )
 
 
-def _check_registry_uc_schema_ddl() -> Tuple[str, str]:
+def _check_registry_uc_schema_ddl() -> tuple[str, str]:
     """Probe ``CREATE OR REPLACE VIEW`` in the registry schema.
 
     The Digital-Twin build creates views in the registry catalog/schema.
@@ -358,7 +358,7 @@ def _check_registry_uc_schema_ddl() -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
+def _check_graphdb_postgres(settings: Settings) -> tuple[str, str]:
     """Probe the configured Graph DB Lakebase database and graph schema.
 
     Uses the same auth selection as :class:`GraphDBFactory._create_lakebase`:
@@ -429,7 +429,7 @@ def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_lakebase(settings: Settings) -> Tuple[str, str]:
+def _check_postgres(settings: Settings) -> tuple[str, str]:
     from back.core.databricks.lakebase import get_lakebase_auth
 
     auth = get_lakebase_auth()
@@ -462,7 +462,7 @@ def _check_lakebase(settings: Settings) -> Tuple[str, str]:
     return _ERROR, str(err)
 
 
-def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
+def _check_postgres_permissions(settings: Settings) -> tuple[str, str]:
     """Verify Lakebase registry privileges expected by OntoBricks runtime."""
     from back.core.databricks.lakebase import get_lakebase_auth
 
@@ -542,7 +542,7 @@ def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
     except Exception as exc:  # noqa: BLE001
         return _ERROR, f"Lakebase permission probe failed: {exc}"
 
-    missing: List[str] = []
+    missing: list[str] = []
     if not has_usage:
         missing.append("schema USAGE")
     if not has_create:
@@ -582,76 +582,9 @@ def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_lakebase_accelerated_sync(settings: Optional[Settings] = None) -> Tuple[str, str]:
-    """Probe whether Lakebase Accelerated Sync (Database Synced Tables) is available.
-
-    Sends a lightweight ``GET /api/2.0/database/synced_tables?limit=1`` request
-    using the workspace bearer token.  Three outcomes are distinguished:
-
-    * **ok** — the endpoint returned HTTP 200; the feature is enabled and
-      accessible in this workspace.
-    * **warning** — the workspace is reachable but the endpoint returned 403 or
-      404, indicating the feature is not yet activated (e.g. workspace preview
-      not enabled, region not supported, or entitlement missing).
-    * **error** — credentials are unavailable, the host is not configured, or
-      an unexpected HTTP / network error was encountered.
-    """
-    from back.core.databricks.DatabricksAuth import DatabricksAuth
-
-    auth = DatabricksAuth()
-    if not auth.has_valid_auth():
-        return _WARNING, "Databricks credentials unavailable — Accelerated Sync not probed"
-    if not auth.host:
-        return _WARNING, "DATABRICKS_HOST not configured — Accelerated Sync not probed"
-
-    import requests as _requests
-
-    url = f"{auth.host}/api/2.0/database/synced_tables"
-    headers = {
-        "Authorization": f"Bearer {auth.get_bearer_token()}",
-        "Accept": "application/json",
-        "User-Agent": HTTP_USER_AGENT,
-    }
-    try:
-        resp = _requests.get(url, headers=headers, params={"limit": "1"}, timeout=10)
-    except Exception as exc:  # noqa: BLE001
-        return _ERROR, f"Accelerated Sync probe request failed: {exc}"
-
-    if resp.status_code == 200:
-        data = resp.json() if resp.content else {}
-        count = len(data.get("synced_database_tables") or data.get("tables") or [])
-        return _OK, f"Lakebase Accelerated Sync enabled — {count} synced table(s) found"
-
-    if resp.status_code in (403, 404):
-        try:
-            msg = (resp.json() or {}).get("message") or resp.text or ""
-        except Exception:  # noqa: BLE001
-            msg = resp.text or ""
-        return (
-            _WARNING,
-            f"Lakebase Accelerated Sync not available in this workspace "
-            f"(HTTP {resp.status_code}"
-            + (f": {msg[:200]}" if msg else "")
-            + ") — enable the preview from workspace Previews settings",
-        )
-
-    try:
-        err_msg = (resp.json() or {}).get("message") or resp.text or ""
-    except Exception:  # noqa: BLE001
-        err_msg = resp.text or ""
-    return (
-        _ERROR,
-        f"Accelerated Sync probe returned unexpected HTTP {resp.status_code}"
-        + (f": {err_msg[:200]}" if err_msg else ""),
-    )
 
 
-# ---------------------------------------------------------------------------
-# Diagnostics probes (admin-only, grouped by subsystem)
-# ---------------------------------------------------------------------------
-
-
-def _check_uc_catalog_privileges(settings: Settings) -> Tuple[str, str]:
+def _check_uc_catalog_privileges(settings: Settings) -> tuple[str, str]:
     """Verify the app identity can USE the registry UC catalog (list its schemas)."""
     cfg = _resolve_registry_cfg(settings)
     if not cfg.catalog:
@@ -684,7 +617,7 @@ def _check_uc_catalog_privileges(settings: Settings) -> Tuple[str, str]:
         return _ERROR, f"Catalog privilege check failed: {exc}"
 
 
-def _check_uc_schema_privileges(settings: Settings) -> Tuple[str, str]:
+def _check_uc_schema_privileges(settings: Settings) -> tuple[str, str]:
     """Verify USE SCHEMA on the registry schema (list its objects)."""
     cfg = _resolve_registry_cfg(settings)
     if not (cfg.catalog and cfg.schema):
@@ -713,7 +646,7 @@ def _check_uc_schema_privileges(settings: Settings) -> Tuple[str, str]:
         return _ERROR, f"Schema privilege check failed: {exc}"
 
 
-def _check_uc_create_table_privilege(settings: Settings) -> Tuple[str, str]:
+def _check_uc_create_table_privilege(settings: Settings) -> tuple[str, str]:
     """Probe CREATE TABLE + DROP TABLE in the registry schema.
 
     The Delta triple-store backend creates Delta TABLEs (not just VIEWs) in the
@@ -756,7 +689,7 @@ def _check_uc_create_table_privilege(settings: Settings) -> Tuple[str, str]:
     return _OK, f"CREATE TABLE / DROP TABLE succeeded in {cfg.catalog}.{cfg.schema}"
 
 
-def _check_lakebase_env_vars() -> Tuple[str, str]:
+def _check_lakebase_env_vars() -> tuple[str, str]:
     """Verify the Lakebase PG* env vars are present (must be injected by Databricks Apps).
 
     OntoBricks requires ``PGHOST``, ``PGDATABASE``, and ``PGUSER`` to be set.
@@ -768,8 +701,8 @@ def _check_lakebase_env_vars() -> Tuple[str, str]:
     in ``.env``
     can be used instead of raw ``PG*`` values — see ``LakebaseAuth`` docs).
     """
-    missing: List[str] = []
-    present: List[str] = []
+    missing: list[str] = []
+    present: list[str] = []
 
     for var in ("PGHOST", "PGDATABASE", "PGUSER"):
         if os.environ.get(var, "").strip():
@@ -799,7 +732,7 @@ def _check_lakebase_env_vars() -> Tuple[str, str]:
     )
 
 
-def _check_lakebase_psycopg() -> Tuple[str, str]:
+def _check_lakebase_psycopg() -> tuple[str, str]:
     """Verify the ``psycopg`` (v3) driver is installed and importable.
 
     ``psycopg`` is the only Postgres client used by OntoBricks; it is listed in
@@ -822,7 +755,7 @@ def _check_lakebase_psycopg() -> Tuple[str, str]:
         )
 
 
-def _check_lakebase_registry_initialized(settings: Settings) -> Tuple[str, str]:
+def _check_lakebase_registry_initialized(settings: Settings) -> tuple[str, str]:
     """Verify the registry schema has been initialized (registries row exists).
 
     The app cannot function without at least one row in the ``registries`` table
@@ -891,7 +824,7 @@ def _check_lakebase_registry_initialized(settings: Settings) -> Tuple[str, str]:
     return _ERROR, f"Registry not initialized ({reason}): {err}"
 
 
-def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
+def _check_lakebase_registry_tables(settings: Settings) -> tuple[str, str]:
     """Verify all expected Lakebase registry tables exist in the registry schema.
 
     Tables are split into three tiers:
@@ -911,8 +844,8 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
 
     cfg = _resolve_registry_cfg(settings)
     from back.objects.registry.store.postgres.store import (
-        PostgresRegistryStore,
         _KNOWN_TABLES,
+        PostgresRegistryStore,
     )
 
     store = PostgresRegistryStore(
@@ -976,7 +909,7 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
             if missing_seqs
             else f"; {len(existing_seqs)} sequence(s) present"
         )
-        lazy_note = f"; lazy table 'domain_change_events' present" if lazy_present else ""
+        lazy_note = "; lazy table 'domain_change_events' present" if lazy_present else ""
 
         base_msg = (
             f"{len(present)}/{len(_KNOWN_TABLES)} schema-DDL tables present in "
@@ -995,7 +928,7 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
             return (
                 _WARNING,
                 base_msg
-                + f". Optional tables absent (created on first use): "
+                + ". Optional tables absent (created on first use): "
                 + ", ".join(sorted(missing_opt)),
             )
         return _OK, base_msg
@@ -1003,7 +936,7 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
         return _ERROR, f"Registry table existence check failed: {exc}"
 
 
-def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
+def _check_graphdb_tables(settings: Settings) -> tuple[str, str]:
     """Report how many tables / views are in the configured graph DB schema."""
     from back.core.databricks.lakebase import get_graph_auth
 
@@ -1065,7 +998,7 @@ def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
         return _ERROR, f"Graph DB table check failed (schema={schema}): {exc}"
 
 
-def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
+def _check_graphdb_permissions(settings: Settings) -> tuple[str, str]:
     """Verify SELECT / INSERT / UPDATE / DELETE on the graph DB schema tables."""
     from back.core.databricks.lakebase import get_graph_auth
 
@@ -1132,7 +1065,7 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
                 0,
             )
 
-        missing: List[str] = []
+        missing: list[str] = []
         if not has_usage:
             missing.append("schema USAGE")
         if not has_create:
@@ -1165,7 +1098,7 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
 
 
 
-def _check_delta_warehouse(settings: Settings) -> Tuple[str, str]:
+def _check_delta_warehouse(settings: Settings) -> tuple[str, str]:
     """Check whether the Lakehouse SQL warehouse is configured and reachable."""
     cfg = _resolve_registry_cfg(settings)
     try:
@@ -1201,7 +1134,7 @@ def _check_delta_warehouse(settings: Settings) -> Tuple[str, str]:
     return (_OK if ok else _ERROR), f"Delta warehouse {delta_warehouse_id}: {msg}"
 
 
-def _check_delta_objects_exist(settings: Settings) -> Tuple[str, str]:
+def _check_delta_objects_exist(settings: Settings) -> tuple[str, str]:
     """Check whether Delta triple-store objects exist in the registry UC schema."""
     cfg = _resolve_registry_cfg(settings)
     if not (cfg.catalog and cfg.schema):
@@ -1254,7 +1187,7 @@ def _check_delta_objects_exist(settings: Settings) -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any]:
+def run_diagnostics_checks(settings: Settings | None = None) -> dict[str, Any]:
     """Run comprehensive diagnostics, grouped by subsystem.
 
     Returns four groups:
@@ -1268,7 +1201,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
     """
     settings = settings or get_settings()
     groups = []
-    all_checks: List[Dict[str, Any]] = []
+    all_checks: list[dict[str, Any]] = []
 
     # ── Group 1: Unity Catalog — Registry ──────────────────────────────────
     uc_checks = [
@@ -1343,7 +1276,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
         _safely_run(
             "lakebase.connection",
             "Registry Postgres — connection + USAGE check",
-            lambda: _check_lakebase(settings),
+            lambda: _check_postgres(settings),
         ),
         _safely_run(
             "lakebase.initialized",
@@ -1356,9 +1289,9 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
             lambda: _check_lakebase_registry_tables(settings),
         ),
         _safely_run(
-            "lakebase.permissions",
+            "postgres.permissions",
             "Registry schema — Postgres DML privileges",
-            lambda: _check_lakebase_permissions(settings),
+            lambda: _check_postgres_permissions(settings),
         ),
     ]
     groups.append(
@@ -1394,7 +1327,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
         _safely_run(
             "graphdb.connection",
             "Graph DB — connection + schema exists",
-            lambda: _check_graphdb_lakebase(settings),
+            lambda: _check_graphdb_postgres(settings),
         ),
         _safely_run(
             "graphdb.tables",
@@ -1442,11 +1375,6 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
             "Delta triple-store objects in UC schema",
             lambda: _check_delta_objects_exist(settings),
         ),
-        _safely_run(
-            "delta.accelerated_sync",
-            "Lakebase Accelerated Sync (optional)",
-            lambda: _check_lakebase_accelerated_sync(settings),
-        ),
     ]
     groups.append(
         {
@@ -1488,7 +1416,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def run_readiness_checks(settings: Optional[Settings] = None) -> Dict[str, Any]:
+def run_readiness_checks(settings: Settings | None = None) -> dict[str, Any]:
     """Execute every probe sequentially and roll up the worst severity.
 
     The function is synchronous so individual probes can use blocking
@@ -1498,7 +1426,7 @@ def run_readiness_checks(settings: Optional[Settings] = None) -> Dict[str, Any]:
     """
     settings = settings or get_settings()
 
-    checks: List[Dict[str, Any]] = []
+    checks: list[dict[str, Any]] = []
     checks.append(
         _safely_run(
             "runtime",
@@ -1569,28 +1497,21 @@ def run_readiness_checks(settings: Optional[Settings] = None) -> Dict[str, Any]:
         _safely_run(
             "postgres",
             "PostgreSQL — Registry",
-            lambda: _check_lakebase(settings),
+            lambda: _check_postgres(settings),
         )
     )
     checks.append(
         _safely_run(
-            "lakebase.permissions",
+            "postgres.permissions",
             "Lakebase — Registry permissions",
-            lambda: _check_lakebase_permissions(settings),
+            lambda: _check_postgres_permissions(settings),
         )
     )
     checks.append(
         _safely_run(
-            "graphdb.lakebase",
+            "graphdb.postgres",
             "Lakebase — Graph DB (separate database)",
-            lambda: _check_graphdb_lakebase(settings),
-        )
-    )
-    checks.append(
-        _safely_run(
-            "lakebase.accelerated_sync",
-            "Lakebase Accelerated Sync",
-            lambda: _check_lakebase_accelerated_sync(settings),
+            lambda: _check_graphdb_postgres(settings),
         )
     )
 

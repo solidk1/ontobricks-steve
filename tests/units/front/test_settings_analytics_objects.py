@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SETTINGS_JS = REPO_ROOT / "src/front/static/config/js/settings.js"
 

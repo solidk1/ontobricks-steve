@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INFO_HTML = REPO_ROOT / "src/front/templates/partials/mapping/_mapping_information.html"
 DESIGN_HTML = REPO_ROOT / "src/front/templates/partials/mapping/_mapping_design.html"

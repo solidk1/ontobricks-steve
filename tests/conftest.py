@@ -3,9 +3,9 @@
 import importlib.util
 import os
 import warnings
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 
@@ -14,6 +14,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "allow_cli_resolve: allow real DatabricksAuth._resolve_cli_config in test",
+    )
+    config.addinivalue_line(
+        "markers",
+        "allow_network: permit outbound sockets (see the no_network fixture)",
     )
     try:
         from urllib3.exceptions import NotOpenSSLWarning
@@ -288,3 +292,85 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "tests/e2e" in str(item.path).replace("\\", "/"):
             item.add_marker(skip_e2e)
+
+
+# ---------------------------------------------------------------------
+# No outbound network in unit tests
+# ---------------------------------------------------------------------
+
+#: Markers whose tests legitimately talk to something remote.
+_NETWORK_MARKERS = frozenset(
+    {"db", "external", "live_integration", "e2e", "eval", "spark", "allow_network"}
+)
+
+
+def _is_local(address) -> bool:
+    """True for loopback / unix-socket destinations."""
+    if not isinstance(address, tuple) or not address:
+        return True  # AF_UNIX and friends
+    host = str(address[0])
+    return host in ("127.0.0.1", "::1", "localhost", "0.0.0.0", "") or host.startswith(
+        "127."
+    )
+
+
+@pytest.fixture(autouse=True)
+def no_network(request):
+    """Fail fast instead of dialing out from a unit test.
+
+    Three health tests used to be deselected because they built a real
+    ``DatabricksClient`` and blocked for minutes against an unreachable host —
+    the suite could not run clean without ``--deselect``. Rather than mock each
+    call site, this makes the *category* of mistake impossible: a unit test that
+    reaches the network raises immediately, naming itself.
+
+    Loopback is allowed so ``TestClient`` and testcontainers still work. Tests
+    marked ``db`` / ``external`` / ``live_integration`` / ``e2e`` / ``eval`` /
+    ``spark``, or explicitly ``allow_network``, are exempt.
+    """
+    import socket
+
+    if _NETWORK_MARKERS & {m.name for m in request.node.iter_markers()}:
+        yield
+        return
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _blocked(self, address, *a, **kw):
+        if _is_local(address):
+            return real_connect(self, address, *a, **kw)
+        raise RuntimeError(
+            f"{request.node.nodeid} attempted an outbound connection to "
+            f"{address!r}. Unit tests must not use the network — mock the "
+            f"client, or mark the test with one of: "
+            f"{', '.join(sorted(_NETWORK_MARKERS))}."
+        )
+
+    def _blocked_ex(self, address, *a, **kw):
+        if _is_local(address):
+            return real_connect_ex(self, address, *a, **kw)
+        return 111  # ECONNREFUSED — for callers that check the return code
+
+    def _blocked_getaddrinfo(host, port, *a, **kw):
+        # DNS is where an unreachable host actually stalls: resolution blocks
+        # long before connect() is reached, which is why blocking connect alone
+        # did not stop the hang.
+        if _is_local((host, port)):
+            return real_getaddrinfo(host, port, *a, **kw)
+        raise socket.gaierror(
+            f"{request.node.nodeid} attempted to resolve {host!r}. Unit tests "
+            f"must not use the network — mock the client, or mark the test with "
+            f"one of: {', '.join(sorted(_NETWORK_MARKERS))}."
+        )
+
+    socket.socket.connect = _blocked
+    socket.socket.connect_ex = _blocked_ex
+    socket.getaddrinfo = _blocked_getaddrinfo
+    try:
+        yield
+    finally:
+        socket.socket.connect = real_connect
+        socket.socket.connect_ex = real_connect_ex
+        socket.getaddrinfo = real_getaddrinfo

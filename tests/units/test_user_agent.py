@@ -10,7 +10,6 @@ Databricks auth (no creds)          DatabricksAuth.get_auth_headers  – fallbac
 Volume file service                 VolumeFileService._headers
 Synced table manager (fallback)     SyncedTableManager._call_api  – raw-requests path
 Mapping documents                   Mapping.fetch_documents_for_agent (requests.get)
-Health accelerated-sync probe       _check_lakebase_accelerated_sync (requests.get)
 Agent document tools                agents.tools.documents._headers
 LLM utility                         agents.llm_utils.call_llm_with_retry (requests.post)
 DTwin chat httpx client             agent_dtwin_chat.tools._client
@@ -132,28 +131,6 @@ class TestMappingDocumentHeaders:
 
         assert _headers_kwarg(mock_get).get("User-Agent") == HTTP_USER_AGENT
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# health._check_lakebase_accelerated_sync
-# ──────────────────────────────────────────────────────────────────────────────
-
-class TestHealthAcceleratedSyncHeaders:
-    def test_user_agent_in_probe_request(self, monkeypatch):
-        """Set env vars so DatabricksAuth passes auth guards, then intercept
-        the outbound requests.get and assert User-Agent is present."""
-        monkeypatch.setenv("DATABRICKS_HOST", "https://ws.example.com")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "test-tok")
-        # Ensure app-mode OAuth path is not triggered
-        monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
-        monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
-        monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
-
-        from shared.fastapi.health import _check_lakebase_accelerated_sync
-
-        with patch("requests.get", return_value=_ok_response({"synced_tables": []})) as mock_get:
-            _check_lakebase_accelerated_sync()
-
-        assert _headers_kwarg(mock_get).get("User-Agent") == HTTP_USER_AGENT
 
 
 # ──────────────────────────────────────────────────────────────────────────────

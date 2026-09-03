@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PANELS_JS = REPO_ROOT / "src/front/static/ontology/js/ontology-shared-panels.js"
 LOADERS_JS = REPO_ROOT / "src/front/static/query/js/query-loaders.js"

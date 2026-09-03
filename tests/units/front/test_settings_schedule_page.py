@@ -35,7 +35,7 @@ class TestTheTypeSelector:
         "task_type", ["build", "cohort", "analytics", "reasoning"]
     )
     def test_every_backend_type_has_a_radio(self, template, task_type):
-        assert f'name="scheduleType" id="scheduleType' in template
+        assert 'name="scheduleType" id="scheduleType' in template
         assert f'value="{task_type}"' in template
 
     def test_the_radios_match_the_backend_registry(self, template):

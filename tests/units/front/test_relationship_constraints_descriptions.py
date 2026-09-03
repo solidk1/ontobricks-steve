@@ -6,9 +6,8 @@ below it -- not a hover tooltip -- in the Ontology Designer's relationship
 edit panel.
 """
 
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PANELS_JS = REPO_ROOT / "src/front/static/ontology/js/ontology-shared-panels.js"

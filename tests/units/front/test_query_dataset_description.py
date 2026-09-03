@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOADERS_JS = REPO_ROOT / "src/front/static/query/js/query-loaders.js"
 DETAILS_JS = REPO_ROOT / "src/front/static/query/js/query-entity-details.js"

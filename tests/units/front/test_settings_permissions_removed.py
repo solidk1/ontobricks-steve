@@ -1,8 +1,7 @@
 """Contract: Settings Admin no longer exposes a Permissions page."""
 
-from pathlib import Path
 import json
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MENU = REPO_ROOT / "src/front/config/menu_config.json"

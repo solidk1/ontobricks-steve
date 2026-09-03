@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PARTIAL = REPO_ROOT / "src/front/templates/partials/dtwin/_kg_status_indicator.html"
 SYNC_JS = REPO_ROOT / "src/front/static/query/js/query-sync.js"

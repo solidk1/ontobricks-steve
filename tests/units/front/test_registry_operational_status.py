@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REGISTRY_JS = REPO_ROOT / "src/front/static/registry/js/registry.js"
 DOMAINS_HTML = REPO_ROOT / "src/front/templates/partials/registry/_registry_domains.html"

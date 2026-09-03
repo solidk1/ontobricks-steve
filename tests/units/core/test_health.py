@@ -325,7 +325,7 @@ class TestCheckLakebase:
     def test_skipped_when_pg_not_bound(self):
         auth = MagicMock(is_available=False)
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth):
-            status, detail = health._check_lakebase(MagicMock())
+            status, detail = health._check_postgres(MagicMock())
         assert status == "warning"
         assert "not bound" in detail
         # LAKEBASE_* is retired; the message now names the standard PG* vars.
@@ -341,7 +341,7 @@ class TestCheckLakebase:
                  "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
-            status, detail = health._check_lakebase(MagicMock())
+            status, detail = health._check_postgres(MagicMock())
         assert status == "ok"
 
     def test_no_usage_is_error(self):
@@ -358,7 +358,7 @@ class TestCheckLakebase:
                  "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
-            status, detail = health._check_lakebase(MagicMock())
+            status, detail = health._check_postgres(MagicMock())
         assert status == "error"
         assert "USAGE" in detail
 
@@ -376,7 +376,7 @@ class TestCheckLakebase:
                  "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
-            status, _ = health._check_lakebase(MagicMock())
+            status, _ = health._check_postgres(MagicMock())
         assert status == "warning"
 
 
@@ -384,7 +384,7 @@ class TestCheckLakebasePermissions:
     def test_skipped_when_pg_not_bound(self):
         auth = MagicMock(is_available=False)
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth):
-            status, detail = health._check_lakebase_permissions(MagicMock())
+            status, detail = health._check_postgres_permissions(MagicMock())
         assert status == "warning"
         assert "skipped" in detail.lower()
 
@@ -402,7 +402,7 @@ class TestCheckLakebasePermissions:
                  "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
-            status, detail = health._check_lakebase_permissions(MagicMock())
+            status, detail = health._check_postgres_permissions(MagicMock())
         assert status == "error"
         assert "USAGE" in detail
 
@@ -415,7 +415,7 @@ class TestCheckLakebasePermissions:
             "error": None,
         }
 
-        # Simulate the three fetches performed by _check_lakebase_permissions:
+        # Simulate the three fetches performed by _check_postgres_permissions:
         # schema perms, table perms aggregate, sequence perms aggregate.
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
@@ -449,7 +449,7 @@ class TestCheckLakebasePermissions:
                  "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
-            status, detail = health._check_lakebase_permissions(MagicMock())
+            status, detail = health._check_postgres_permissions(MagicMock())
         assert status == "ok"
         assert "permissions ok" in detail.lower()
 
@@ -460,6 +460,21 @@ class TestCheckLakebasePermissions:
 
 
 class TestRunReadinessChecks:
+    """The aggregator, with the outbound client stubbed out.
+
+    ``run_readiness_checks`` probes a SQL warehouse and CloudFetch through
+    ``_build_health_client``. Left real, the databricks-sql-connector swallows
+    the connection failure and sleeps through a urllib3 exponential-retry chain,
+    which is why these two tests used to hang for minutes and had to be
+    ``--deselect``-ed. Returning ``None`` is the documented "no credentials"
+    path, so the checks report a warning immediately.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_outbound_client(self):
+        with patch.object(health, "_build_health_client", return_value=None):
+            yield
+
     def test_shape(self):
         result = health.run_readiness_checks()
         assert {"status", "version", "service", "framework", "summary", "checks"} <= result.keys()
@@ -473,8 +488,8 @@ class TestRunReadinessChecks:
             "registry.volume_read",
             "registry.volume_write",
             "registry.uc_schema_ddl",
-            "lakebase",
-            "lakebase.permissions",
+            "postgres",
+            "postgres.permissions",
             "databricks.cloudfetch",
         } <= names
 

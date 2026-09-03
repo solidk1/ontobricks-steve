@@ -9,7 +9,6 @@ Create button is blocked with an inline error.
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAP_JS = REPO_ROOT / "src/front/static/ontology/js/ontology-map.js"
 

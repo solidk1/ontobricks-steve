@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DOMAIN_METADATA_JS = REPO_ROOT / "src/front/static/domain/js/domain-metadata.js"
 

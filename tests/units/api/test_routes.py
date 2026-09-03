@@ -15,6 +15,18 @@ def client():
 
 
 class TestHealthRoutes:
+    @pytest.fixture(autouse=True)
+    def _no_outbound_client(self):
+        """Stub the outbound client so /health cannot dial out.
+
+        Without this the databricks-sql-connector retries with exponential
+        backoff against an unreachable host and the test hangs for minutes.
+        """
+        from shared.fastapi import health
+
+        with patch.object(health, "_build_health_client", return_value=None):
+            yield
+
     def test_health_check(self, client):
         # ``/health`` is now a comprehensive readiness probe.  Individual
         # checks may fail (no warehouse / no Lakebase in the test env)

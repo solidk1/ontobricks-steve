@@ -7,7 +7,6 @@ section) selected within it — no Registry/Domain ancestor crumbs.
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BREADCRUMB_JS = REPO_ROOT / "src/front/static/global/js/breadcrumb.js"
 

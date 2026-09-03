@@ -97,6 +97,23 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
 
+    # PostgreSQL 16 for the `db`-marked tests. Without it they skip, so the
+    # co-tenancy contract (no extensions, residue-free DROP SCHEMA CASCADE) and
+    # the legacy-config migration went unverified in CI.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ontobricks_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -118,6 +135,12 @@ jobs:
           DATABRICKS_TOKEN: test-token
           DATABRICKS_SQL_WAREHOUSE_ID: test-warehouse
           SECRET_KEY: test-secret-key
+          # Runs the `db`-marked tests against the service container above.
+          # Docker-in-Docker is unavailable here, so testcontainers cannot be
+          # used; the DSN path in the fixture exists for exactly this.
+          ONTOBRICKS_TEST_DSN: >-
+            host=localhost port=5432 dbname=ontobricks_test
+            user=postgres password=postgres sslmode=disable
         run: |
           uv run pytest tests/ \
             --cov=src \

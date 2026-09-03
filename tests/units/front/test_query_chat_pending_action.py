@@ -8,7 +8,6 @@ edge cases without needing a DOM.
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 QUERY_CHAT_JS = REPO_ROOT / "src/front/static/query/js/query-chat.js"
 
