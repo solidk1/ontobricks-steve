@@ -82,9 +82,9 @@ class DatabricksHelpers:
         2. **Session** (``domain.databricks['warehouse_id']``) -- stored when
            the user selects a warehouse before the registry is configured.
         3. **Pydantic Settings** (``settings.sql_warehouse_id``) -- loaded from
-           the ``DATABRICKS_SQL_WAREHOUSE_ID`` env var / ``app.yaml``.
+           the ``DATABRICKS_SQL_WAREHOUSE_ID`` env var.
         4. **Default env var** (``DATABRICKS_SQL_WAREHOUSE_ID_DEFAULT``) --
-           static fallback defined in ``app.yaml`` for MCP / session-less calls.
+           static fallback for MCP / session-less calls.
 
         Args:
             domain: DomainSession instance

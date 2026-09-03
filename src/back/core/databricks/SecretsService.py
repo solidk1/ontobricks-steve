@@ -3,7 +3,7 @@
 Backs the Neo4j "Databricks secret" auth flow (Settings → Back end →
 Neo4j): the admin picks a scope + key from live dropdowns instead of
 typing a scope name and relying on a static Databricks Apps secret
-resource bound in ``app.yaml``. The app resolves the actual password at
+workspace secret scope. The app resolves the actual password at
 connection time via :meth:`get_secret_value`, using its own identity
 (SP OAuth in the deployed app, PAT/CLI profile in local dev) — the same
 identity every other Databricks REST call in this codebase already uses.

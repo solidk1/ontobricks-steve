@@ -424,7 +424,7 @@ class TestPasswordSourcing:
 
     def test_resolve_auth_falls_back_to_config_in_local_dev(self, monkeypatch):
         monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-        monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+        monkeypatch.delenv("ONTOBRICKS_CONTAINERIZED", raising=False)
         s = _store(password="from-config")
         user, pwd = s._resolve_auth()
         assert pwd == "from-config"
@@ -433,7 +433,8 @@ class TestPasswordSourcing:
         from back.core.errors import InfrastructureError
 
         monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-        monkeypatch.setenv("DATABRICKS_APP_PORT", "8080")
+        # "Production" now means containerized, not "on the Apps platform".
+        monkeypatch.setenv("ONTOBRICKS_CONTAINERIZED", "true")
         s = _store(password="from-config")  # config password ignored in prod
         with pytest.raises(InfrastructureError, match="NEO4J_PASSWORD"):
             s._resolve_auth()
@@ -442,7 +443,7 @@ class TestPasswordSourcing:
         from back.core.errors import ValidationError
 
         monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-        monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+        monkeypatch.delenv("ONTOBRICKS_CONTAINERIZED", raising=False)
         s = _store(password="")
         with pytest.raises(ValidationError, match="NEO4J_PASSWORD"):
             s._resolve_auth()

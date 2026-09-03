@@ -892,3 +892,67 @@ the merge, the flat pre-nesting shape still folds in, `neo4j` is not absorbed, a
 Tests: **4857 passed, 21 skipped, 283 deselected**. All 148 graphdb tests pass against the
 live Azure server. `node --check` clean on all six touched JS files. No new ruff violations
 (1 before, 1 after).
+
+## P7 — remove the Databricks Apps deploy path; make the entrypoint container-ready
+
+Context: two things were asked for, plus deleting the Apps path outright. No Dockerfile —
+`az containerapp up --source .` and `az acr build` both build from source, and the image
+would be boilerplate.
+
+**The one genuine blocker was `run.py`.** It read only `DATABRICKS_APP_PORT` (ignoring
+`PORT`, which is what every container platform sets) and, absent that variable, bound
+`127.0.0.1` **with auto-reload**. A container would start, fail every health check and serve
+nothing outward. This was my own loose end: P1 added `RuntimeEnv.port()` and never wired the
+entrypoint to it.
+
+Now: `RuntimeEnv.port()` for the port, and `ONTOBRICKS_CONTAINERIZED=true` selects
+`0.0.0.0` with reload off. Verified end to end — `lsof` shows `TCP *:8137`, reachable on a
+non-loopback address (`http://10.207.63.236:8137/` → 200), with the app talking to the live
+Azure server.
+
+**App-role routes.** `AppRoleService`, the `app_roles` table and the `PermissionService`
+wiring all shipped in P4b, but nothing reachable called them — an admin could grant access
+only by running SQL. `ONTOBRICKS_BOOTSTRAP_ADMIN` let the first admin in and stranded them.
+Added `GET /settings/app-roles` and `POST /settings/app-roles/{grant,revoke}`, admin-only
+(`_require_admin`, inert when auth is disabled for local development). Verified live:
+`{"success":true,"roles":[],"bootstrap_admin":""}`.
+
+**`_legacy_apps_mode()` retired.** With the Apps deploy gone, `DATABRICKS_APP_PORT` means
+nothing, so `is_containerized()` and `secure_cookies()` now default to `False` from their own
+variables and `port()` reads only `PORT`. The guard test became
+`TestDatabricksAppPortIsGone`, asserting **zero** readers — the `src/mcp-server` allowlist
+went too, since its duplicate no longer needs the fallback.
+
+Deleted (24 files, ~5,600 lines): `app.yaml.template`, `databricks.yml`,
+`.databricksignore`, `scripts/deploy.sh` + `deploy.config.sh` + `update-deployed-app.sh`,
+all of `scripts/_internal/`, all three `scripts/bootstrap/` scripts,
+`src/mcp-server/app.yaml{,.template}` + `deploy-mcp-server.sh`, the ten deploy/bundle
+Makefile targets, and six test modules that existed only to test those artefacts.
+
+**Design decision: `resources/graph_analytics.job.yml` is kept.** It is a job specification,
+not part of the Apps app. Without a bundle this repo can no longer deploy it, so the README
+now says to create it with your own bundle or the Jobs UI; below the triple cap the metrics
+are computed in-process anyway.
+
+**Stale remediation messages fixed, not just docstrings.** Thirteen files told operators to
+run scripts that no longer exist — e.g. *"Run scripts/bootstrap-lakebase-perms.sh"* on a
+permission failure. Each now names the actual remedy (`GRANT USAGE, CREATE ON SCHEMA …`, or
+Settings → Registry → Repair permissions). Leaving those would have sent someone chasing a
+deleted file at exactly the moment they were already blocked.
+
+README rewritten: prerequisites lead with PostgreSQL 14+ and make Databricks explicitly
+optional; the DBA `GRANT` block, local-dev and container invocations, the OIDC setup, the
+app-role endpoints, and the single-replica requirement (Container Apps' defaults violate it
+both ways) are documented. The stale `graph_engine_config` key list, the managed-synced
+description and the bootstrap-script grant table were replaced with what is true now.
+`make prod` also fixed — it pointed at `app.fastapi.main:app`, a module path that has not
+existed for some time.
+
+Also fixed: `tests/units/graphdb/test_neo4j_store.py` signalled "production" with
+`DATABRICKS_APP_PORT`; it now uses `ONTOBRICKS_CONTAINERIZED`.
+
+44 files changed, 350 insertions, 5669 deletions.
+
+Tests: **4796 passed, 21 skipped, 283 deselected**. 16 new app-role route tests cover the
+admin guard across five non-admin roles, group grants, and the last-admin protection. No new
+ruff violations (1 before, 1 after).

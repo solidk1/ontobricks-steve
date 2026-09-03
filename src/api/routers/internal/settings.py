@@ -7,37 +7,34 @@ Moved from app/frontend/settings/routes.py during the front/back split.
 import asyncio
 import json
 
-from typing import Optional
-
-from fastapi import APIRouter, Request, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import PlainTextResponse
 
-from shared.config.settings import get_settings, Settings
-from shared.config.constants import DEFAULT_BASE_URI
-from back.core.errors import ValidationError
-from back.objects.session import SessionManager, get_session_manager
-from back.core.helpers import resolve_default_base_uri, resolve_default_emoji, run_blocking
-from back.objects.session import get_domain
 from api.routers.internal._guards import require
-from back.objects.registry import ROLE_ADMIN
-
-from api.routers.internal._permissions import filter_visible_domains
 from api.routers.internal._helpers import map_route_errors
-from back.core.logging import get_logger, LogManager
-
+from api.routers.internal._permissions import filter_visible_domains
+from back.core.errors import AuthorizationError, ValidationError
+from back.core.helpers import resolve_default_base_uri, resolve_default_emoji, run_blocking
+from back.core.logging import LogManager, get_logger
 from back.objects.domain import SettingsService as config_service
+from back.objects.registry import ROLE_ADMIN
+from back.objects.session import SessionManager, get_domain, get_session_manager
+from shared.config.constants import DEFAULT_BASE_URI
+from shared.config.RuntimeEnv import RuntimeEnv
+from shared.config.settings import Settings, get_settings
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 logger = get_logger(__name__)
 
+from back.objects.identity import identity_of as _identity  # noqa: E402
+
 
 def _settings_request_identity(request: Request) -> tuple[str, str, str, str, str]:
     """Extract user identity primitives for :class:`SettingsService` (no FastAPI types in domain layer)."""
-    email = getattr(request.state, "user_email", "") or request.headers.get(
-        "x-forwarded-email", ""
-    )
-    display_name = request.headers.get("x-forwarded-preferred-username", email) or ""
-    user_token = request.headers.get("x-forwarded-access-token", "") or ""
+    ident = _identity(request)
+    email = getattr(request.state, "user_email", "") or ident.email
+    display_name = ident.display_name or email
+    user_token = ident.access_token
     user_role = getattr(request.state, "user_role", "") or ""
     user_domain_role = getattr(request.state, "user_domain_role", "") or ""
     return email, display_name, user_token, user_role, user_domain_role
@@ -292,7 +289,7 @@ async def initialize_registry(
 
     On the Lakebase backend this also self-serves the project/schema/UC
     grants the app + MCP service principals need (in-app port of
-    ``scripts/bootstrap-lakebase-perms.sh``); the per-SP outcome is
+    plain ``GRANT`` statements); the per-SP outcome is
     returned under the ``permissions`` key.
     """
     return await run_blocking(
@@ -310,7 +307,7 @@ async def grant_registry_permissions(
 ):
     """Re-apply Lakebase grants for the registry schema to the app SPs.
 
-    Admin-only, in-app equivalent of ``scripts/bootstrap-lakebase-perms.sh``:
+    Admin-only. Applies the schema ``GRANT`` statements the app needs:
     grants ``CAN_USE`` on the project, ``USAGE``/DML on the registry schema,
     and ``ALL_PRIVILEGES`` on the UC catalog to the app + MCP service
     principals. Idempotent — safe to re-run after a rebind/redeploy that
@@ -403,8 +400,9 @@ async def export_registry_obx(
     Domains the caller cannot see (per :func:`filter_visible_domains`) are
     silently dropped before the export runs.
     """
-    from fastapi.responses import StreamingResponse
     import io
+
+    from fastapi.responses import StreamingResponse
 
     spec = await request.json()
     requested = spec.get("domains") or []
@@ -1308,7 +1306,7 @@ async def run_schedule_now(
 
 @router.get("/runs/build")
 async def get_all_build_runs(
-    domain: Optional[str] = Query(default=None),
+    domain: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     session_mgr: SessionManager = Depends(get_session_manager),
@@ -1327,7 +1325,7 @@ async def get_all_build_runs(
 
 @router.get("/runs/analytics")
 async def get_all_analytics_runs(
-    domain: Optional[str] = Query(default=None),
+    domain: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     session_mgr: SessionManager = Depends(get_session_manager),
@@ -1346,7 +1344,7 @@ async def get_all_analytics_runs(
 @router.get("/build-runs/{domain_name}")
 async def get_build_runs(
     domain_name: str,
-    version: Optional[str] = Query(default=None),
+    version: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=1000),
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
@@ -1360,7 +1358,7 @@ async def get_build_runs(
 @router.get("/build-analytics/{domain_name}")
 async def get_build_analytics(
     domain_name: str,
-    version: Optional[str] = Query(default=None),
+    version: str | None = Query(default=None),
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
@@ -1525,3 +1523,108 @@ async def download_app_logs():
     )
 
 
+# ===========================================
+# App-level access (admin / app_user)
+# ===========================================
+
+
+def _app_role_store(session_mgr: SessionManager, settings: Settings):
+    """Build the registry store that holds ``app_roles``."""
+    from back.objects.registry import RegistryCfg
+    from back.objects.registry.store import RegistryFactory
+    from back.objects.session import get_domain
+
+    domain = get_domain(session_mgr)
+    return RegistryFactory.from_cfg(RegistryCfg.from_domain(domain, settings))
+
+
+def _require_admin(request: Request) -> None:
+    """Reject a caller who is not an app admin.
+
+    App-role management is the one surface that can lock everybody out, so it
+    is admin-only regardless of domain-level role.
+    """
+    from back.objects.registry.AppRoleService import ROLE_ADMIN
+
+    if not RuntimeEnv.auth_enabled():
+        return
+    if (getattr(request.state, "user_role", "") or "") != ROLE_ADMIN:
+        raise AuthorizationError("App-level role management requires an admin")
+
+
+@router.get("/app-roles")
+async def get_app_roles(
+    request: Request,
+    session_mgr: SessionManager = Depends(get_session_manager),
+    settings: Settings = Depends(get_settings),
+):
+    """List every app-level role grant."""
+    from back.objects.registry.AppRoleService import AppRoleService
+
+    _require_admin(request)
+    with map_route_errors("list app roles", logger):
+        store = _app_role_store(session_mgr, settings)
+        return {
+            "success": True,
+            "roles": AppRoleService.list_roles(store),
+            "bootstrap_admin": AppRoleService.bootstrap_admin(),
+        }
+
+
+@router.post("/app-roles/grant")
+async def post_app_role_grant(
+    request: Request,
+    session_mgr: SessionManager = Depends(get_session_manager),
+    settings: Settings = Depends(get_settings),
+):
+    """Grant ``admin`` or ``app_user`` to a user or group.
+
+    Body: ``{ "principal", "role", "principal_type"?, "display_name"? }``
+    """
+    from back.objects.registry.AppRoleService import AppRoleService
+
+    _require_admin(request)
+    with map_route_errors("grant app role", logger):
+        data = await request.json()
+        principal = (data.get("principal") or "").strip()
+        role = (data.get("role") or "").strip()
+        if not principal:
+            raise ValidationError("principal is required")
+        store = _app_role_store(session_mgr, settings)
+        ok, msg = AppRoleService.grant(
+            store,
+            principal,
+            role,
+            principal_type=(data.get("principal_type") or "user").strip(),
+            display_name=(data.get("display_name") or "").strip(),
+        )
+        if not ok:
+            raise ValidationError(msg)
+        return {"success": True, "message": msg}
+
+
+@router.post("/app-roles/revoke")
+async def post_app_role_revoke(
+    request: Request,
+    session_mgr: SessionManager = Depends(get_session_manager),
+    settings: Settings = Depends(get_settings),
+):
+    """Revoke a principal's app-level access.
+
+    Refuses to remove the last admin, which would leave the deployment
+    unadministerable and recoverable only by editing the database by hand.
+    """
+    from back.objects.registry.AppRoleService import AppRoleService
+
+    _require_admin(request)
+    with map_route_errors("revoke app role", logger):
+        data = await request.json()
+        principal = (data.get("principal") or "").strip()
+        if not principal:
+            raise ValidationError("principal is required")
+        store = _app_role_store(session_mgr, settings)
+        email, _dn, _tok, _r, _dr = _settings_request_identity(request)
+        ok, msg = AppRoleService.revoke(store, principal, actor_email=email)
+        if not ok:
+            raise ValidationError(msg)
+        return {"success": True, "message": msg}

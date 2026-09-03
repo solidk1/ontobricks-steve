@@ -1,7 +1,7 @@
 """Reusable Lakebase grant primitives.
 
 In-app equivalents of the ``GRANT`` statements in
-``scripts/bootstrap-lakebase-perms.sh``, used by:
+the equivalent ``GRANT`` statements, used by:
 
 - :meth:`~back.objects.registry.store.postgres.store.PostgresRegistryStore.grant_app_permissions`
   — the *Initialize* / *Repair permissions* flow (registry schema).
@@ -45,14 +45,14 @@ def resolve_mcp_app_name(
 ) -> str:
     """Resolve the MCP companion Databricks App name.
 
-    Mirrors ``scripts/deploy.config.sh``::
+    Derivation::
 
         DEFAULT_MCP_APP_NAME="mcp-${DEFAULT_APP_NAME}"
 
     Precedence:
 
     1. ``explicit`` (UI / caller override)
-    2. ``MCP_APP_NAME`` env (injected into ``app.yaml`` at deploy time)
+    2. ``MCP_APP_NAME`` env
     3. ``mcp-{app_name}`` derived from the running main app
     4. bare ``mcp-ontobricks`` only when no main app name is known
 
@@ -152,7 +152,7 @@ def grant_can_use_on_project(
             warnings.append(
                 f"{app_name}: could not re-grant CAN_USE on project "
                 f"(app SP needs CAN_MANAGE to grant; usually already "
-                f"applied by scripts/bootstrap/lakebase-perms.sh at "
+                f"applied by Settings → Registry → Repair permissions at "
                 f"deploy — re-run that script as a workspace admin if "
                 f"the SP still lacks CAN_USE)"
             )
@@ -202,7 +202,7 @@ def grant_schema_privileges(
             warnings.append(
                 f"{app_name}: schema grant failed ({exc}). The Postgres "
                 f"role may not exist yet — re-run after the app has "
-                f"connected once, or use scripts/bootstrap-lakebase-perms.sh."
+                f"connected once, or grant the schema privileges directly."
             )
     return granted, warnings
 
@@ -231,7 +231,7 @@ def grant_uc_catalog(
                 f"{app_name}: UC catalog grant on {uc_catalog} failed "
                 f"({exc}). The app SP needs MANAGE on the catalog to "
                 f"grant ALL_PRIVILEGES to itself — prefer re-running "
-                f"scripts/bootstrap/lakebase-perms.sh -c {uc_catalog} "
+                f"GRANT ALL PRIVILEGES ON CATALOG {uc_catalog} "
                 f"as a workspace admin (deploy applies this before the "
                 f"registry schema exists)."
             )

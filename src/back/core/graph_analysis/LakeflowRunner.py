@@ -93,7 +93,7 @@ class LakeflowRunner:
         been deployed since the job was added, or the caller cannot see it:
         ``jobs.list()`` is ACL-filtered, and the app's service principal needs
         an explicit ``CAN_MANAGE_RUN`` grant on the job (applied post-deploy by
-        ``scripts/bootstrap/app-permissions.sh``).
+        the workspace ACL UI).
         """
         if self._job_id is not None:
             return self._job_id

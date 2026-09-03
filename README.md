@@ -41,109 +41,105 @@ scripts/setup.sh
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- Databricks workspace access (Databricks Apps must be enabled). Local
-  development uses a Personal Access Token; production uses the App's
-  service principal.
-- A SQL Warehouse (you'll need its ID for local dev).
-- **Databricks Lakebase Autoscaling** project + branch + Postgres
-  database — **required since v0.4.0** for the domain registry
-  (domains, versions, permissions, schedules, global config) and the
-  Graph DB triple store. Provisioned Lakebase instances are **not**
-  supported. The Postgres driver (`psycopg[binary]` + `psycopg-pool`)
-  is declared as an optional dependency so volume-only forks can opt
-  out — install with `uv sync --extra lakebase` for any normal
-  deployment.
-- **Unity Catalog Volume** in the catalog/schema that hosts the
-  triplestore VIEWs (`triplestore_<domain>_v<n>`). The volume is
-  reserved for binary artefacts (`documents/` uploads — domain-scoped
-  attachments imported by the ontology designer).
-- `psql` (libpq client) on `PATH` for the Lakebase permission
-  bootstrap scripts (`brew install libpq && brew link --force libpq`
-  on macOS).
+- Python 3.10 or higher.
+- **PostgreSQL 14 or newer.** OntoBricks installs into an *existing* database
+  as **one new schema** and touches nothing outside it, so
+  `DROP SCHEMA <schema> CASCADE` uninstalls it completely. **No extensions are
+  required.** Azure Database for PostgreSQL (Flexible Server) is the reference
+  target; Databricks Lakebase and any other PostgreSQL server work too.
+- *Optional* — a **Databricks workspace**, for the features that genuinely need
+  one: reading Unity Catalog tables as mapping sources, the Delta triple-store
+  engine, UC Volume attachments, Lakeview dashboard listing,
+  `ai_parse_document` document import, and the Foundation Model API. OntoBricks
+  starts and runs without it; those features report themselves unavailable.
+- *Optional* — a **SQL Warehouse**, if you use the Databricks connector.
 
 ## Deploying / Installing the Project
 
-### Local Development
+OntoBricks is an ordinary Python web application: one process, configured
+entirely by environment variables. There is no platform-specific bundle and no
+generated manifest. See `.env.example` for the full contract.
+
+### Database setup (once, by a DBA)
+
+```sql
+CREATE SCHEMA ontobricks AUTHORIZATION ontobricks_app;
+GRANT CONNECT ON DATABASE <existing_db> TO ontobricks_app;
+GRANT USAGE, CREATE ON SCHEMA ontobricks TO ontobricks_app;
+-- TEMP on the database is already granted to PUBLIC by default
+```
+
+`CREATE` on the schema is required, not optional: graph tables are created per
+domain-version at build time, so the app performs DDL at runtime. Nothing
+outside that schema is ever touched.
+
+For Microsoft Entra authentication, also map the identity to a Postgres role:
+
+```sql
+SELECT * FROM pgaadauth_create_principal('<managed-identity-or-upn>', false, false);
+```
+
+### Local development
 
 ```bash
-# Configure credentials
 cp .env.example .env
-# Edit .env with your Databricks host, token, and warehouse ID
-
-# Start the application
-scripts/start.sh
-# Open http://localhost:8000
+# Set PGHOST / PGDATABASE / PGUSER, and ONTOBRICKS_AUTH_ENABLED=false
+make dev            # http://127.0.0.1:8000, auto-reload
 ```
 
-### Deploy to Databricks Apps
+`ONTOBRICKS_AUTH_ENABLED` defaults to **true** (fail closed), so a deployment
+that configures nothing is locked rather than served unauthenticated. Turn it
+off explicitly for local work.
+
+### Running in a container
 
 ```bash
-# Install and authenticate the Databricks CLI (>= 0.250.0)
-brew install databricks            # or curl -fsSL https://databricks.com/install.sh | sh
-databricks auth login --host https://<workspace>
-
-# Edit scripts/deploy.config.sh (CLI profile, warehouse, registry catalog/schema,
-# Lakebase project/branch/database — see the file header) and then:
-make deploy
-# Or directly: scripts/deploy.sh
+ONTOBRICKS_CONTAINERIZED=true \
+PORT=8000 \
+PGHOST=<server> PGDATABASE=<db> PGUSER=<principal> \
+ONTOBRICKS_PG_AUTH=entra \
+ONTOBRICKS_AUTH_ENABLED=true \
+ONTOBRICKS_OIDC_CLIENT_ID=... ONTOBRICKS_OIDC_REDIRECT_URI=https://<host>/auth/callback \
+ONTOBRICKS_BOOTSTRAP_ADMIN=you@example.com \
+python run.py
 ```
 
-`scripts/deploy.sh` generates `app.yaml` from `app.yaml.template` +
-`scripts/deploy.config.sh`, validates and deploys the DAB bundle on
-target `dev-lakebase`, runs `scripts/bootstrap/app-permissions.sh`
-(app SP `CAN_MANAGE` on itself), then runs
-`scripts/bootstrap/lakebase-perms.sh` on the registry / graph / sync
-schemas. All steps are idempotent.
+`ONTOBRICKS_CONTAINERIZED=true` is what makes uvicorn bind `0.0.0.0` instead of
+loopback and puts sessions and logs under `/tmp`. Without it the process binds
+`127.0.0.1` and nothing outside the container can reach it.
 
-After the first deploy, bind the **sql-warehouse**, **volume**, and
-**postgres** (Lakebase) resources in the Databricks Apps UI
-(**Compute > Apps > <your-app> > Resources**) if the DAB bind did
-not take. Open the app and click **Settings > Registry > Initialize**
-to create the Lakebase schema; re-run `make bootstrap-lakebase` once
-afterwards so the freshly created schema picks up `USAGE/DML`.
+Two things the image must contain: `documentation/` (the Help Center serves
+markdown from it at runtime) and, for `PGSSLMODE=verify-full`, the Azure root CA.
 
-> **Graph DB provisioning was removed in favour of standard Postgres
-> administration.** The in-app *"Create graph DB from scratch"* flow and the
-> *Settings → Lakebase → Permissions* superuser-grant tab called Lakebase
-> control-plane APIs (instance/branch creation, `DATABRICKS_SUPERUSER`
-> membership) that have no equivalent on a generic PostgreSQL server — and
-> Azure Database for PostgreSQL grants no true superuser at all
-> (`azure_pg_admin` is deliberately not one). Create the schema and grants with
-> ordinary SQL instead:
->
-> ```sql
-> CREATE SCHEMA ontobricks AUTHORIZATION <app_role>;
-> GRANT CONNECT ON DATABASE <existing_db> TO <app_role>;
-> GRANT USAGE, CREATE ON SCHEMA ontobricks TO <app_role>;
-> ```
->
-> `scripts/bootstrap/setup-lakebase.sh` + `scripts/bootstrap/lakebase-perms.sh`
-> remain for existing Lakebase deployments. See
-> `.planning/databricks-decoupling/SPEC.md` §6.
+> **Single replica.** APScheduler runs in-process and sessions are on local
+> disk, so run exactly one instance. More than one duplicates every scheduled
+> build; scaling to zero stops the scheduler entirely. On Azure Container Apps
+> that means `minReplicas: 1, maxReplicas: 1` — its defaults violate both.
 
-> **Lakebase deploy targets.** Pick a Databricks Lakebase Autoscaling
-> project + branch and a Postgres database, then set the
-> `LAKEBASE_PROJECT`, `LAKEBASE_BRANCH`,
-> `LAKEBASE_DATABASE_RESOURCE_SEGMENT` (the `db-…` id from
-> `databricks postgres list-databases "projects/<id>/branches/<branch>" -o json`,
-> **not** the Postgres database name shown in the SQL UI), and
-> `LAKEBASE_REGISTRY_SCHEMA` defaults in `scripts/deploy.config.sh`.
-> The DAB composes the full Apps `postgres.database` path and binds a
-> `postgres` Apps resource so the runtime auto-injects
-> `PGHOST` / `PGPORT` / `PGDATABASE` / `PGUSER`; the app mints the
-> Lakebase JWT automatically (no user secret required).
+### Authentication
 
-> **Upgrading from a pre-v0.4.0 deployment.** Pre-v0.4.0 stored the
-> entire registry as JSON on the Unity Catalog Volume. Run
-> `scripts/migrations/migrate-registry-to-lakebase.sh` once before upgrading to
-> v0.4.0+ to copy every JSON-shaped artefact (domains, versions,
-> permissions, schedules, global config) into Lakebase. Binary
-> artefacts on the Volume are left untouched.
+Off the Databricks Apps platform there are no proxy identity headers, so
+OntoBricks runs the OAuth 2.0 authorization-code + PKCE flow itself against a
+Databricks **custom OAuth app integration** (account console → App
+connections), registered with `https://<host>/auth/callback` as its redirect
+URI. One login yields the user's email, their groups, and a Databricks user
+token — the last enabling per-user Unity Catalog enforcement on interactive
+queries.
 
-> **First deploy only:** `make deploy` runs `scripts/bootstrap/app-permissions.sh` automatically, which grants each app's service principal `CAN_MANAGE` on itself and `CAN_MANAGE_RUN` on the graph-analytics job. Without the app grant the middleware cannot read the app's own ACL and every first-time visitor — including the deploying `CAN_MANAGE` user — lands on the access-denied page. Without the job grant, KG analysis cannot list or trigger the serverless job. If you deploy via `databricks bundle deploy` directly, run `make bootstrap-perms` once afterwards (it is idempotent).
+App-level access lives in the registry's `app_roles` table, not in a Databricks
+App ACL. `ONTOBRICKS_BOOTSTRAP_ADMIN` seeds the first admin, without which a
+fresh deployment would have nobody able to grant access; it applies only while
+no admin exists, so a deliberate revoke is not undone. Manage grants from
+**Settings → App access**, or via `GET`/`POST /settings/app-roles{,/grant,/revoke}`.
+The last admin cannot be revoked.
 
-See [Deployment Guide](documentation/deployment.md) for the full checklist including resource configuration and permissions.
+### Graph analytics job (optional)
+
+`resources/graph_analytics.job.yml` defines the serverless job that computes
+large-graph metrics. It is no longer deployed by this repository — create it in
+your workspace with your own asset bundle or the Jobs UI, then set
+`ONTOBRICKS_ANALYTICS_JOB_ENABLED=true`. Below the in-memory triple cap the
+metrics are computed in-process and the job is not needed.
 
 ## Testing
 
@@ -162,7 +158,7 @@ git tag vX.Y.Z
 git push origin main --tags
 ```
 
-4. Deploy the new version: `make deploy`
+4. Roll out the new version with whatever deploys your container.
 
 ## Using the Project
 
@@ -198,20 +194,27 @@ The **graph** triple-store backend is pluggable (`GraphDBFactory` / `GraphDBBack
 
 The backend *selection* is stored per-domain in `DomainSession.info['graph_backend']` and versioned with the domain. Switching a domain's backend after a build requires **rebuilding** the Knowledge Graph — graph artifacts are not migrated between engines.
 
-Engine *connection* config remains **workspace-global** and is configured under **Settings → Back end** (Lakebase / Lakehouse / Neo4j sections). Engine-specific options are stored as global JSON (`graph_engine_config`). For Lakebase the supported keys are **`database`** (optional override of `PGDATABASE`), **`schema`** (optional, default `ontobricks_graph`), **`sync_mode`** (`app_managed` default, or `managed_synced` to delegate bulk ingest to a Databricks Lakeflow snapshot pipeline), **`sync_table_mode`** (`snapshot` / `triggered` / `continuous` — `snapshot` is the recommended mode), **`sync_timeout_s`** (default 600), **`sync_uc_catalog`** (UC catalog the synced table is registered in; defaults to the snapshot Delta catalog when unset), and **`sync_uc_schema`** (UC schema segment for the synced-table FQN; defaults to the registry UC schema so the Lakeflow object lands in the same UC namespace as other registry artefacts). See `documentation/lakebase-graphdb.md` for the full reference.
+Engine *connection* config is **workspace-global**, under **Settings → Back end** (PostgreSQL / Lakehouse / Neo4j sections), and stored as JSON in `graph_engine_config`. For PostgreSQL the supported keys are **`database`** (optional override of `PGDATABASE`) and **`schema`** (optional, default `ontobricks_graph`). The bucket is keyed `postgres`; a config written before 0.8 is keyed `lakebase` and is still read, then rewritten canonically on the next save. Keys from the removed Lakeflow managed-synced mode (`sync_mode`, `sync_table_mode`, `sync_timeout_s`, `sync_uc_catalog`, `sync_uc_schema`) are accepted and ignored, so an old config still validates.
 
-> **Lakebase permission grants.** The app service principal needs `USAGE + DML` on each Postgres schema it touches — granted by `scripts/bootstrap/lakebase-perms.sh`:
->
-> | Schema | When to run | Who runs it |
-> |---|---|---|
-> | Registry schema (e.g. `ontobricks_registry`) | After `Settings → Registry → Initialize` | `scripts/deploy.sh` automatically on every `dev-lakebase` deploy (coords: `LAKEBASE_PROJECT` / `LAKEBASE_BRANCH` / `LAKEBASE_REGISTRY_DATABASE` / `LAKEBASE_REGISTRY_SCHEMA`) |
-> | Graph schema (e.g. `ontobricks_graph`) | After first Knowledge Graph `Build` | A manual `bootstrap-lakebase-perms.sh` run, or plain `GRANT` statements (see above) |
->
-> The deploy script is **registry-scoped** — it only grants on the registry schema. The graph DB connection is configured in-app (`Settings → Back end`) and may live in a **different** Lakebase project, so its grant is handled separately.
+> **Schema grants.** The connecting principal needs `USAGE + CREATE` on each
+> schema OntoBricks touches — the registry schema (`ONTOBRICKS_PG_SCHEMA`) and,
+> if you point the graph engine at a different one, the graph schema
+> (`graph_engine_config.schema`, default `ontobricks_graph`). Apply them with
+> the `GRANT` statements shown under *Database setup*, or use
+> **Settings → Registry → Repair permissions**, which runs the equivalent
+> in-app when the connecting role owns the schema.
 
-> **Lakebase build performance.** When the active engine is Lakebase, the Knowledge Graph build streams warehouse rows in `fetchmany` batches (`SQLWarehouse.iter_rows`) and ingests them via `COPY FROM STDIN` into a per-batch temp table followed by `INSERT … ON CONFLICT DO NOTHING` (and the symmetrical `DELETE … USING` for incremental removes). The FastAPI process never holds the full graph or the full diff: snapshot CTAS and `EXCEPT` execution stay warehouse-side, the app pipes one batch at a time. There is no Volume archive thread — Postgres is the system of record for the graph.
+> **Build performance.** When the active engine is PostgreSQL, the Knowledge Graph build streams warehouse rows in `fetchmany` batches (`SQLWarehouse.iter_rows`) and ingests them via `COPY FROM STDIN` into a per-batch temp table followed by `INSERT … ON CONFLICT DO NOTHING` (and the symmetrical `DELETE … USING` for incremental removes). The FastAPI process never holds the full graph or the full diff: snapshot CTAS and `EXCEPT` execution stay warehouse-side, the app pipes one batch at a time. There is no Volume archive thread — Postgres is the system of record for the graph.
 
-> **Lakebase managed-synced mode.** When `graph_engine_config.sync_mode = "managed_synced"`, the bulk R2RML data movement is moved entirely off the app: a Databricks Lakeflow snapshot pipeline keeps a Postgres synced table in lock-step with the R2RML view, and the FastAPI process only orchestrates (`SyncedTableManager.ensure` + `trigger_and_wait`). Reasoning + cohort writes stay on the direct PG path through a writable companion table; readers see both via a UNION view (back-compat name). PG layout per graph version: `g_<dom>_v<n>_sync` (Lakeflow), `g_<dom>_v<n>__app` (app), `g_<dom>_v<n>` (UNION view). See `documentation/graphdb-integration.md §9` for the full architecture.
+> **Graph layout.** Each graph version is three Postgres objects: `g_<dom>_v<n>_sync`
+> (bulk triples streamed from the warehouse during a Build), `g_<dom>_v<n>__app`
+> (writable companion holding reasoning and cohort writes), and `g_<dom>_v<n>`
+> (UNION view over both, carrying the legacy single-table name so readers are
+> unaffected). Splitting bulk from derived is what lets a rebuild replace the
+> former without discarding the latter. The `_sync` suffix is historical — it
+> once denoted a table owned by a Databricks Lakeflow pipeline; that
+> `managed_synced` mode was removed, and the suffix is kept so existing
+> deployments need no migration.
 
 ### Manual Workflow
 

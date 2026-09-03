@@ -120,7 +120,7 @@ class Neo4jStore(GraphDBBackend):
             ``auth_method == "basic"``. **In the deployed app** (when
             ``DATABRICKS_APP_PORT`` is set) the password MUST come from the
             ``NEO4J_PASSWORD`` env var instead, populated via a Databricks
-            Apps secret resource bound in ``app.yaml``. The persisted JSON
+            environment. The persisted JSON
             ``password`` is stripped at save-time whenever a live source
             (secret scope/key or env var) is in play, so no clear-text
             credential lands in ``global_config``.

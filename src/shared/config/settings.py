@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # for local dev), then falls back to ``DATABRICKS_APP_NAME`` which the
     # Databricks Apps runtime auto-injects as the deployed app's name
     # (e.g. ``ontobricks`` for prod, ``ontobricks-dev`` for the sandbox).
-    # This lets the same ``app.yaml`` and source tree power multiple
+    # This lets one source tree power multiple
     # Databricks App deployments without requiring a per-app override.
     ontobricks_app_name: str = Field(
         default="",

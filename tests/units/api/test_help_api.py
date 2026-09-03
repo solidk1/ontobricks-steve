@@ -24,7 +24,6 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from api.routers.internal.help import _DOC_INDEX, _docs_dir
@@ -208,28 +207,6 @@ class TestHelpCatalogIntegrity:
         )
 
 
-class TestHelpDeployBundle:
-    def test_databricksignore_does_not_exclude_documentation_tree(self):
-        ignore_path = _REPO_ROOT / ".databricksignore"
-        blocked = {
-            line.strip()
-            for line in ignore_path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        }
-        # Help Center markdown lives under documentation/; docs/ is the
-        # GitHub Pages marketing site and is intentionally excluded.
-        assert "documentation/" not in blocked
-        assert "docs/" in blocked
-        assert "*.md" not in blocked
-
-    def test_databricks_yml_includes_documentation_for_help_center(self):
-        bundle_path = _REPO_ROOT / "databricks.yml"
-        bundle = yaml.safe_load(bundle_path.read_text(encoding="utf-8"))
-        includes = bundle.get("sync", {}).get("include", [])
-        excludes = bundle.get("sync", {}).get("exclude", [])
-        assert "documentation/**" in includes
-        assert "documentation/" not in excludes
-        assert "*.md" not in excludes
 
 
 class TestHelpDocFetch:

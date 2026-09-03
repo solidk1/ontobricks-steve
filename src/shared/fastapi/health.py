@@ -438,7 +438,7 @@ def _check_lakebase(settings: Settings) -> Tuple[str, str]:
             _WARNING,
             "Lakebase not bound (PG* env vars unset) — registry is unavailable; "
             "set PGHOST + PGUSER + PGDATABASE in .env, or bind a database "
-            "resource in app.yaml (deployed)",
+            "resource (deployed)",
         )
 
     cfg = _resolve_registry_cfg(settings)
@@ -567,7 +567,7 @@ def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
             _ERROR,
             "Missing Lakebase grants for role "
             f"'{cur_user}' on {cur_db}.{store.schema}: {', '.join(missing)}. "
-            "Run scripts/bootstrap-lakebase-perms.sh.",
+            "Grant it: GRANT USAGE, CREATE ON SCHEMA <schema> TO <role>.",
         )
 
     return (
@@ -658,7 +658,7 @@ def _check_uc_catalog_privileges(settings: Settings) -> Tuple[str, str]:
         return (
             _WARNING,
             "Registry catalog not configured — set REGISTRY_VOLUME_PATH or bind a UC Volume "
-            "resource in app.yaml",
+            "resource",
         )
     client = _build_health_client(settings)
     if client is None:
@@ -764,7 +764,7 @@ def _check_lakebase_env_vars() -> Tuple[str, str]:
     env var — it is a short-lived JWT minted by :class:`LakebaseAuth` on demand.
 
     In a Databricks App these are injected automatically when a ``database``
-    resource is bound in ``app.yaml``. In local development they must be set
+    ``database`` resource is bound. Otherwise they must be set
     in ``.env``
     can be used instead of raw ``PG*`` values — see ``LakebaseAuth`` docs).
     """
@@ -1152,7 +1152,7 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
                 f"Missing Postgres permissions on graph schema '{schema}' for role '{cur_user}': "
                 f"{', '.join(missing)}. "
                 "Run Settings → Lakebase → Permissions to grant superuser, or use "
-                "scripts/bootstrap-lakebase-perms.sh.",
+                "GRANT USAGE, CREATE ON SCHEMA <schema> TO <role>.",
             )
         return (
             _OK,
@@ -1381,7 +1381,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
                 "lazy table: domain_change_events (created on first domain save); "
                 "(6) The role has USAGE/CREATE on the schema + SELECT/INSERT/UPDATE/DELETE "
                 "on all tables + USAGE/SELECT/UPDATE on all sequences. "
-                "Run Settings → Registry → Initialize or scripts/bootstrap-lakebase-perms.sh "
+                "Run Settings → Registry → Initialize, or grant CREATE on the schema "
                 "to fix permission and initialization issues."
             ),
             "checks": lb_checks,

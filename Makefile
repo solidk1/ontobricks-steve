@@ -1,21 +1,12 @@
 # Makefile for OntoBricks (FastAPI)
 #
-# All deployment values (app names, DAB target, registry coords, SQL
-# warehouse, Lakebase project/branch/database, app.yaml runtime
-# fallbacks) are centralised in `scripts/deploy.config.sh`. Edit that
-# file to change deployment behaviour, then `make deploy`.
-#
-# `scripts/deploy.sh` sources the config; the bootstrap targets below
-# do the same so `make bootstrap-perms` / `make bootstrap-lakebase`
-# stay aligned with the rest of the workflow.
+# OntoBricks runs as an ordinary container against an ordinary PostgreSQL
+# database. Configuration is entirely environment-driven — see `.env.example`
+# for the full contract. There is no bundle and no platform-specific deploy
+# target; start the app with `make run` (or `python run.py`) and point
+# PGHOST/PGDATABASE/PGUSER at your server.
 
-CONFIG := scripts/deploy.config.sh
-
-.PHONY: help install test test-cov scenario-campaign run dev prod setup format lint clean \
-        deploy deploy-dry-run deploy-volume deploy-no-run \
-        bootstrap-perms bootstrap-lakebase \
-        bundle-validate bundle-summary deploy-check \
-        render-app-yaml
+.PHONY: help install test test-cov scenario-campaign run dev prod setup format lint clean
 
 # Output dir for the live scenario campaign reports (JUnit + HTML).
 SCENARIO_ARTIFACTS := artifacts/scenarios
@@ -43,19 +34,6 @@ help:
 	@echo "  Code Quality:"
 	@echo "    make format       - Format code with black"
 	@echo "    make lint         - Lint code with flake8"
-	@echo ""
-	@echo "  Deployment (Databricks Asset Bundles — dev sandbox only):"
-	@echo "    Edit values in: $(CONFIG)"
-	@echo "    make deploy              - Deploy + start the dev sandbox app (Lakebase backend)"
-	@echo "    make deploy-dry-run      - Run ALL pre-deploy checks (preflight/validate/resources), no changes"
-	@echo "    make deploy-volume       - Deploy + start the dev sandbox app (Volume-only backend)"
-	@echo "    make deploy-no-run       - Deploy without starting the app (Lakebase target)"
-	@echo "    make render-app-yaml     - Re-render app.yaml from template + config"
-	@echo "    make bootstrap-perms     - Grant app SP CAN_MANAGE on itself + CAN_MANAGE_RUN on the analytics job"
-	@echo "    make bootstrap-lakebase  - Grant the app SP USAGE/DML on the Lakebase registry schema"
-	@echo "    make bundle-validate     - Validate the bundle config (target from deploy.config.sh)"
-	@echo "    make bundle-summary      - Preview what will deploy (target from deploy.config.sh)"
-	@echo "    make deploy-check        - Read-only deploy prerequisite check (see documentation/DEPLOY_CHECKLIST.md)"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make clean        - Remove generated files"
@@ -148,89 +126,4 @@ dev:
 
 prod:
 	@echo "Starting production server..."
-	. .venv/bin/activate && uvicorn app.fastapi.main:app --host 0.0.0.0 --port 8000
-
-# ── Deployment (DAB — Databricks Asset Bundles) ──────────────
-# `scripts/deploy.sh` is the single orchestrator: it sources
-# `$(CONFIG)`, renders app.yaml from app.yaml.template, runs
-# `databricks bundle deploy` with --var= overrides composed from the
-# config, then bootstraps app SP perms (and Lakebase schema GRANTs on
-# *-lakebase targets). The DAB target defaults to `dev-lakebase` from
-# `$(CONFIG)`; the `deploy-volume` target overrides on the CLI.
-
-deploy:
-	chmod +x scripts/deploy.sh
-	unset APP_NAME MCP_APP_NAME REGISTRY_SCHEMA LAKEBASE_REGISTRY_SCHEMA LAKEBASE_REGISTRY_DATABASE APP_LAKEBASE_SCHEMA APP_LAKEBASE_DATABASE; scripts/deploy.sh
-
-deploy-dry-run:
-	chmod +x scripts/deploy.sh
-	unset APP_NAME MCP_APP_NAME REGISTRY_SCHEMA LAKEBASE_REGISTRY_SCHEMA LAKEBASE_REGISTRY_DATABASE APP_LAKEBASE_SCHEMA APP_LAKEBASE_DATABASE; scripts/deploy.sh --dry-run
-
-deploy-volume:
-	chmod +x scripts/deploy.sh
-	unset APP_NAME MCP_APP_NAME REGISTRY_SCHEMA LAKEBASE_REGISTRY_SCHEMA LAKEBASE_REGISTRY_DATABASE APP_LAKEBASE_SCHEMA APP_LAKEBASE_DATABASE; scripts/deploy.sh -t dev
-
-deploy-no-run:
-	chmod +x scripts/deploy.sh
-	unset APP_NAME MCP_APP_NAME REGISTRY_SCHEMA LAKEBASE_REGISTRY_SCHEMA LAKEBASE_REGISTRY_DATABASE APP_LAKEBASE_SCHEMA APP_LAKEBASE_DATABASE; scripts/deploy.sh --no-run
-
-render-app-yaml:
-	@echo "Rendering app.yaml from app.yaml.template + $(CONFIG)..."
-	@. ./$(CONFIG) && python3 scripts/_internal/_render-app-yaml.py
-
-bootstrap-perms:
-	@echo "Bootstrapping app self-permissions (config: $(CONFIG))..."
-	chmod +x scripts/bootstrap/app-permissions.sh
-	@. ./$(CONFIG) && scripts/bootstrap/app-permissions.sh
-
-bootstrap-lakebase:
-	@echo "Granting Lakebase schema USAGE/DML to sandbox apps (config: $(CONFIG))..."
-	chmod +x scripts/bootstrap/lakebase-perms.sh
-	@. ./$(CONFIG) && \
-	  scripts/bootstrap/lakebase-perms.sh \
-	    -i "$$LAKEBASE_PROJECT" \
-	    -b "$$LAKEBASE_BRANCH" \
-	    -d "$$LAKEBASE_DATABASE" \
-	    -s "$$LAKEBASE_SCHEMA" \
-	    -a "$$APP_NAME" -a "$$MCP_APP_NAME"
-
-bundle-validate:
-	@echo "Validating Databricks Asset Bundle (target from $(CONFIG))..."
-	@. ./$(CONFIG) && \
-	  . ./scripts/_internal/_ensure-instance-target.sh && \
-	  ensure_instance_target "$$DAB_TARGET" && \
-	  databricks bundle validate -t "$$DAB_TARGET" \
-	    --var=app_name="$$APP_NAME" \
-	    --var=mcp_app_name="$$MCP_APP_NAME" \
-	    --var=warehouse_id="$$WAREHOUSE_ID" \
-	    --var=registry_catalog="$$REGISTRY_CATALOG" \
-	    --var=registry_schema="$$REGISTRY_SCHEMA" \
-	    --var=registry_volume="$$REGISTRY_VOLUME" \
-	    --var=neo4j_secret_scope="$$NEO4J_SECRET_SCOPE" \
-	    --var=lakebase_project="$$LAKEBASE_PROJECT" \
-	    --var=lakebase_branch="$$LAKEBASE_BRANCH" \
-	    --var=lakebase_database_resource_segment="$$LAKEBASE_DATABASE_RESOURCE_SEGMENT" \
-	    --var=lakebase_registry_schema="$$LAKEBASE_SCHEMA"
-
-bundle-summary:
-	@echo "Bundle summary (target from $(CONFIG))..."
-	@. ./$(CONFIG) && \
-	  . ./scripts/_internal/_ensure-instance-target.sh && \
-	  ensure_instance_target "$$DAB_TARGET" && \
-	  databricks bundle summary -t "$$DAB_TARGET" \
-	    --var=app_name="$$APP_NAME" \
-	    --var=mcp_app_name="$$MCP_APP_NAME" \
-	    --var=warehouse_id="$$WAREHOUSE_ID" \
-	    --var=registry_catalog="$$REGISTRY_CATALOG" \
-	    --var=registry_schema="$$REGISTRY_SCHEMA" \
-	    --var=registry_volume="$$REGISTRY_VOLUME" \
-	    --var=neo4j_secret_scope="$$NEO4J_SECRET_SCOPE" \
-	    --var=lakebase_project="$$LAKEBASE_PROJECT" \
-	    --var=lakebase_branch="$$LAKEBASE_BRANCH" \
-	    --var=lakebase_database_resource_segment="$$LAKEBASE_DATABASE_RESOURCE_SEGMENT" \
-	    --var=lakebase_registry_schema="$$LAKEBASE_SCHEMA"
-
-# Check deployment prerequisites (read-only — see documentation/DEPLOY_CHECKLIST.md)
-deploy-check:
-	@chmod +x scripts/deploy.sh
-	@scripts/deploy.sh --dry-run
+	. .venv/bin/activate && ONTOBRICKS_CONTAINERIZED=true python run.py

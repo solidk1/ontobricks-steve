@@ -399,7 +399,7 @@ class PostgresRegistryStore(RegistryStore):
         though the tables exist and hold data — turning the panel
         into a misleading "not initialised, 0 rows everywhere"
         screen. Surfacing the explicit reason lets the operator
-        run ``scripts/bootstrap-lakebase-perms.sh`` and move on
+        grant the schema privileges and move on
         instead of hunting for a phantom data loss.
         """
         try:
@@ -430,7 +430,7 @@ class PostgresRegistryStore(RegistryStore):
                         msg = (
                             f"Role '{cur_user}' lacks USAGE on schema "
                             f"'{self._schema}' in database '{cur_db}'. "
-                            f"Run scripts/bootstrap-lakebase-perms.sh "
+                            f"Grant USAGE, CREATE ON SCHEMA to the connecting role "
                             f"-i <instance> -d {cur_db} -s {self._schema} "
                             f"-a <app-name>, or GRANT USAGE ON SCHEMA "
                             f"\"{self._schema}\" TO \"{cur_user}\" "
@@ -697,7 +697,7 @@ class PostgresRegistryStore(RegistryStore):
     def grant_app_permissions(
         self, *, app_names: list[str], uc_catalog: str = ""
     ) -> dict[str, Any]:
-        """In-app port of ``scripts/bootstrap-lakebase-perms.sh`` (registry schema).
+        """Grant the app principal USAGE + DML on the registry schema.
 
         Runs as the app's own service principal, which **owns** the
         registry schema after *Initialize* and can therefore ``GRANT`` to
@@ -1667,7 +1667,7 @@ class PostgresRegistryStore(RegistryStore):
                     self._status_column_ready = True
                     return True
                 # Column absent — attempt DDL (requires schema owner to
-                # have not yet run bootstrap-lakebase-perms.sh).
+                # have not yet been granted).
                 cur.execute(
                     f"""
                     ALTER TABLE {sch}.domain_versions
@@ -1686,7 +1686,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not add domain_versions.status column — "
-                "run `make bootstrap-lakebase` (or scripts/bootstrap-lakebase-perms.sh) "
+                "grant USAGE + CREATE + DML on the schema "
                 "as the schema owner to apply the migration: %s",
                 exc,
             )
@@ -1727,7 +1727,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not add domains.review_quorum column — "
-                "run `make bootstrap-lakebase` (or scripts/bootstrap-lakebase-perms.sh) "
+                "grant USAGE + CREATE + DML on the schema "
                 "as the schema owner to apply the migration: %s",
                 exc,
             )
@@ -1845,7 +1845,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not migrate the schedules tables to generic tasks — "
-                "run `make bootstrap-lakebase` (or scripts/bootstrap-lakebase-perms.sh) "
+                "grant USAGE + CREATE + DML on the schema "
                 "as the schema owner to apply the migration: %s",
                 exc,
             )
@@ -1928,7 +1928,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create build_runs table — "
-                "run `make bootstrap-lakebase` as the schema owner to apply the migration: %s",
+                "connect as the schema owner to apply the migration: %s",
                 exc,
             )
             return False
@@ -2199,7 +2199,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create graph_analytics table — "
-                "run `make bootstrap-lakebase` as the schema owner to apply "
+                "connect as the schema owner to apply "
                 "the migration: %s",
                 exc,
             )
@@ -2368,7 +2368,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create graph_analytics_runs table — "
-                "run `make bootstrap-lakebase` as the schema owner to apply "
+                "connect as the schema owner to apply "
                 "the migration: %s",
                 exc,
             )
@@ -2724,7 +2724,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create domain_review_events table — "
-                "run `make bootstrap-lakebase` as the schema owner to "
+                "connect as the schema owner to "
                 "apply the migration: %s",
                 exc,
             )
@@ -2911,7 +2911,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create domain_change_events table — "
-                "run `make bootstrap-lakebase` as the schema owner to "
+                "connect as the schema owner to "
                 "apply the migration: %s",
                 exc,
             )
@@ -3119,7 +3119,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create domain_comments/domain_tasks tables — "
-                "run `make bootstrap-lakebase` as the schema owner to "
+                "connect as the schema owner to "
                 "apply the migration: %s",
                 exc,
             )
@@ -3458,7 +3458,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "could not create domain_edit_locks table — run "
-                "`make bootstrap-lakebase` as the schema owner to apply "
+                "connect as the schema owner to apply "
                 "the migration: %s",
                 exc,
             )

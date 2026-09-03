@@ -20,12 +20,9 @@ Conflating 3 with 4 was the dangerous case: cookie security and access
 control are independent, and a deployment outside Databricks Apps
 silently got neither.
 
-**Transitional behaviour.** Every predicate here falls back to
-:func:`_legacy_apps_mode` when its own variable is unset, so introducing
-this class changes no behaviour. :func:`_legacy_apps_mode` is the *only*
-reader of ``DATABRICKS_APP_PORT`` in the codebase — a test in
-``tests/units/core/test_runtime_env.py`` enforces that — which is what
-lets the Apps deploy be removed by editing one function.
+Each predicate is driven by its own explicit variable. The Databricks Apps
+deploy is gone, so nothing reads ``DATABRICKS_APP_PORT`` any more; a test in
+``tests/units/core/test_runtime_env.py`` enforces that it stays gone.
 """
 
 from __future__ import annotations
@@ -36,17 +33,6 @@ DEFAULT_PORT = 8000
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off", ""})
-
-
-def _legacy_apps_mode() -> bool:
-    """Return *True* when running inside Databricks Apps.
-
-    The sole reader of ``DATABRICKS_APP_PORT``. Every predicate below
-    defers to it when its own variable is unset, which is what makes the
-    split behaviour-preserving. Delete this in P7 along with the Apps
-    deploy, and each caller's default becomes its documented value.
-    """
-    return os.getenv("DATABRICKS_APP_PORT") is not None
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -82,17 +68,14 @@ class RuntimeEnv:
     def port(default: int = DEFAULT_PORT) -> int:
         """Port to bind, and to reach this process on for self-calls.
 
-        ``PORT`` is the portable spelling and wins. ``DATABRICKS_APP_PORT``
-        is honoured while the Apps deploy still exists.
+        ``PORT`` is what every container platform sets.
         """
-        for name in ("PORT", "DATABRICKS_APP_PORT"):
-            raw = os.getenv(name)
-            if not raw:
-                continue
+        raw = os.getenv("PORT")
+        if raw:
             try:
                 return int(raw.strip())
             except ValueError:
-                continue
+                pass
         return default
 
     @staticmethod
@@ -109,10 +92,11 @@ class RuntimeEnv:
         """Whether the writable filesystem is ephemeral and restricted.
 
         Drives session- and log-directory placement (``/tmp`` rather than
-        the working directory). Set ``ONTOBRICKS_CONTAINERIZED`` in the
-        image.
+        the working directory) and, in ``run.py``, whether uvicorn binds
+        ``0.0.0.0`` instead of loopback. Set ``ONTOBRICKS_CONTAINERIZED=true``
+        in the image.
         """
-        return _env_flag("ONTOBRICKS_CONTAINERIZED", _legacy_apps_mode())
+        return _env_flag("ONTOBRICKS_CONTAINERIZED", False)
 
     # ------------------------------------------------------------------
     # 3. Cookie security
@@ -127,7 +111,7 @@ class RuntimeEnv:
         access control are separate facts, and a deployment can have
         either without the other.
         """
-        return _env_flag("ONTOBRICKS_SECURE_COOKIES", _legacy_apps_mode())
+        return _env_flag("ONTOBRICKS_SECURE_COOKIES", False)
 
     # ------------------------------------------------------------------
     # 4. Authentication

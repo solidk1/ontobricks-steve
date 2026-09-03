@@ -18,7 +18,7 @@ Carved out of :mod:`Neo4jStore` during the PR #47 review split (Benoit
      instantiation (stores are created per-request, not pooled).
    - ``auth_method="basic"`` (legacy) — ``NEO4J_PASSWORD`` env var
      (populated by a Databricks Apps secret resource bound in
-     ``app.yaml``) takes priority over ``engine_config['password']``
+     the environment) takes priority over ``engine_config['password']``
      (local-dev fallback). Kept only for deployments that already rely
      on the Apps-resource binding; the Settings UI no longer exposes it.
      When running inside the deployed app (``DATABRICKS_APP_PORT`` is
@@ -96,7 +96,7 @@ def resolve_neo4j_database(cfg: dict[str, Any] | None) -> str:
     return DEFAULT_DATABASE
 
 
-# Env var fed by a Databricks Apps secret resource bound in app.yaml as
+# Env var carrying the Neo4j password, e.g. from a secret store, as
 # ``valueFrom: neo4j-password``. When set, the persisted engine_config
 # password is ignored (and stripped at save-time) — see
 # docs/pr47-neo4j-demo/secret-configuration.md.
@@ -239,7 +239,7 @@ class Neo4jConnection:
                 raise InfrastructureError(
                     "Neo4jConnection: %s env var is required in the deployed app — "
                     "declare a Databricks Apps secret resource named 'neo4j-password' "
-                    "and bind it via app.yaml `valueFrom`. See "
+                    "and expose it as NEO4J_PASSWORD. See "
                     "docs/pr47-neo4j-demo/secret-configuration.md."
                     % NEO4J_PASSWORD_ENV
                 )
