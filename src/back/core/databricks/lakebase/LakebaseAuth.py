@@ -694,12 +694,57 @@ class BranchLakebaseAuth:
         return ""
 
 
-_default: Optional[LakebaseAuth] = None
+#: Cached auth objects, keyed by resolved mode, so switching modes in tests (or
+#: across a config reload) does not hand back a stale object.
+_defaults: dict = {}
+
+AZURE_PG_SUFFIX = ".postgres.database.azure.com"
 
 
-def get_lakebase_auth() -> LakebaseAuth:
-    """Return a process-wide :class:`LakebaseAuth` singleton."""
-    global _default
-    if _default is None:
-        _default = LakebaseAuth()
-    return _default
+def resolve_pg_auth_mode() -> str:
+    """Decide which Postgres auth implementation to use.
+
+    ``ONTOBRICKS_PG_AUTH`` selects explicitly:
+
+    * ``lakebase`` — :class:`LakebaseAuth` (Databricks Lakebase JWT).
+    * ``entra``    — :class:`~back.core.postgres.PostgresAuth` with a Microsoft
+      Entra access token as the password.
+    * ``password`` — :class:`~back.core.postgres.PostgresAuth` with
+      ``PGPASSWORD``.
+
+    Unset (or ``auto``) infers from ``PGHOST``: an
+    ``*.postgres.database.azure.com`` host means Azure Database for PostgreSQL,
+    which Lakebase auth cannot serve, so Entra is chosen. Anything else keeps
+    the previous Lakebase behaviour, so existing deployments are unaffected by
+    this seam being introduced.
+    """
+    explicit = (os.environ.get("ONTOBRICKS_PG_AUTH") or "").strip().lower()
+    if explicit in ("lakebase", "entra", "password"):
+        return explicit
+    if (os.environ.get("PGHOST") or "").strip().lower().endswith(AZURE_PG_SUFFIX):
+        return "entra"
+    return "lakebase"
+
+
+def get_lakebase_auth():
+    """Return the process-wide Postgres auth object for the resolved mode.
+
+    Returns :class:`LakebaseAuth` or
+    :class:`~back.core.postgres.PostgresAuth`; both expose the same
+    ``host`` / ``port`` / ``database`` / ``user`` / ``password()`` /
+    ``invalidate()`` / ``kwargs()`` / ``conninfo()`` surface that
+    :class:`LakebaseConnectionPool` consumes, so callers do not care which.
+    """
+    mode = resolve_pg_auth_mode()
+    cached = _defaults.get(mode)
+    if cached is not None:
+        return cached
+    if mode == "lakebase":
+        cached = LakebaseAuth()
+    else:
+        from back.core.postgres import PostgresAuth
+
+        cached = PostgresAuth(auth_mode=mode)
+        logger.info("Postgres auth mode: %s", mode)
+    _defaults[mode] = cached
+    return cached

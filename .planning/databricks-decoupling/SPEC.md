@@ -116,6 +116,11 @@ JWT minting, pre-expiry refresh.
 
 - Config: `DATABASE_URL`, or discrete `PGHOST` / `PGPORT` / `PGDATABASE` /
   `PGUSER` / `PGSSLMODE`. No `PGPASSWORD` on the Azure path — see below.
+- **Implemented as `EntraCredential` + `PostgresAuth`** in `back/core/postgres/`,
+  verified against the live server (§6.1). The pool is *reused*, not rewritten:
+  its `auth.kwargs()` / `auth.invalidate()` contract and its
+  retry-once-on-auth-failure loop are already exactly what token rotation needs.
+
 - **`password_provider` is required, not optional.** Entra ID authenticates by
   presenting an access token *as the password*; tokens live 5–60 minutes and
   cannot be refreshed inside an open session, so a fresh token must be minted for
@@ -409,7 +414,9 @@ until P7.
 |---|---|---|
 | ~~P0~~ | **Done** (§6.1). Found that `convert_to` is `STABLE`, so the generated column needs an `IMMUTABLE` in-schema wrapper; everything else confirmed on PG 16.15 | Gated the no-extensions design |
 | P1 | `RuntimeEnv` split: 37 `is_databricks_app()` + 17 `DATABRICKS_APP_PORT` sites → `PORT` / `ONTOBRICKS_AUTH_ENABLED` / `DatabricksConnector.is_configured()`. No behaviour change on Apps | Riskiest and least visible; do it while old behaviour is still runnable as a reference |
-| P2 | `PostgresConnectionPool` + Entra `password_provider`; session `search_path` without `public`; drop pgcrypto; PG 14 floor; co-tenancy invariant test; reword the superuser remediation | The actual Lakebase removal |
+| P2a | **Done.** No-extension schema DDL (in-schema `sha256_utf8` wrapper), `search_path` without `public`, superuser remediation reworded, co-tenancy gate tests | Azure-compatible storage |
+| P2b | **Done.** `back/core/postgres/` — `EntraCredential` (token-as-password, per-connection minting) + `PostgresAuth`, selected by `resolve_pg_auth_mode()`. Reuses the existing pool rather than rewriting it | The app can now reach Azure Postgres |
+| P2c | Retire `BranchLakebaseAuth` and the Lakebase branch/project config once P5b lands | Deferred behind P5b |
 | P3 | Rename `lakebase` → `postgres` with `AliasChoices` back-compat | Mechanical; own commit so review is trivial |
 | P4 | OIDC login, `IdentitySession`, remove 25 header reads, `app_roles` + `AppRoleService` + admin screen | Depends on P1's auth predicate |
 | P5 | Delete `SyncedTableManager`, `provisioner`, `_sync_uc_schema`, `grants.py` and the Settings UI driving them. Neo4j and `SecretsService` are **kept** | Pure subtraction; shrinks P2's surface |

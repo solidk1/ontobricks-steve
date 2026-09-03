@@ -318,3 +318,91 @@ reformatted ~125 lines unrelated to this change, because neither file was actual
 black-clean at the configured line length. That reformatting was reverted so the diff is
 pure deletion (0 insertions in both files) and stays reviewable. Whether to black-format
 those files is a separate decision.
+
+## P2b — Microsoft Entra authentication to Azure Database for PostgreSQL
+
+Context: Before this change nothing in OntoBricks could connect to a generic
+PostgreSQL server. `LakebaseAuth` only knew how to mint Lakebase JWTs, resolving the host
+by walking the Databricks Postgres control plane (projects → branches → endpoints), so an
+Azure server was unreachable regardless of configuration.
+
+Rather than rewrite the connection layer, this reuses it. `LakebaseConnectionPool` already
+expects only `host` / `port` / `database` / `user` / `password()` / `invalidate()` /
+`kwargs()` from its auth object, and it already retries once on an authentication failure
+after calling `invalidate()`. That loop is precisely what Entra token rotation needs, so a
+sibling auth class drops straight in — 1050 LOC of pool machinery kept, ~330 LOC of new
+credential code added.
+
+Changes:
+
+1. src/back/core/postgres/EntraCredential.py (new)
+   Mints and caches Entra access tokens for the
+   `https://ossrdbms-aad.database.windows.net/.default` audience. Re-mints 300s before
+   expiry, because a token that expires mid-handshake fails the connection outright.
+   Thread-safe — the pool opens connections from several threads and a token stampede
+   would be both slow and rate-limited. `DefaultAzureCredential` is constructed lazily so
+   importing the module never requires Azure configuration. Credential failures become
+   `InfrastructureError` naming both remedies (managed identity in a container,
+   `az login` locally) rather than surfacing a vendor exception.
+2. src/back/core/postgres/PostgresAuth.py (new)
+   Same surface as `LakebaseAuth`, minus the Lakebase-specific parts: no project/branch/
+   endpoint discovery, no JWT. Coordinates come from standard `PG*` variables; the
+   password is an Entra token or `PGPASSWORD`. `sslmode` defaults to `require` (Azure
+   mandates TLS). Missing coordinates raise `ValidationError` naming the variable and, for
+   `PGUSER`, explaining that Entra expects the principal name mapped via
+   `pgaadauth_create_principal`. TCP keepalives carried over from `LakebaseAuth`, since
+   without them a dead pooled connection stalls the next query for ~130s.
+3. src/back/core/databricks/lakebase/LakebaseAuth.py
+   `resolve_pg_auth_mode()` + a reworked `get_lakebase_auth()` now select the
+   implementation. Explicit `ONTOBRICKS_PG_AUTH` (`lakebase` | `entra` | `password`) wins;
+   otherwise a `*.postgres.database.azure.com` host infers Entra, and everything else
+   keeps the previous Lakebase behaviour — so **existing deployments are unaffected**.
+   The singleton is now keyed by resolved mode, so a mode change no longer hands back a
+   stale object.
+4. tests/units/postgres/test_entra_credential.py (new, 8 tests)
+   Scope value, caching, re-mint inside the refresh margin, `invalidate()` forcing a fresh
+   token, and failures mapping to `InfrastructureError`. One test initially asserted that
+   a whitespace-only token was accepted — the implementation was wrong, not the test name:
+   `" "` is truthy so it slipped past the guard and would have reached libpq as an opaque
+   auth failure. `token()` now strips before checking, and the test asserts rejection.
+5. tests/units/postgres/test_postgres_auth.py (new, 20 tests)
+   Mode selection and rejection of unknown modes, `kwargs()` shape, TLS default and
+   tightening, keepalives, each missing coordinate named, non-numeric `PGPORT`, both
+   password paths, and `invalidate()` being safe in password mode. Four selector tests pin
+   that non-Azure and unset hosts still resolve to `lakebase`.
+6. tests/units/postgres/test_entra_live_connection.py (new, 3 tests)
+   The unit tests stub the credential, so none of them prove Azure's real token is
+   accepted. These do, against the live server: a real token authenticates; the shared
+   pool drives `password()` per physical connection (the property the whole design rests
+   on); and invalidate-then-reconnect recovers. Gated on `ONTOBRICKS_ENTRA_LIVE=1`.
+   The coordinates are snapshotted at *module import*, because `tests/conftest.py` has an
+   autouse fixture that deletes `PGHOST`/`PGDATABASE` to stop a developer's `.env` leaking
+   into unit tests — a safeguard worth keeping, so this module works around it rather than
+   weakening it.
+7. .env.example
+   Documented the Azure path as Option 1 (with the one-time
+   `pgaadauth_create_principal` / `CREATE SCHEMA` / `GRANT` setup and the co-tenancy
+   guarantee) and demoted Lakebase to Option 2.
+
+Modified files:
+- src/back/core/postgres/__init__.py (new)
+- src/back/core/postgres/EntraCredential.py (new)
+- src/back/core/postgres/PostgresAuth.py (new)
+- src/back/core/databricks/lakebase/LakebaseAuth.py
+- tests/units/postgres/__init__.py (new)
+- tests/units/postgres/test_entra_credential.py (new)
+- tests/units/postgres/test_postgres_auth.py (new)
+- tests/units/postgres/test_entra_live_connection.py (new)
+- .env.example
+- .planning/databricks-decoupling/SPEC.md
+- changelogs/v0.7.1/solidk1_2026-09-01.log
+
+Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integration"
+-p no:randomly` → **4840 passed, 21 skipped, 283 deselected in 31.82s**. The 3 live Entra
+tests pass against `pg-sshao-ontobricks.postgres.database.azure.com` in 13.13s
+(`ONTOBRICKS_ENTRA_LIVE=1`), and skip cleanly without it. ruff + black clean; mypy clean
+on the new package.
+
+Not yet done: `BranchLakebaseAuth` and the Lakebase project/branch settings still exist —
+retiring them is blocked behind P5b (managed-synced removal), which is 28 files and ~340
+occurrences concentrated in the build pipeline.
