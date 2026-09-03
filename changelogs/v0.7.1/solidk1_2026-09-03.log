@@ -1,0 +1,207 @@
+# P6 — provider-agnostic LLM transport
+
+## Context
+
+After the Apps and Lakebase work, OntoBricks runs on any container against any
+Postgres — but its agents still only talked to a Databricks workspace. One line
+was the whole coupling:
+
+```python
+url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
+```
+
+That is `src/agents/engine_base.py:84`, the single LLM transport for all 11 agent
+engines. Databricks serving endpoints already speak the OpenAI chat-completions
+request and response shape, so only two things actually differ between providers:
+the URL, and whether the model name travels in the body. This change moves both
+behind one resolver and keeps the **Databricks Foundation Model API as a preset**,
+not a requirement.
+
+Gated by `.cursor/12-ai-feature-lifecycle.mdc`, so it went SPEC → dataset → red
+tests → implementation → eval, in that order.
+
+## Changes
+
+1. **`.planning/agents/engine_base/SPEC.md`** (new) — the design. Records why the
+   eval is contract-shaped rather than judge-scored, why the 11 engine signatures
+   deliberately do *not* change, and §11, the gate hole found while writing it.
+
+2. **`.planning/agents/engine_base/PLAN.md`** (new) — brainstorm decisions, the
+   Fowler smells addressed, the steps, and an explicit "Not done" section.
+
+3. **`tests/eval/datasets/engine_base/baseline.jsonl`** (new, 24 rows) and
+   **`regression.jsonl`** (new, 3 rows) — hand-curated transport-contract cases.
+   Each row is a `(env, host, token, endpoint_name)` input and the exact expected
+   URL, `Authorization` header and `model`-key presence. Written and run **red
+   (109 failures) before any source change**, so they are known to bind to real
+   behaviour rather than to whatever the implementation happened to do.
+
+4. **`src/shared/config/LLMTarget.py`** (new, 213 lines) — resolves where to POST
+   and in which dialect. Pure config, no I/O, so the transport keeps its single
+   responsibility. Sits beside `RuntimeEnv` and `TraversalLimits`, the other two
+   env-derived config classes from this workstream.
+
+5. **`src/agents/engine_base.py`** — URL, headers and the `model` body field now
+   come from the resolver. `call_serving_endpoint`'s signature is untouched, so all
+   11 engines and the 12 test modules that patch it by name are untouched too.
+
+6. **`src/back/core/sqlwizard/SQLWizardService.py`** — the same invocations URL was
+   hardcoded a *second* time here (`:286`), which the P6 scope as originally
+   written would have missed. Now shares the resolver.
+   `get_model_serving_endpoints` returns the configured models when there is no
+   workspace to enumerate, so the Domain Settings picker is never empty.
+
+7. **`src/back/core/helpers/DatabricksHelpers.py`** — `require_serving_llm`
+   delegates the decision to `LLMTarget.resolve`, so a route can never admit a
+   request the transport would then refuse. It stops demanding Databricks
+   credentials when an external provider is configured, while still returning
+   them (possibly empty) because agent *tools* use them for Unity Catalog reads.
+
+8. **`src/api/routers/internal/dtwin.py`** — three routes (700, 2204, 2356) each
+   carried the same 12-line "require credentials, else auto-discover, else fail"
+   block. **Extract Function** `_require_llm`; each site is now one line.
+   `_auto_discover_llm_endpoint` short-circuits on a configured external provider,
+   which otherwise returned nothing because there is no Databricks client to ask.
+
+9. **`src/api/routers/internal/mapping.py`** — the LLM-endpoints picker route no
+   longer refuses when there is no workspace client but a provider is configured.
+
+10. **`tests/eval/judges/contract.py`** (new) — the rule-based judge, shared
+    between the pytest suite and the eval runner so the gate and the tests cannot
+    disagree about what passing means.
+
+11. **`tests/units/agents/test_engine_base_transport_contract.py`** (new, 112
+    tests) — the dataset as a unit test, so a contract regression fails in
+    milliseconds locally instead of waiting for a nightly eval.
+
+12. **`tests/eval/run_engine_base.py`** (new) — the harness. Offline by default;
+    `--live` adds one real round-trip through `call_serving_endpoint` itself
+    rather than a reimplementation.
+
+13. **`.github/workflows/eval-gate.yml`** — see §"Gate hole" below.
+
+14. **`tests/eval/thresholds.yaml`**, **`.env.example`**, **`README.md`**,
+    **`tests/eval/README.md`** — thresholds and documentation.
+
+## Design decisions
+
+**Provenance decides the provider, not the hostname.** Sniffing for
+`*.databricks.com` breaks on custom DNS, private workspaces and proxies, and picks
+the wrong credential silently when it guesses wrong. Instead: if
+`ONTOBRICKS_LLM_BASE_URL` is set the caller wants an OpenAI-compatible provider;
+otherwise the caller's triple is a workspace. No third `ONTOBRICKS_LLM_API_STYLE`
+knob, because the answer is already knowable. A dataset row pins the awkward case
+down: a *Databricks* host reached through the explicit external variables is
+treated as OpenAI-style, deliberately.
+
+**The 11 `run_agent(host, token, endpoint_name, …)` signatures do not change.**
+The honest names would be `(base_url, api_key, model)`, and `call_serving_endpoint`
+is now a misnomer. Renaming means 11 engine files plus 12 test modules that patch
+the symbol by name — roughly 40 lines of pure churn mixed into a behaviour change,
+which is the shape of diff that hides a real bug from a reviewer. The three
+positional values already mean "endpoint base, credential, model name" in both
+worlds. **Recorded as a follow-up**, to be done as a mechanical commit of its own,
+not quietly dropped.
+
+**`ONTOBRICKS_LLM_MODEL` is optional.** Without it, the caller's `endpoint_name`
+becomes the model, which means the existing per-domain Domain Settings dropdown
+keeps working — as a *model* picker instead of a serving-endpoint picker. That
+preserved an existing capability rather than replacing it with a fixed value.
+
+**`_UNSUPPORTED_PARAMS` re-keyed from `endpoint_name` to the resolved model.**
+Parameter support is a property of the model. On an external provider the endpoint
+name may be a stale Databricks value shared by several models, and a `temperature`
+ban discovered for one would have silenced a parameter the other supports.
+
+## Why the eval is contract-shaped
+
+This is a transport change, so the meaningful property is behavioural
+*equivalence*, not answer quality: pointed at the same model, an agent must produce
+the output it produces today. A judge scoring answer quality cannot distinguish a
+broken transport from a bad answer — a 500 and a hallucination both score zero.
+
+So the five dimensions are `url_exact`, `auth_header_exact`, `payload_shape`,
+`no_secret_leak` (all offline, weights summing to 0.90) and `live_smoke` (0.10).
+The offline four reach the declared 0.90 aggregate deliberately, because CI has no
+model to call.
+
+**`live_smoke` did not run.** Every Databricks CLI profile on this machine has an
+expired refresh token (`databricks auth login` needed, which is interactive) and no
+external provider key is configured. It is scored **zero, not skipped**, so the
+reported 0.9000 cannot be read as a verified end-to-end call against a real
+provider. `.planning/agents/engine_base/PLAN.md` has the two commands that finish
+it.
+
+What *was* proven end-to-end: a real HTTP round-trip through the production
+transport against a local OpenAI-compatible server, twice — once external with
+every `DATABRICKS_*` variable deleted from the environment, once with the
+Databricks preset. Both times 8/8 checks: URL shape, `Authorization`, `User-Agent`,
+`model` present-or-absent per dialect, tool pass-through, temperature, response
+extraction, usage accumulation. That proves the transport, not any provider's API.
+
+## Gate hole found while doing this
+
+`.github/workflows/eval-gate.yml` detected changed agents with
+`grep -E '^src/agents/agent_[a-z_]+/'`. `src/agents/engine_base.py` does not match
+that pattern, so `changed_agents` came back empty and **every gate job skipped**
+via `if: needs.detect.outputs.changed_agents != ''`. The one file shared by all 11
+agents — the highest-leverage file in the tree — was invisible to the gate that
+exists to protect them.
+
+Rather than quietly benefit from the hole, the detector now maps shared-infra paths
+(`engine_base.py`, `llm_utils.py`, `tracing.py`, `serialization.py`) to a sentinel
+subject `engine_base`, which carries its own SPEC and dataset. Simulated against
+this change's own file list, under bash: subject `engine_base`, SPEC found, dataset
+24 rows, eval-dimensions table parses.
+
+(The simulation initially reported everything missing — because zsh does not
+word-split unquoted variables and GitHub Actions runs bash. The gate logic was
+fine; my harness was wrong.)
+
+## Modified files
+
+- `.planning/agents/engine_base/SPEC.md` (new)
+- `.planning/agents/engine_base/PLAN.md` (new)
+- `.planning/agents/engine_base/eval/dataset.jsonl` (new, mirror)
+- `src/shared/config/LLMTarget.py` (new)
+- `src/agents/engine_base.py`
+- `src/back/core/sqlwizard/SQLWizardService.py`
+- `src/back/core/helpers/DatabricksHelpers.py`
+- `src/api/routers/internal/dtwin.py`
+- `src/api/routers/internal/mapping.py`
+- `tests/eval/datasets/engine_base/baseline.jsonl` (new)
+- `tests/eval/datasets/engine_base/regression.jsonl` (new)
+- `tests/eval/judges/__init__.py` (new)
+- `tests/eval/judges/contract.py` (new)
+- `tests/eval/run_engine_base.py` (new)
+- `tests/eval/thresholds.yaml`
+- `tests/eval/README.md`
+- `tests/units/agents/test_engine_base_transport_contract.py` (new)
+- `.github/workflows/eval-gate.yml`
+- `.env.example`
+- `README.md`
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` →
+**4923 passed, 299 skipped, 5 deselected** in 23.5s. No failures.
+
+The evidence that the Databricks preset is unchanged is that
+`tests/units/agents/test_agent_engine_base.py` and
+`tests/units/core/test_sql_wizard.py` pass **without being edited**.
+
+`uv run --frozen python tests/eval/run_engine_base.py` → `url_exact 27/27`,
+`auth_header_exact 27/27`, `payload_shape 27/27`, `no_secret_leak 27/27`,
+`live_smoke not run`, **aggregate 0.9000** against a 0.90 threshold. MLflow run
+logged to the local file store (`experiment=1`); a workspace run URI needs the
+interactive login above.
+
+Negative control on the new guard: re-injecting the API key into a log line makes
+`no_secret_leak` fail on 13 rows; reverting makes it pass. A guard that has not
+been seen to fail is not a guard.
+
+ruff: **4705 before, 4705 after** — zero new violations, including zero new
+F-rule (real-bug) findings, which stayed at 67. Two `from back.core.helpers import
+get_databricks_host_and_token` imports orphaned by the `_require_llm` extraction
+were removed by line number; the pre-existing violations in the same files were
+left alone.

@@ -44,14 +44,30 @@ class SQLWizardService:
         self._schema_cache: Dict[str, SchemaContext] = {}
 
     def get_model_serving_endpoints(self) -> List[Dict[str, str]]:
-        """Get list of text-capable model serving endpoints from the workspace.
+        """List the models available to pick from.
+
+        On a Databricks deployment these are the workspace's text-capable
+        serving endpoints. On an external deployment they come from
+        ``ONTOBRICKS_LLM_MODELS`` (or ``ONTOBRICKS_LLM_MODEL``), because there
+        is no workspace to enumerate.
 
         Returns:
-            List of dicts with 'name' and 'state' keys
+            List of dicts with 'name', 'state' and 'endpoint_type' keys
         """
         import requests
 
-        if not self.client.host or not self.client.has_valid_auth():
+        from shared.config.LLMTarget import LLMTarget
+
+        # On an external deployment there is no workspace to enumerate; offer
+        # the configured model(s) so the Domain Settings picker still works.
+        external = LLMTarget.picker_models()
+        if external:
+            return [
+                {"name": m, "state": "READY", "endpoint_type": "external"}
+                for m in external
+            ]
+
+        if not self.client or not self.client.host or not self.client.has_valid_auth():
             return []
 
         try:
@@ -277,13 +293,24 @@ class SQLWizardService:
         import requests
         import time
 
-        if not self.client.host or not self.client.has_valid_auth():
-            raise ValidationError("Databricks credentials not configured")
+        from shared.config.LLMTarget import LLMTarget
 
-        host = self.client.host.rstrip("/")
-        headers = self.client.get_auth_headers()
+        # An external LLM provider stands alone: SQL Wizard generates SQL from
+        # schema metadata already in hand, so it needs no workspace token when
+        # the model lives elsewhere.
+        if LLMTarget.external_configured():
+            target = LLMTarget.resolve(endpoint_name=endpoint_name)
+            headers = target.headers()
+        else:
+            if not self.client.host or not self.client.has_valid_auth():
+                raise ValidationError("Databricks credentials not configured")
+            target = LLMTarget.for_databricks(self.client.host, "", endpoint_name)
+            # The client owns token refresh and already sets Content-Type, so
+            # use its headers verbatim rather than re-deriving them here. This
+            # keeps the Databricks path byte-identical to its pre-P6 behaviour.
+            headers = self.client.get_auth_headers()
 
-        url = f"{host}/serving-endpoints/{endpoint_name}/invocations"
+        url = target.completions_url()
 
         payload = {
             "messages": [
@@ -292,6 +319,7 @@ class SQLWizardService:
             ],
             "max_tokens": 1024,
             "temperature": 0.1,
+            **target.payload_extras(),
         }
 
         logger.info(

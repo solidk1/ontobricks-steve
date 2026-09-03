@@ -389,11 +389,14 @@ async def get_llm_endpoints(
     """Get available model serving endpoints for SQL generation."""
     try:
         from back.core.sqlwizard import SQLWizardService
+        from shared.config.LLMTarget import LLMTarget
 
         domain = get_domain(session_mgr)
         client = get_databricks_client(domain, settings)
 
-        if not client:
+        # An external LLM provider needs no workspace client: the models come
+        # from configuration, not from a serving-endpoints listing.
+        if not client and not LLMTarget.external_configured():
             raise ValidationError("Databricks not configured")
 
         wizard = SQLWizardService(client)

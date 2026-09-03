@@ -133,6 +133,37 @@ no admin exists, so a deliberate revoke is not undone. Manage grants from
 **Settings → App access**, or via `GET`/`POST /settings/app-roles{,/grant,/revoke}`.
 The last admin cannot be revoked.
 
+### LLM provider
+
+Agents and SQL Wizard reach their model through one resolver,
+`shared/config/LLMTarget.py`. With nothing configured they use the **Databricks
+Foundation Model API** — the model is chosen per-domain in Domain Settings and
+called at `{DATABRICKS_HOST}/serving-endpoints/{model}/invocations`. That is the
+preset, not a requirement.
+
+Point them at any OpenAI-compatible `/chat/completions` provider instead:
+
+```bash
+ONTOBRICKS_LLM_BASE_URL=https://api.openai.com/v1 \
+ONTOBRICKS_LLM_API_KEY=sk-... \
+ONTOBRICKS_LLM_MODEL=gpt-4o-mini \
+python run.py
+```
+
+Databricks can stay configured for Unity Catalog reads and the Delta engine
+while the model call goes elsewhere — an explicit `ONTOBRICKS_LLM_BASE_URL`
+always wins, because provenance decides the provider rather than a guess at the
+hostname. Omit `ONTOBRICKS_LLM_API_KEY` for an unauthenticated local server
+(Ollama, a bare vLLM): no `Authorization` header is sent at all, which is what
+those reject a bogus one for. `ONTOBRICKS_LLM_MODEL` is optional — without it
+the model selected in Domain Settings is used, so the existing picker keeps
+working as a model picker. `ONTOBRICKS_LLM_MODELS` (comma-separated) populates
+that picker, since most providers have no endpoint listing to enumerate.
+
+Verified providers and the URL each resolves to are enumerated in
+`tests/eval/datasets/engine_base/baseline.jsonl`, which the test suite asserts
+against on every run.
+
 ### Graph analytics job (optional)
 
 `resources/graph_analytics.job.yml` defines the serverless job that computes

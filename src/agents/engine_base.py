@@ -2,10 +2,14 @@
 Shared infrastructure for OntoBricks agent engines.
 
 Provides the common ``AgentStep`` dataclass and reusable helpers for LLM
-serving-endpoint calls, tool dispatch, response content extraction, and
+chat-completion calls, tool dispatch, response content extraction, and
 token usage accumulation.  Each concrete agent engine imports what it needs
 and focuses exclusively on its own ``AgentResult``, system prompt, and
 ``run_agent`` loop.
+
+The endpoint is provider-agnostic: :class:`shared.config.LLMTarget` resolves
+either the Databricks Foundation Model API preset or any OpenAI-compatible
+``/chat/completions`` provider.  This module only posts the payload.
 """
 
 import json
@@ -16,21 +20,27 @@ from typing import Any, Callable, Dict, List, Optional
 import requests
 
 from back.core.logging import get_logger
+from shared.config.LLMTarget import LLMTarget
 from agents.llm_utils import call_llm_with_retry
 from agents.tracing import trace_llm
 
 logger = get_logger(__name__)
 
-# Endpoints (e.g. databricks-claude-opus-4-7) sometimes reject optional
-# OpenAI-style parameters with a 400 message like:
+# Models (e.g. databricks-claude-opus-4-7, o1-preview) sometimes reject
+# optional OpenAI-style parameters with a 400 message like:
 #   "Model ... does not support the temperature parameter."
-# We cache such bans per (endpoint, param) pair so subsequent calls skip the
+# We cache such bans per (model, param) pair so subsequent calls skip the
 # offending field proactively instead of re-discovering the 400 every time.
+#
+# Keyed by *resolved model*, not by the caller's ``endpoint_name``: on an
+# external provider the endpoint name may be a stale Databricks value shared
+# by several models, and a ban discovered for one must not silence a parameter
+# the other supports.
 _UNSUPPORTED_PARAMS: Dict[str, set] = {}
 
 
-def _unsupported_params(endpoint_name: str) -> set:
-    return _UNSUPPORTED_PARAMS.setdefault(endpoint_name, set())
+def _unsupported_params(model: str) -> set:
+    return _UNSUPPORTED_PARAMS.setdefault(model, set())
 
 
 def _looks_unsupported(body_text: str, param: str) -> bool:
@@ -73,7 +83,13 @@ def call_serving_endpoint(
     timeout: int = 180,
     trace_name: str = "agent:llm",
 ) -> dict:
-    """Call a Databricks serving endpoint (OpenAI-compatible chat completions).
+    """Call an OpenAI-compatible chat-completions endpoint.
+
+    ``host``, ``token`` and ``endpoint_name`` are the Databricks preset's
+    inputs.  When ``ONTOBRICKS_LLM_BASE_URL`` is set they are superseded by that
+    provider, with ``endpoint_name`` falling back to the model name — see
+    :class:`shared.config.LLMTarget`.  The signature is unchanged so all 11
+    engines and their tests are untouched by the provider split.
 
     Builds the URL, headers, and payload, then delegates to
     :func:`call_llm_with_retry` for retry/backoff logic.
@@ -81,16 +97,15 @@ def call_serving_endpoint(
     Args:
         trace_name: Used for MLflow span naming via ``@trace_llm``.
     """
-    url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+    target = LLMTarget.resolve(host, token, endpoint_name)
+    url = target.completions_url()
+    headers = target.headers()
 
-    banned = _unsupported_params(endpoint_name)
+    banned = _unsupported_params(target.model)
     payload: Dict[str, Any] = {
         "messages": messages,
         "max_tokens": max_tokens,
+        **target.payload_extras(),
     }
     if "temperature" not in banned and temperature is not None:
         payload["temperature"] = temperature
@@ -100,7 +115,7 @@ def call_serving_endpoint(
     logger.info(
         "%s: POST %s — %d messages, %d tool defs, max_tokens=%d, temperature=%s",
         trace_name,
-        endpoint_name,
+        target.describe(),
         len(messages),
         len(tools) if tools else 0,
         max_tokens,
@@ -126,8 +141,9 @@ def call_serving_endpoint(
         if not dropped:
             raise
         logger.warning(
-            "%s: endpoint rejected unsupported param(s) %s — retrying without them",
+            "%s: model %s rejected unsupported param(s) %s — retrying without them",
             trace_name,
+            target.model,
             dropped,
         )
         resp = call_llm_with_retry(url, headers, payload, timeout=timeout)

@@ -418,19 +418,25 @@ class DatabricksHelpers:
         domain,
         settings,
     ) -> Tuple[str, str, str]:
-        """Validate host, token, and domain LLM serving endpoint.
+        """Validate that an LLM is reachable, returning ``(host, token, model)``.
 
-        Returns ``(host, token, endpoint_name)`` or raises :class:`ValidationError`.
+        The decision is delegated to :class:`shared.config.LLMTarget`, so a
+        route can never admit a request that the transport would then refuse.
+
+        When an external provider is configured the Databricks credentials stop
+        being a precondition — but they are still *returned*, possibly empty,
+        because agent tools use them for Unity Catalog reads independently of
+        where the model lives.
+
+        Raises :class:`ValidationError`.
         """
+        from shared.config.LLMTarget import LLMTarget
+
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
-        if not host or not token:
+        if not LLMTarget.external_configured() and not (host and token):
             raise ValidationError("Databricks credentials not configured")
         endpoint = (domain.info or {}).get("llm_endpoint", "") or ""
-        if not endpoint:
-            raise ValidationError(
-                "No LLM serving endpoint configured. Please set it in Domain Settings.",
-            )
-        return host, token, endpoint
+        return host, token, LLMTarget.resolve(host, token, endpoint).model
 
 
 def effective_uc_version_path(domain) -> str:

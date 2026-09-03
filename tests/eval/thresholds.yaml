@@ -60,3 +60,15 @@ graph_interpreter:
   latency_p95_seconds: 20.0
   cost_per_call_usd: 0.02
   aggregate: 0.82
+
+# Shared LLM transport (src/agents/engine_base.py). Contract-shaped rather than
+# judge-scored — see .planning/agents/engine_base/SPEC.md §5. The four offline
+# dimensions sum to 0.90, so the aggregate is reachable without a live endpoint;
+# live_smoke is the remaining 0.10 and is scored zero when it does not run.
+engine_base:
+  url_exact: 1.00
+  auth_header_exact: 1.00
+  payload_shape: 1.00
+  no_secret_leak: 1.00
+  live_smoke: 1.00
+  aggregate: 0.90

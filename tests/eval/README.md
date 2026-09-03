@@ -13,11 +13,20 @@ Eval harness lives in `tests/eval/`. Each agent has:
 
 | Agent | Baseline | Runner | Judge | Threshold |
 |---|---|---|---|---|
+| `engine_base` (shared transport) | ✅ 24 + 3 regression | ✅ `run_engine_base.py` | ✅ `judges/contract.py` | ✅ `0.90` |
 | `agent_owl_generator` | 🟡 seed (3 examples) | ❌ | ❌ | (proposed in SPEC) |
 | `agent_ontology_assistant` | 🟡 seed (3 examples) | ❌ | ❌ | (proposed in SPEC) |
 | `agent_auto_assignment` | 🟡 seed (3 examples) | ❌ | ❌ | (proposed in SPEC) |
 | `agent_auto_icon_assign` | 🟡 seed (3 examples) | ❌ | ❌ | (proposed in SPEC) |
 | `agent_dtwin_chat` | 🟡 seed (3 examples) | ❌ | ❌ | (proposed in SPEC) |
+
+`engine_base` is not an agent — it is the LLM transport every engine shares. It gets an
+entry here because a change to it changes all 11 agents at once, and because the G2 detector
+could not originally see it (see `.planning/agents/engine_base/SPEC.md` §11). Its dimensions
+are contract-shaped rather than judge-scored: with the same model behind it, a transport must
+produce the *same* request, and a quality judge cannot distinguish a broken transport from a
+bad answer. Its offline dimensions therefore run with no LLM at all — useful as the worked
+example of a fully-built subject while the per-agent judges are still outstanding.
 
 **Recommended first to fully build:** `agent_auto_icon_assign` (deterministic top-K classification; trivial judge). The SPEC scaffold flags this.
 

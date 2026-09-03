@@ -41,12 +41,26 @@ jobs:
           # Find which agents the PR touched. Empty string if none.
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
-          paths=$(git diff --name-only "$base" "$head" \
+          changed=$(git diff --name-only "$base" "$head")
+          paths=$(echo "$changed" \
                  | grep -E '^src/agents/agent_[a-z_]+/' \
                  | sed -E 's|^src/agents/(agent_[a-z_]+)/.*|\1|' \
                  | sort -u \
                  | tr '\n' ' ')
-          echo "Changed agents: $paths"
+
+          # Shared agent infrastructure does not live under agent_<name>/, so the
+          # pattern above never matched it — yet engine_base.py is the single LLM
+          # transport for every engine, and a change there changes all of them at
+          # once. The highest-leverage file in the tree was invisible to the gate
+          # that exists to protect it. Map those files to the sentinel subject
+          # `engine_base`, which carries its own SPEC and eval dataset.
+          if echo "$changed" | grep -qE '^src/agents/(engine_base|llm_utils|tracing|serialization)\.py$'; then
+            echo "Shared agent infrastructure touched — adding subject 'engine_base'."
+            paths="$paths engine_base"
+          fi
+
+          paths=$(echo $paths | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
+          echo "Changed subjects: $paths"
           echo "changed_agents=$paths" >> "$GITHUB_OUTPUT"
 
   spec_present:
