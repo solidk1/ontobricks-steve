@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any
 
 from back.core.errors import InfrastructureError
 from back.core.graphdb.GraphDBBackend import GraphDBBackend
@@ -22,7 +23,7 @@ def default_schema() -> str:
     return DEFAULT_GRAPH_SCHEMA
 
 
-def resolve_postgres_database_override(cfg: Optional[Dict[str, Any]]) -> str:
+def resolve_postgres_database_override(cfg: dict[str, Any] | None) -> str:
     """Return Lakebase's Postgres ``database`` override from engine config.
 
     Accepts a Lakebase section, a nested ``graph_engine_config`` root, or a
@@ -31,10 +32,14 @@ def resolve_postgres_database_override(cfg: Optional[Dict[str, Any]]) -> str:
     ``neo4j_database`` is also present) remains for unmigrated saves.
     """
     data = cfg if isinstance(cfg, dict) else {}
-    if isinstance(data.get("lakebase"), dict) or isinstance(data.get("neo4j"), dict):
-        from back.core.graphdb.engine_config import lakebase_section
+    if (
+        isinstance(data.get("postgres"), dict)
+        or isinstance(data.get("lakebase"), dict)
+        or isinstance(data.get("neo4j"), dict)
+    ):
+        from back.core.graphdb.engine_config import postgres_section
 
-        data = lakebase_section(data)
+        data = postgres_section(data)
         return str(data.get("database") or "").strip()
     raw = str(data.get("database") or "").strip()
     if not raw:
@@ -72,7 +77,7 @@ _IGNORED_LEGACY_SYNC_KEYS = (
 )
 
 
-def validate_engine_config_keys(config: Dict[str, Any]) -> Tuple[bool, str]:
+def validate_engine_config_keys(config: dict[str, Any]) -> tuple[bool, str]:
     """Validate optional Postgres ``graph_engine_config`` keys.
 
     Recognised keys:
@@ -167,10 +172,10 @@ class PostgresBase(GraphDBBackend):
     def close(self) -> None:
         return
 
-    def local_path(self) -> Optional[str]:
+    def local_path(self) -> str | None:
         return None
 
-    def remote_archive_path(self, uc_domain_path: str) -> Optional[str]:
+    def remote_archive_path(self, uc_domain_path: str) -> str | None:
         return None
 
     # -- Pool helpers -------------------------------------------------------

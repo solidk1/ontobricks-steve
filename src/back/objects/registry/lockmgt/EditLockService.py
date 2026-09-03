@@ -460,7 +460,7 @@ class EditLockService:
         try:
             from back.objects.registry.store import RegistryFactory
 
-            return RegistryFactory.lakebase(
+            return RegistryFactory.postgres(
                 registry_cfg=rcfg,
                 schema=rcfg.postgres_schema,
                 database=rcfg.postgres_database,

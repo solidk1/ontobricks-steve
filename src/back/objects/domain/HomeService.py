@@ -372,7 +372,7 @@ class HomeService:
             "lakebase_table": dt_existence.get("lakebase_table", ""),
             "lakebase_synced_uc": dt_existence.get("lakebase_synced_uc", ""),
             "lakebase_synced_uc_exists": dt_existence.get("lakebase_synced_uc_exists"),
-            "graph_engine": dt_existence.get("graph_engine", "lakebase"),
+            "graph_engine": dt_existence.get("graph_engine", "postgres"),
             "last_built": last_build,
             "last_update": last_update,
             "has_data": ts_st.get("has_data", False),

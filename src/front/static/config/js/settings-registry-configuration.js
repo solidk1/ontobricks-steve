@@ -186,7 +186,7 @@
             var data = await resp.json();
 
             var uc = data.uc || data;   // back-compat if uc wrapper missing
-            var lb = data.lakebase;
+            var lb = data.postgres;
 
             // UC schema
             var schemaBadge  = document.getElementById('registrySchemaCheckBadge');

@@ -6,7 +6,7 @@ constructs the graph DB backend for a domain:
 * ``engine=None`` — auto-resolve the engine from global/registry config
   (``lakebase`` by default, ``delta`` when ``triple_store_backend`` is
   ``databricks``).  This is the common path callers use.
-* ``engine="lakebase"`` — flat triple tables on Lakebase Postgres.
+* ``engine="postgres"`` — flat triple tables on PostgreSQL.
 * ``engine="delta"`` — materialized Delta triple tables in Unity Catalog.
 * ``engine="view"`` — a raw, read-only Delta store bound to a SQL warehouse
   (health probes against a UC view/table).
@@ -16,7 +16,7 @@ New engines are pluggable — copy ``_starter_kit/`` into
 The *engine_config* JSON is engine-specific (admin: Settings → Graph DB).
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from back.core.logging import get_logger
 
@@ -29,13 +29,26 @@ logger = get_logger(__name__)
 #   ``lakebase``   -> triple_store_backend=lakebase,  graph_engine=lakebase
 #   ``databricks`` -> triple_store_backend=databricks (Delta)
 #   ``neo4j``      -> triple_store_backend=lakebase,  graph_engine=neo4j
-GRAPH_BACKENDS: Tuple[str, ...] = ("lakebase", "databricks", "neo4j")
-DEFAULT_GRAPH_BACKEND = "lakebase"
+GRAPH_BACKENDS: tuple[str, ...] = ("postgres", "databricks", "neo4j")
+DEFAULT_GRAPH_BACKEND = "postgres"
+
+#: Values a stored domain may still carry, mapped to the canonical name.
+#: ``graph_backend`` lives in the persisted domain JSON, so pre-0.8 documents
+#: say ``lakebase``; they are read, normalised, and rewritten as ``postgres``
+#: on the next save.
+_LEGACY_GRAPH_BACKENDS = {"lakebase": "postgres"}
 
 
-def normalize_graph_backend(value: Optional[str]) -> str:
-    """Return a valid per-domain graph backend, defaulting to ``lakebase``."""
+def normalize_graph_backend(value: str | None) -> str:
+    """Return a valid per-domain graph backend, defaulting to ``postgres``.
+
+    Accepts the legacy ``lakebase`` spelling so a domain saved before the
+    rename still selects the Postgres engine rather than silently falling back
+    to the default (which happens to be the same engine today, but would not be
+    if the default ever changed).
+    """
     v = (value or "").strip().lower()
+    v = _LEGACY_GRAPH_BACKENDS.get(v, v)
     return v if v in GRAPH_BACKENDS else DEFAULT_GRAPH_BACKEND
 
 
@@ -48,16 +61,16 @@ class GraphDBFactory:
     def create(
         self,
         domain: Any,
-        settings: Optional[Any] = None,
-        engine: Optional[str] = None,
-        engine_config: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Any]:
+        settings: Any | None = None,
+        engine: str | None = None,
+        engine_config: dict[str, Any] | None = None,
+    ) -> Any | None:
         """Create a graph DB backend.
 
         Args:
             domain: Domain session with info and databricks config.
             settings: Optional application settings.
-            engine: One of ``None`` (auto-resolve from config), ``"lakebase"``,
+            engine: One of ``None`` (auto-resolve from config), ``"postgres"``,
                     ``"delta"``, or ``"view"`` (raw read-only Delta store).
             engine_config: Engine-specific JSON configuration set by the
                            admin in Settings > Graph DB.
@@ -74,11 +87,11 @@ class GraphDBFactory:
         if engine_config is None:
             engine_config = {}
 
-        from back.core.graphdb.engine_config import lakebase_section, neo4j_section
+        from back.core.graphdb.engine_config import neo4j_section, postgres_section
 
-        if engine == "lakebase":
+        if engine in ("postgres", "lakebase"):
             return self._create_lakebase(
-                domain, settings, engine_config=lakebase_section(engine_config)
+                domain, settings, engine_config=postgres_section(engine_config)
             )
 
         if engine == "neo4j":
@@ -95,10 +108,10 @@ class GraphDBFactory:
     def _create_neo4j(
         self,
         domain: Any,
-        settings: Optional[Any] = None,
+        settings: Any | None = None,
         *,
-        engine_config: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Any]:
+        engine_config: dict[str, Any] | None = None,
+    ) -> Any | None:
         """Instantiate :class:`Neo4jStore` against a named Settings connection.
 
         Resolves ``domain.info.neo4j_connection`` against
@@ -133,7 +146,8 @@ class GraphDBFactory:
         root_or_section = engine_config if isinstance(engine_config, dict) else {}
         profile = resolve_neo4j_connection(root_or_section, conn_name)
         if not profile and (
-            "lakebase" in root_or_section
+            "postgres" in root_or_section
+            or "lakebase" in root_or_section
             or "neo4j" in root_or_section
             or "connections" not in root_or_section
         ):
@@ -161,8 +175,8 @@ class GraphDBFactory:
             return None
 
     def _create_auto(
-        self, domain: Any, settings: Optional[Any] = None
-    ) -> Optional[Any]:
+        self, domain: Any, settings: Any | None = None
+    ) -> Any | None:
         """Resolve the engine from global/registry config and dispatch.
 
         Mirrors the former ``TripleStoreFactory`` ``backend="graph"`` behaviour.
@@ -171,7 +185,7 @@ class GraphDBFactory:
         if ts_backend == "databricks":
             return self.create(domain, settings, engine="delta", engine_config={})
 
-        engine = self._resolve_graph_engine(domain, settings) or "lakebase"
+        engine = self._resolve_graph_engine(domain, settings) or "postgres"
         engine_config = self._resolve_graph_engine_config(domain, settings)
         return self.create(
             domain, settings, engine=engine, engine_config=engine_config or {}
@@ -182,7 +196,7 @@ class GraphDBFactory:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _read_global_config(domain: Any, settings: Optional[Any], accessor, *, force: bool = False):
+    def _read_global_config(domain: Any, settings: Any | None, accessor, *, force: bool = False):
         """Call *accessor(global_config_service, host, token, registry_cfg)*.
 
         Returns ``None`` on any error (registry not configured, etc.).
@@ -196,8 +210,8 @@ class GraphDBFactory:
         cache a build could silently resolve against an empty engine config.
         """
         try:
-            from back.objects.session.GlobalConfigService import global_config_service
             from back.core.helpers import get_databricks_host_and_token
+            from back.objects.session.GlobalConfigService import global_config_service
 
             if settings is not None:
                 host, token = get_databricks_host_and_token(domain, settings)
@@ -234,28 +248,28 @@ class GraphDBFactory:
 
     @staticmethod
     def _resolve_graph_engine(
-        domain: Any, settings: Optional[Any] = None, *, force: bool = False
-    ) -> Optional[str]:
+        domain: Any, settings: Any | None = None, *, force: bool = False
+    ) -> str | None:
         """Resolve the graph engine from the per-domain backend choice.
 
         ``settings``/``force`` are accepted for call-site compatibility but no
         longer consulted — the selection is purely per-domain now.
         """
         backend = GraphDBFactory._resolve_graph_backend(domain)
-        return "neo4j" if backend == "neo4j" else "lakebase"
+        return "neo4j" if backend == "neo4j" else "postgres"
 
     @staticmethod
     def _resolve_triple_store_backend(
-        domain: Any, settings: Optional[Any] = None, *, force: bool = False
+        domain: Any, settings: Any | None = None, *, force: bool = False
     ) -> str:
         """Resolve the triple-store backend from the per-domain backend choice."""
         backend = GraphDBFactory._resolve_graph_backend(domain)
-        return "databricks" if backend == "databricks" else "lakebase"
+        return "databricks" if backend == "databricks" else "postgres"
 
     @staticmethod
     def _resolve_graph_engine_config(
-        domain: Any, settings: Optional[Any] = None, *, force: bool = False
-    ) -> Optional[dict]:
+        domain: Any, settings: Any | None = None, *, force: bool = False
+    ) -> dict | None:
         """Read the engine-specific connection JSON config from ``GlobalConfigService``.
 
         Engine *connection* configuration (Neo4j Bolt creds, Lakebase schema /
@@ -275,8 +289,8 @@ class GraphDBFactory:
     # ------------------------------------------------------------------
 
     def _create_delta_view(
-        self, domain: Any, settings: Optional[Any] = None
-    ) -> Optional[Any]:
+        self, domain: Any, settings: Any | None = None
+    ) -> Any | None:
         """Instantiate a raw, read-only :class:`DeltaFlatStore` on a SQL warehouse.
 
         Bound with ``domain=None`` so it operates directly on the FQNs passed in
@@ -287,11 +301,11 @@ class GraphDBFactory:
                 DatabricksClient,
                 has_implicit_credentials,
             )
+            from back.core.graphdb.delta.DeltaFlatStore import DeltaFlatStore
             from back.core.helpers import (
                 get_databricks_host_and_token,
                 resolve_delta_warehouse_id,
             )
-            from back.core.graphdb.delta.DeltaFlatStore import DeltaFlatStore
 
             if settings is not None:
                 host, token = get_databricks_host_and_token(domain, settings)
@@ -323,12 +337,13 @@ class GraphDBFactory:
     def _create_lakebase(
         self,
         domain: Any,
-        settings: Optional[Any] = None,
+        settings: Any | None = None,
         *,
-        engine_config: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Any]:
+        engine_config: dict[str, Any] | None = None,
+    ) -> Any | None:
         """Instantiate :class:`PostgresFlatStore` on the bound Lakebase instance."""
         try:
+            from back.core.databricks import get_graph_auth
             from back.core.graphdb.postgres import POSTGRES_AVAILABLE
             from back.core.graphdb.postgres.PostgresBase import (
                 resolve_postgres_database_override,
@@ -337,7 +352,6 @@ class GraphDBFactory:
                 PostgresFlatStore,
                 resolve_postgres_graph_schema,
             )
-            from back.core.databricks import get_graph_auth
         except ImportError as e:
             logger.warning("Lakebase graph engine requires psycopg: %s", e)
             return None
@@ -384,8 +398,8 @@ class GraphDBFactory:
     def _create_delta(
         self,
         domain: Any,
-        settings: Optional[Any] = None,
-    ) -> Optional[Any]:
+        settings: Any | None = None,
+    ) -> Any | None:
         """Instantiate :class:`DeltaFlatStore` on SQL Warehouse."""
         try:
             from back.core.graphdb.delta.DeltaBase import create_databricks_client
@@ -408,10 +422,10 @@ class GraphDBFactory:
     def get_graphdb(
         cls,
         domain: Any,
-        settings: Optional[Any] = None,
-        engine: Optional[str] = None,
-        engine_config: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Any]:
+        settings: Any | None = None,
+        engine: str | None = None,
+        engine_config: dict[str, Any] | None = None,
+    ) -> Any | None:
         """Convenience wrapper using the package singleton factory instance."""
         return _get_factory_singleton().create(
             domain,
@@ -421,7 +435,7 @@ class GraphDBFactory:
         )
 
 
-_factory_singleton: Optional[GraphDBFactory] = None
+_factory_singleton: GraphDBFactory | None = None
 
 
 def _get_factory_singleton() -> GraphDBFactory:

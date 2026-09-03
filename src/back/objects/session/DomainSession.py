@@ -80,7 +80,7 @@ def get_empty_domain() -> Dict[str, Any]:
                 "status": "DRAFT",
                 "review_quorum": 1,
                 # Mandatory per-domain graph backend: lakebase | databricks | neo4j.
-                "graph_backend": "lakebase",
+                "graph_backend": "postgres",
                 # Named Neo4j connection from Settings → Neo4j (required when
                 # graph_backend == "neo4j"). Value is the connection ``name``.
                 "neo4j_connection": "",

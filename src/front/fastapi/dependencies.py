@@ -162,9 +162,9 @@ def triplestore_page_context(domain_session, settings=None) -> dict:
 
     triple_store_backend = (
         GraphDBFactory._resolve_triple_store_backend(domain_session, settings)
-        or "lakebase"
+        or "postgres"
     )
-    _raw = GraphDBFactory._resolve_graph_engine(domain_session, settings) or "lakebase"
+    _raw = GraphDBFactory._resolve_graph_engine(domain_session, settings) or "postgres"
     graph_engine = _raw
 
     return {

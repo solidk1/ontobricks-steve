@@ -16,10 +16,11 @@ Public method signatures are unchanged from the flat-triple version so the
 ``GraphDBBackend`` contract and all callers keep working.
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
-from back.core.graphdb.neo4j.Neo4jConnection import Neo4jConnection
 from back.core.graphdb.neo4j.graph_model import plan_writes
+from back.core.graphdb.neo4j.Neo4jConnection import Neo4jConnection
 from back.core.graphdb.neo4j.Neo4jSchemaMap import Neo4jSchemaMap
 from back.core.logging import get_logger
 
@@ -83,9 +84,9 @@ class Neo4jWriteOps:
     def insert_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Write triples as a property graph. Returns the triple count consumed.
 
@@ -98,9 +99,9 @@ class Neo4jWriteOps:
             return 0
         label = sanitise_label(table_name)
         total = 0
-        agg_label_map: Dict[str, str] = {}
-        agg_reltype_map: Dict[str, str] = {}
-        agg_prop_map: Dict[str, str] = {}
+        agg_label_map: dict[str, str] = {}
+        agg_reltype_map: dict[str, str] = {}
+        agg_prop_map: dict[str, str] = {}
 
         for i in range(0, len(triples), batch_size):
             batch = triples[i : i + batch_size]
@@ -136,7 +137,7 @@ class Neo4jWriteOps:
         logger.info("Inserted %d triples as property graph into %s", total, label)
         return total
 
-    def _merge_nodes(self, label: str, node_rows: List[Dict[str, Any]]) -> None:
+    def _merge_nodes(self, label: str, node_rows: list[dict[str, Any]]) -> None:
         """MERGE nodes + set their class labels without requiring APOC.
 
         Neo4j cannot parameterise labels in ``SET n:$x``, and APOC may be
@@ -146,7 +147,7 @@ class Neo4jWriteOps:
         """
         from collections import defaultdict
 
-        by_labels: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
+        by_labels: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
         for r in node_rows:
             by_labels[tuple(r["labels"])].append(
                 {"uri": r["uri"], "props": r["props"]}
@@ -163,7 +164,7 @@ class Neo4jWriteOps:
                 rows=rows,
             )
 
-    def _merge_edges(self, label: str, edges: List[Any]) -> None:
+    def _merge_edges(self, label: str, edges: list[Any]) -> None:
         """MERGE relationships in bulk — one ``UNWIND`` statement per reltype.
 
         Relationship types cannot be parameterised in Cypher, so we group edges
@@ -174,7 +175,7 @@ class Neo4jWriteOps:
         """
         from collections import defaultdict
 
-        by_reltype: Dict[str, List[Dict[str, str]]] = defaultdict(list)
+        by_reltype: dict[str, list[dict[str, str]]] = defaultdict(list)
         for e in edges:
             by_reltype[e.reltype].append({"s": e.subject, "o": e.object})
 
@@ -189,9 +190,9 @@ class Neo4jWriteOps:
     def delete_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Remove triples from the property graph. Returns the count consumed.
 
@@ -203,14 +204,14 @@ class Neo4jWriteOps:
         if not triples:
             return 0
         label = sanitise_label(table_name)
+        from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
         from back.core.graphdb.neo4j.graph_model import (
-            is_uri,
-            reltype_from_predicate,
-            label_from_class_uri,
             _local_name,
             _sanitise_ident,
+            is_uri,
+            label_from_class_uri,
+            reltype_from_predicate,
         )
-        from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
 
         deleted = 0
         for i in range(0, len(triples), batch_size):

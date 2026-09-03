@@ -38,11 +38,11 @@ def _writeops():
     return w, conn
 
 
-def _all_cypher(conn) -> List[str]:
+def _all_cypher(conn) -> list[str]:
     return [c.args[0] for c in conn.run.call_args_list if c.args]
 
 
-def _marie_triples() -> List[Dict[str, str]]:
+def _marie_triples() -> list[dict[str, str]]:
     c = f"{NS}Customer/CUST-1007"
     return [
         {"subject": c, "predicate": RDF_TYPE, "object": f"{NS}Customer"},

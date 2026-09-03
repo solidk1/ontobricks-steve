@@ -17,9 +17,9 @@ patterns** — the whole point of the typed model — instead of self-joining fl
 triple nodes.
 """
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
-from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
+from back.core.graphdb.constants import RDF_TYPE
 from back.core.graphdb.neo4j.Neo4jConnection import Neo4jConnection
 from back.core.graphdb.neo4j.Neo4jSchemaMap import Neo4jSchemaMap
 from back.core.graphdb.neo4j.Neo4jWriteOps import sanitise_label
@@ -44,8 +44,8 @@ class Neo4jReadOps:
     # ------------------------------------------------------------------
 
     def _reconstruct_triples_for_nodes(
-        self, label: str, node_uris: Optional[List[str]] = None
-    ) -> List[Dict[str, str]]:
+        self, label: str, node_uris: list[str] | None = None
+    ) -> list[dict[str, str]]:
         """Rebuild flat SPO triples for the given node URIs (or the whole graph).
 
         Emits, per node: one ``rdf:type`` triple per class label; one
@@ -59,7 +59,7 @@ class Neo4jReadOps:
         prop_map = maps["prop_map"]          # sanitised prop key → predicate URI
 
         where = ""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if node_uris is not None:
             where = "WHERE n.uri IN $uris "
             params["uris"] = node_uris
@@ -70,7 +70,7 @@ class Neo4jReadOps:
             f"RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props",
             **params,
         )
-        triples: List[Dict[str, str]] = []
+        triples: list[dict[str, str]] = []
         for r in node_rows:
             uri = r["uri"]
             for lbl in r.get("labels") or []:
@@ -108,7 +108,7 @@ class Neo4jReadOps:
     #  Basic CRUD reads
     # ======================================================================
 
-    def query_triples(self, table_name: str) -> List[Dict[str, str]]:
+    def query_triples(self, table_name: str) -> list[dict[str, str]]:
         return self._reconstruct_triples_for_nodes(sanitise_label(table_name))
 
     def count_triples(self, table_name: str) -> int:
@@ -150,7 +150,7 @@ class Neo4jReadOps:
         )
         return bool(node_rows and node_rows[0].get("present"))
 
-    def get_status(self, table_name: str) -> Dict[str, Any]:
+    def get_status(self, table_name: str) -> dict[str, Any]:
         return {
             "count": self.count_triples(table_name),
             "last_modified": None,
@@ -162,7 +162,7 @@ class Neo4jReadOps:
     #  Statistics
     # ======================================================================
 
-    def get_aggregate_stats(self, table_name: str) -> Dict[str, int]:
+    def get_aggregate_stats(self, table_name: str) -> dict[str, int]:
         label = sanitise_label(table_name)
         # Distinct subjects = nodes that carry at least one class label or a name
         # or an outgoing rel (i.e. real triple subjects). Distinct predicates =
@@ -201,7 +201,7 @@ class Neo4jReadOps:
         total = type_assertions + prop_triples + rels
 
         # distinct predicate URIs: property keys + rel types + rdf:type-if-present
-        prop_keys: Set[str] = set()
+        prop_keys: set[str] = set()
         for ks in row.get("prop_key_sets") or []:
             prop_keys.update(k for k in ks if k != "uri")
         rel_types = set(rel_row.get("rel_types") or [])
@@ -217,7 +217,7 @@ class Neo4jReadOps:
             "label_count": label_count,
         }
 
-    def get_type_distribution(self, table_name: str) -> List[Dict[str, Any]]:
+    def get_type_distribution(self, table_name: str) -> list[dict[str, Any]]:
         """Count nodes per class label, mapped back to class URIs."""
         label = sanitise_label(table_name)
         label_map = self._schema.load(label)["label_map"]
@@ -228,18 +228,18 @@ class Neo4jReadOps:
             marker=label,
             schema=_SCHEMA_LABEL,
         )
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for r in rows or []:
             cls = r["class_label"]
             out.append({"type_uri": label_map.get(cls, cls), "cnt": int(r["cnt"])})
         return out
 
-    def get_predicate_distribution(self, table_name: str) -> List[Dict[str, Any]]:
+    def get_predicate_distribution(self, table_name: str) -> list[dict[str, Any]]:
         """Count per predicate: literal props + rel types + rdf:type, as URIs."""
         label = sanitise_label(table_name)
         maps = self._schema.load(label)
         prop_map, reltype_map = maps["prop_map"], maps["reltype_map"]
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
 
         prop_rows = self._conn.run(
             f"MATCH (n:`{label}`) UNWIND [k IN keys(n) WHERE k <> 'uri'] AS key "
@@ -284,8 +284,8 @@ class Neo4jReadOps:
         type_uri: str,
         limit: int = 50,
         offset: int = 0,
-        search: Optional[str] = None,
-    ) -> List[str]:
+        search: str | None = None,
+    ) -> list[str]:
         label = sanitise_label(table_name)
         class_label = self._class_label_for_uri(label, type_uri)
         if class_label is None:
@@ -309,7 +309,7 @@ class Neo4jReadOps:
 
     def resolve_subject_by_id(
         self, table_name: str, type_uri: str, id_fragment: str
-    ) -> Optional[str]:
+    ) -> str | None:
         label = sanitise_label(table_name)
         class_label = self._class_label_for_uri(label, type_uri)
         if class_label is None:
@@ -323,8 +323,8 @@ class Neo4jReadOps:
         return rows[0]["subject"] if rows else None
 
     def get_entity_metadata(
-        self, table_name: str, subjects: List[str]
-    ) -> List[Dict[str, str]]:
+        self, table_name: str, subjects: list[str]
+    ) -> list[dict[str, str]]:
         if not subjects:
             return []
         label = sanitise_label(table_name)
@@ -338,7 +338,7 @@ class Neo4jReadOps:
             marker=label,
             schema=_SCHEMA_LABEL,
         )
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         for r in rows or []:
             classes = r.get("classes") or []
             if not classes:
@@ -354,15 +354,15 @@ class Neo4jReadOps:
         return out
 
     def get_triples_for_subjects(
-        self, table_name: str, subjects: List[str]
-    ) -> List[Dict[str, str]]:
+        self, table_name: str, subjects: list[str]
+    ) -> list[dict[str, str]]:
         if not subjects:
             return []
         return self._reconstruct_triples_for_nodes(
             sanitise_label(table_name), node_uris=subjects
         )
 
-    def get_predicates_for_type(self, table_name: str, type_uri: str) -> List[str]:
+    def get_predicates_for_type(self, table_name: str, type_uri: str) -> list[str]:
         label = sanitise_label(table_name)
         class_label = self._class_label_for_uri(label, type_uri)
         if class_label is None:
@@ -383,7 +383,7 @@ class Neo4jReadOps:
         if not rows:
             return []
         row = rows[0]
-        preds: List[str] = []
+        preds: list[str] = []
         if int(row.get("n_classes") or 0) > 0:
             preds.append(RDF_TYPE)
         for k in row.get("keys") or []:
@@ -392,7 +392,7 @@ class Neo4jReadOps:
             if rt:
                 preds.append(reltype_map.get(rt, rt))
         # de-dup, preserve order
-        seen: Set[str] = set()
+        seen: set[str] = set()
         return [p for p in preds if not (p in seen or seen.add(p))]
 
     # ======================================================================
@@ -400,8 +400,8 @@ class Neo4jReadOps:
     # ======================================================================
 
     def paginated_triples(
-        self, table_name: str, conditions: List[str], limit: int, offset: int
-    ) -> List[Dict[str, str]]:
+        self, table_name: str, conditions: list[str], limit: int, offset: int
+    ) -> list[dict[str, str]]:
         # SQL WHERE fragments are not translated (parity with prior behaviour);
         # paginate over nodes and reconstruct their triples.
         label = sanitise_label(table_name)
@@ -422,7 +422,7 @@ class Neo4jReadOps:
             return []
         return self._reconstruct_triples_for_nodes(label, node_uris=uris)
 
-    def paginated_count(self, table_name: str, conditions: List[str]) -> int:
+    def paginated_count(self, table_name: str, conditions: list[str]) -> int:
         if conditions:
             logger.warning(
                 "paginated_count received %d SQL conditions; Neo4j backend "
@@ -442,7 +442,7 @@ class Neo4jReadOps:
         depth: int,
         search: str = "",
         entity_type: str = "",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if not search and not entity_type:
             if seed_where:
                 logger.warning(
@@ -478,7 +478,7 @@ class Neo4jReadOps:
         match_type: str = "contains",
         value: str = "",
         limit: int = 0,
-    ) -> Set[str]:
+    ) -> set[str]:
         label = sanitise_label(table_name)
         search_label = field in ("label", "any")
         search_id = field in ("id", "any")
@@ -492,11 +492,11 @@ class Neo4jReadOps:
                 return f"toLower({expr}) ENDS WITH $val"
             return f"toLower({expr}) CONTAINS $val"
 
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if value:
             params["val"] = value.lower()
 
-        class_label: Optional[str] = None
+        class_label: str | None = None
         if entity_type:
             class_label = self._class_label_for_uri(label, entity_type)
             if class_label is None:
@@ -527,13 +527,13 @@ class Neo4jReadOps:
         return {r["subject"] for r in rows}
 
     def find_subjects_by_patterns(
-        self, table_name: str, like_patterns: List[str]
-    ) -> Set[str]:
+        self, table_name: str, like_patterns: list[str]
+    ) -> set[str]:
         if not like_patterns:
             return set()
         label = sanitise_label(table_name)
-        clauses: List[str] = []
-        params: Dict[str, Any] = {}
+        clauses: list[str] = []
+        params: dict[str, Any] = {}
         for i, raw in enumerate(like_patterns):
             pkey = f"p{i}"
             params[pkey] = raw.replace("%", ".*")
@@ -546,8 +546,8 @@ class Neo4jReadOps:
         return {r["subject"] for r in (rows or [])}
 
     def expand_entity_neighbors(
-        self, table_name: str, entity_uris: Set[str]
-    ) -> Set[str]:
+        self, table_name: str, entity_uris: set[str]
+    ) -> set[str]:
         if not entity_uris:
             return set()
         label = sanitise_label(table_name)
@@ -572,15 +572,15 @@ class Neo4jReadOps:
         self,
         table_name: str,
         predicate_uri: str,
-        start_uri: Optional[str] = None,
+        start_uri: str | None = None,
         max_depth: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         label = sanitise_label(table_name)
         reltype = self._reltype_for_uri(label, predicate_uri)
         if reltype is None:
             return []
         start_clause = "WHERE a.uri = $start_uri " if start_uri else ""
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         if start_uri:
             params["start_uri"] = start_uri
         # Reachable pairs 2..max_depth along the typed relationship that are not
@@ -603,7 +603,7 @@ class Neo4jReadOps:
 
     def symmetric_expand(
         self, table_name: str, predicate_uri: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         label = sanitise_label(table_name)
         reltype = self._reltype_for_uri(label, predicate_uri)
         if reltype is None:
@@ -628,7 +628,7 @@ class Neo4jReadOps:
         source_uri: str,
         target_uri: str,
         max_depth: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if source_uri == target_uri:
             return [{"hop": 0, "uri": source_uri}]
         label = sanitise_label(table_name)
@@ -651,7 +651,7 @@ class Neo4jReadOps:
     #  Admin: graph inventory + server databases (Settings UI, P5)
     # ------------------------------------------------------------------
 
-    def list_labels(self) -> List[Dict[str, Any]]:
+    def list_labels(self) -> list[dict[str, Any]]:
         """List every materialised graph (marker label) with node/edge counts.
 
         A "graph" is a node label backed by a ``node_<label>_uri`` uniqueness
@@ -664,13 +664,13 @@ class Neo4jReadOps:
             "WHERE name STARTS WITH 'node_' AND name ENDS WITH '_uri' "
             "RETURN labelsOrTypes AS labels"
         )
-        labels: List[str] = []
+        labels: list[str] = []
         for r in constraint_rows or []:
             for lbl in r.get("labels") or []:
                 if lbl and lbl != _SCHEMA_LABEL:
                     labels.append(lbl)
 
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for label in sorted(set(labels)):
             node_rows = self._conn.run(
                 f"MATCH (n:`{label}`) RETURN count(n) AS nodes"
@@ -687,7 +687,7 @@ class Neo4jReadOps:
             )
         return out
 
-    def list_databases(self) -> List[str]:
+    def list_databases(self) -> list[str]:
         """List Neo4j databases available on the server (for the DB selector, P4).
 
         Uses ``SHOW DATABASES``; filters out system/internal databases. On
@@ -706,7 +706,7 @@ class Neo4jReadOps:
     #  Reverse-map helpers
     # ------------------------------------------------------------------
 
-    def _class_label_for_uri(self, graph_label: str, class_uri: str) -> Optional[str]:
+    def _class_label_for_uri(self, graph_label: str, class_uri: str) -> str | None:
         """Sanitised Neo4j label for a class URI (via schema map, else derive)."""
         label_map = self._schema.load(graph_label)["label_map"]
         for sanitised, uri in label_map.items():
@@ -717,7 +717,7 @@ class Neo4jReadOps:
 
         return label_from_class_uri(class_uri)
 
-    def _reltype_for_uri(self, graph_label: str, predicate_uri: str) -> Optional[str]:
+    def _reltype_for_uri(self, graph_label: str, predicate_uri: str) -> str | None:
         reltype_map = self._schema.load(graph_label)["reltype_map"]
         for sanitised, uri in reltype_map.items():
             if uri == predicate_uri:

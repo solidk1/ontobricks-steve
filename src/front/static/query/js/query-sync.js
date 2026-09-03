@@ -8,10 +8,10 @@ const SYNC_TASK_KEY = 'ontobricks_sync_task';
 function _syncTripleStoreBackend() {
     try {
         const el = document.getElementById('triplestore-config');
-        if (!el) return 'lakebase';
-        return JSON.parse(el.textContent || '{}').triple_store_backend || 'lakebase';
+        if (!el) return 'postgres';
+        return JSON.parse(el.textContent || '{}').triple_store_backend || 'postgres';
     } catch (_) {
-        return 'lakebase';
+        return 'postgres';
     }
 }
 
@@ -214,7 +214,8 @@ function _setBackendBrandIcon(element, backend) {
 function _applyBuildGraphEngineUi(dtExist) {
     var dt = dtExist || {};
     var cfg = window.__TRIPLESTORE_CONFIG || {};
-    var eng = dt.graph_engine || cfg.graph_engine || 'lakebase';
+    // 'lakebase' is the pre-0.8 spelling and may arrive from a stale payload.
+    var eng = _pgCanon(dt.graph_engine || cfg.graph_engine || 'postgres');
     var pending = dt.pending === true;
     cfg.graph_engine = eng;
     window.__TRIPLESTORE_CONFIG = cfg;
@@ -225,7 +226,8 @@ function _applyBuildGraphEngineUi(dtExist) {
 
     var title = document.getElementById('dtGraphBackendTitle');
     var labels = {
-        'lakebase': 'Graph DB (Lakebase)',
+        'postgres': 'Graph DB (PostgreSQL)',
+        'lakebase': 'Graph DB (PostgreSQL)',
         'databricks': 'Graph DB (Lakehouse)',
         'delta': 'Graph DB (Lakehouse)',
         'neo4j': 'Graph DB (Neo4j)'
@@ -291,7 +293,7 @@ function _applyBuildGraphEngineUi(dtExist) {
     var regRow = document.getElementById('dtRegistryArchiveRow');
     if (regRow) regRow.classList.add('d-none');
 
-    if (eng === 'lakebase') {
+    if (eng === 'postgres') {
         var lkDb  = document.getElementById('dtLakebaseDatabase');
         var lkSch = document.getElementById('dtLakebaseSchema');
         var lkTbl = document.getElementById('dtLakebaseTable');
@@ -485,7 +487,7 @@ async function initSyncSection() {
             // pre-existence seed left in cfg — otherwise a Neo4j domain paints as
             // Lakebase until (and unless) dt_existence later corrects it.
             const backend = di.info.graph_backend || di.info.graph_engine || '';
-            const prevEng = backend || cfg.graph_engine || 'lakebase';
+            const prevEng = _pgCanon(backend || cfg.graph_engine || 'postgres');
             cfg = {
                 view_table: di.info.view_table || '',
                 graph_name: di.info.graph_name || '',
@@ -715,17 +717,24 @@ function updateDataMenus() {
  * Friendly label for the triple-store backend / graph engine in use, from the
  * injected triplestore-config: "Lakehouse" (Delta), "Neo4j", or "Lakebase".
  */
+/** Canonicalise a stored engine/backend value.
+ *  'lakebase' is the pre-0.8 spelling; payloads from an older build, or a
+ *  domain saved before the rename, can still carry it. */
+function _pgCanon(v) {
+    return String(v || '').toLowerCase() === 'lakebase' ? 'postgres' : v;
+}
+
 function _kgBackendKey() {
     var cfg = window.__TRIPLESTORE_CONFIG || {};
-    var backend = String(cfg.triple_store_backend || 'lakebase').toLowerCase();
-    var engine = String(cfg.graph_engine || 'lakebase').toLowerCase();
+    var backend = _pgCanon(String(cfg.triple_store_backend || 'postgres').toLowerCase());
+    var engine = _pgCanon(String(cfg.graph_engine || 'postgres').toLowerCase());
     if (backend === 'databricks' || engine === 'delta') return 'databricks';
     if (backend === 'neo4j' || engine === 'neo4j') return 'neo4j';
-    return 'lakebase';
+    return 'postgres';
 }
 
 function _backendBrandIconClass(backend) {
-    var key = String(backend || 'lakebase').toLowerCase();
+    var key = _pgCanon(String(backend || 'postgres').toLowerCase());
     if (key === 'databricks' || key === 'delta' || key === 'lakehouse') {
         return 'ob-icon-lakehouse';
     }
@@ -1781,7 +1790,7 @@ async function _loadDtExistence() {
             pending: false,
             lakebase_table_exists: null,
             lakebase_check_error: String(e && e.message ? e.message : e),
-            graph_engine: (window.__TRIPLESTORE_CONFIG || {}).graph_engine || 'lakebase',
+            graph_engine: (window.__TRIPLESTORE_CONFIG || {}).graph_engine || 'postgres',
         });
         _applyDtExistence({
             pending: false,

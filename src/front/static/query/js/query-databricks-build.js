@@ -10,10 +10,10 @@ let dbxBuildRunning = false;
 function _tsxBackend() {
     try {
         const el = document.getElementById('triplestore-config');
-        if (!el) return 'lakebase';
-        return JSON.parse(el.textContent || '{}').triple_store_backend || 'lakebase';
+        if (!el) return 'postgres';
+        return JSON.parse(el.textContent || '{}').triple_store_backend || 'postgres';
     } catch (_) {
-        return 'lakebase';
+        return 'postgres';
     }
 }
 

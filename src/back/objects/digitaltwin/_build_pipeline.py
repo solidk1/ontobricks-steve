@@ -256,9 +256,9 @@ class _BuildPipeline:
             engine = GraphDBFactory._resolve_graph_engine(
                 self.domain, self.settings, force=True
             )
-            from back.core.graphdb.engine_config import lakebase_section
+            from back.core.graphdb.engine_config import postgres_section
 
-            cfg = lakebase_section(
+            cfg = postgres_section(
                 GraphDBFactory._resolve_graph_engine_config(
                     self.domain, self.settings, force=True
                 )
@@ -271,7 +271,7 @@ class _BuildPipeline:
                 self.task_id,
                 exc,
             )
-            engine = "lakebase"
+            engine = "postgres"
             cfg = {}
         self._lakebase_engine_config = cfg
         self._graph_engine = engine
@@ -844,7 +844,7 @@ class _BuildPipeline:
                     self.task_id,
                     exc,
                 )
-                graph_engine = "lakebase"
+                graph_engine = "postgres"
 
             graph_has_data = final_count > 0
 

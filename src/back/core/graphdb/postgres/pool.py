@@ -14,7 +14,7 @@ Lakebase" — the analogue of the registry store's own connection helpers.
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
 
 from back.core.databricks.lakebase.constants import APPLICATION_NAME_GRAPH
 from back.core.postgres.PostgresConnectionPool import (
@@ -28,7 +28,7 @@ class PostgresGraphPoolError(RuntimeError):
     """Raised when the graph-db pool cannot serve a connection."""
 
 
-def _require_psycopg() -> Tuple[Any, Any]:
+def _require_psycopg() -> tuple[Any, Any]:
     """Return ``(psycopg, psycopg.rows.dict_row)`` for the graph engine.
 
     Thin accessor over the shared :func:`back.core.databricks.lakebase.

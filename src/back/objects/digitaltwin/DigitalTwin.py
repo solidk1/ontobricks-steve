@@ -836,16 +836,16 @@ class DigitalTwin:
         }
 
         # Resolve Lakebase artefact names from engine config only — no probes.
-        if graph_engine == "lakebase":
+        if graph_engine == "postgres":
             try:
                 from back.core.graphdb import GraphDBFactory
-                from back.core.graphdb.engine_config import lakebase_section
+                from back.core.graphdb.engine_config import postgres_section
                 from back.core.graphdb.postgres.PostgresBase import PostgresBase
                 from back.core.graphdb.postgres.PostgresFlatStore import (
                     resolve_postgres_graph_schema,
                 )
 
-                engine_config = lakebase_section(
+                engine_config = postgres_section(
                     GraphDBFactory._resolve_graph_engine_config(domain, settings) or {}
                 )
                 schema_raw = str(engine_config.get("schema") or "").strip()
@@ -991,7 +991,7 @@ class DigitalTwin:
         """
         from back.core.graphdb.GraphDBFactory import GraphDBFactory
 
-        return GraphDBFactory._resolve_graph_engine(domain, settings) or "lakebase"
+        return GraphDBFactory._resolve_graph_engine(domain, settings) or "postgres"
 
     async def fetch_digital_twin_existence(self, settings) -> Dict[str, Any]:
         """Live checks for SQL view, snapshot table, and graph artefacts.
@@ -1051,12 +1051,12 @@ class DigitalTwin:
         lk_table = ""
         try:
             from back.core.graphdb import GraphDBFactory
-            from back.core.graphdb.engine_config import lakebase_section
+            from back.core.graphdb.engine_config import postgres_section
             from back.core.graphdb.postgres.PostgresFlatStore import (
                 resolve_postgres_graph_schema,
             )
 
-            engine_config = lakebase_section(
+            engine_config = postgres_section(
                 GraphDBFactory._resolve_graph_engine_config(domain, settings) or {}
             )
 

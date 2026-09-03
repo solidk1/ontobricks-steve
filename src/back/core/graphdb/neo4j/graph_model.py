@@ -25,7 +25,7 @@ reconstruct exact SPO triples on read; they are persisted by
 :class:`Neo4jSchemaMap`. This module only *derives* the forward names.
 """
 
-from typing import Dict, List, NamedTuple, Tuple
+from typing import NamedTuple
 
 from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
 
@@ -82,10 +82,10 @@ class NodeOp(NamedTuple):
     """An upsert for one node, keyed on its full URI."""
 
     uri: str
-    labels: Tuple[str, ...]          # class labels (from rdf:type), sanitised
-    label_uris: Tuple[str, ...]      # matching class URIs (for reverse map)
-    properties: Dict[str, str]       # literal predicates → values (incl. ``name``)
-    property_uris: Dict[str, str]    # sanitised prop key → full predicate URI
+    labels: tuple[str, ...]          # class labels (from rdf:type), sanitised
+    label_uris: tuple[str, ...]      # matching class URIs (for reverse map)
+    properties: dict[str, str]       # literal predicates → values (incl. ``name``)
+    property_uris: dict[str, str]    # sanitised prop key → full predicate URI
 
 
 class EdgeOp(NamedTuple):
@@ -100,14 +100,14 @@ class EdgeOp(NamedTuple):
 class PlannedWrites(NamedTuple):
     """The full set of graph operations derived from a triple batch."""
 
-    nodes: List[NodeOp]
-    edges: List[EdgeOp]
-    label_map: Dict[str, str]        # sanitised label → class URI (reverse)
-    reltype_map: Dict[str, str]      # sanitised reltype → predicate URI (reverse)
-    prop_map: Dict[str, str]         # sanitised prop key → predicate URI (reverse)
+    nodes: list[NodeOp]
+    edges: list[EdgeOp]
+    label_map: dict[str, str]        # sanitised label → class URI (reverse)
+    reltype_map: dict[str, str]      # sanitised reltype → predicate URI (reverse)
+    prop_map: dict[str, str]         # sanitised prop key → predicate URI (reverse)
 
 
-def plan_writes(triples: List[Dict[str, str]]) -> PlannedWrites:
+def plan_writes(triples: list[dict[str, str]]) -> PlannedWrites:
     """Transform a flat SPO triple list into node/edge operations.
 
     Deterministic and side-effect-free. Nodes are merged per subject/object
@@ -116,13 +116,13 @@ def plan_writes(triples: List[Dict[str, str]]) -> PlannedWrites:
     URI-object predicates become edges. Also returns reverse maps so reads can
     rebuild the exact original predicate/class URIs.
     """
-    nodes: Dict[str, Dict] = {}
-    edges: List[EdgeOp] = []
-    label_map: Dict[str, str] = {}
-    reltype_map: Dict[str, str] = {}
-    prop_map: Dict[str, str] = {}
+    nodes: dict[str, dict] = {}
+    edges: list[EdgeOp] = []
+    label_map: dict[str, str] = {}
+    reltype_map: dict[str, str] = {}
+    prop_map: dict[str, str] = {}
 
-    def _node(uri: str) -> Dict:
+    def _node(uri: str) -> dict:
         n = nodes.get(uri)
         if n is None:
             n = {

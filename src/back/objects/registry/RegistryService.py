@@ -337,7 +337,7 @@ class RegistryService:
         """
         from back.objects.registry.store import RegistryFactory
 
-        return RegistryFactory.lakebase(
+        return RegistryFactory.postgres(
             registry_cfg=cfg,
             schema=cfg.postgres_schema,
             database=cfg.postgres_database,

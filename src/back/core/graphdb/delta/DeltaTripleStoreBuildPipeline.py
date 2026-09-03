@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 
 from back.core.errors import OntoBricksError, OperationCancelledError
 from back.core.graphdb.delta import _table_naming, materialize
@@ -54,7 +54,7 @@ class DeltaTripleStoreBuildPipeline:
         self.build_kind = build_kind
         self.is_api = build_kind == "api"
         self.start_time = time.time()
-        self.phase_times: Dict[str, float] = {}
+        self.phase_times: dict[str, float] = {}
         self.parts = view_table.split(".")
         self._build_recorded = False
         self.domain_name = (domain.info or {}).get("name", "<unknown>")

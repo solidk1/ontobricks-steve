@@ -17,11 +17,12 @@ querying, reasoning, graph traversal, and analytics.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from collections.abc import Callable
+from typing import Any
 
-from back.core.logging import get_logger
-from back.core.helpers import sql_escape as _shared_sql_escape
 from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
+from back.core.helpers import sql_escape as _shared_sql_escape
+from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -51,9 +52,9 @@ class GraphDBBackend(ABC):
     def insert_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 500,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Batch insert triples, returns count inserted."""
         ...
@@ -61,9 +62,9 @@ class GraphDBBackend(ABC):
     def delete_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 500,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Remove specific triples from the store. Returns count deleted.
 
@@ -85,7 +86,7 @@ class GraphDBBackend(ABC):
         return table_name
 
     @abstractmethod
-    def query_triples(self, table_name: str) -> List[Dict[str, str]]:
+    def query_triples(self, table_name: str) -> list[dict[str, str]]:
         """SELECT all triples."""
         ...
 
@@ -100,7 +101,7 @@ class GraphDBBackend(ABC):
         ...
 
     @abstractmethod
-    def get_status(self, table_name: str) -> Dict[str, Any]:
+    def get_status(self, table_name: str) -> dict[str, Any]:
         """Return dict with count, last_modified, etc."""
         ...
 
@@ -112,7 +113,7 @@ class GraphDBBackend(ABC):
         """
 
     @abstractmethod
-    def execute_query(self, query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, query: str) -> list[dict[str, Any]]:
         """Execute arbitrary SQL and return results."""
         ...
 
@@ -150,7 +151,7 @@ class GraphDBBackend(ABC):
         """
         return 0
 
-    def get_aggregate_stats(self, table_name: str) -> Dict[str, int]:
+    def get_aggregate_stats(self, table_name: str) -> dict[str, int]:
         """Return aggregate triple-store statistics in a single query.
 
         Keys: total, distinct_subjects, distinct_predicates,
@@ -175,7 +176,7 @@ class GraphDBBackend(ABC):
             "label_count": int(row.get("label_count", 0)),
         }
 
-    def get_type_distribution(self, table_name: str) -> List[Dict[str, Any]]:
+    def get_type_distribution(self, table_name: str) -> list[dict[str, Any]]:
         """Return count per ``rdf:type`` value, ordered descending."""
         sql = (
             f"SELECT object AS type_uri, COUNT(*) AS cnt FROM {self._sql_relation(table_name)} "
@@ -201,8 +202,8 @@ class GraphDBBackend(ABC):
     def _analytics_edge_cte(
         self,
         table_name: str,
-        excluded_predicates: List[str],
-        class_filter: Optional[List[str]] = None,
+        excluded_predicates: list[str],
+        class_filter: list[str] | None = None,
     ) -> str:
         """Return the leading ``WITH`` clause defining the analytics edge set.
 
@@ -215,7 +216,7 @@ class GraphDBBackend(ABC):
             f"'{self._sql_escape(p)}'" for p in excluded_predicates
         ) or "''"
 
-        parts: List[str] = []
+        parts: list[str] = []
         edge_conditions = [
             "t.subject <> ''",
             "t.object <> ''",
@@ -268,9 +269,9 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         *,
-        excluded_predicates: List[str],
-        class_filter: Optional[List[str]] = None,
-    ) -> Dict[str, int]:
+        excluded_predicates: list[str],
+        class_filter: list[str] | None = None,
+    ) -> dict[str, int]:
         """Return ``edge_count``, ``graph_node_count`` and ``node_count``.
 
         ``graph_node_count`` counts nodes with at least one entity-entity
@@ -319,10 +320,10 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         *,
-        excluded_predicates: List[str],
-        class_filter: Optional[List[str]] = None,
+        excluded_predicates: list[str],
+        class_filter: list[str] | None = None,
         top_n: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return the *top_n* highest-degree nodes with label and type.
 
         The label/type join is applied **after** the ``LIMIT`` so it only
@@ -357,9 +358,9 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         *,
-        excluded_predicates: List[str],
-        class_filter: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+        excluded_predicates: list[str],
+        class_filter: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Return per-class ``connected_count`` and ``degree_sum``.
 
         ``connected_count`` is the number of instances of the class that
@@ -388,9 +389,9 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         *,
-        excluded_predicates: List[str],
-        class_filter: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+        excluded_predicates: list[str],
+        class_filter: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Return the distinct ``(type_uri, predicate)`` pairs used by nodes.
 
         A predicate counts for a node whether the node is the subject or the
@@ -431,9 +432,9 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         *,
-        class_filter: Optional[List[str]] = None,
-        predicate_filter: Optional[List[str]] = None,
-    ) -> List[Dict[str, str]]:
+        class_filter: list[str] | None = None,
+        predicate_filter: list[str] | None = None,
+    ) -> list[dict[str, str]]:
         """Return only the triples a filtered graph analysis actually needs.
 
         Without filters this is exactly :meth:`query_triples`.  With a
@@ -468,7 +469,7 @@ class GraphDBBackend(ABC):
         rel = self._sql_relation(table_name)
         keep = ", ".join(f"'{p}'" for p in (RDF_TYPE, RDFS_LABEL))
         prefix = ""
-        conditions: List[str] = []
+        conditions: list[str] = []
 
         if class_filter:
             classes = ", ".join(f"'{self._sql_escape(c)}'" for c in class_filter)
@@ -506,11 +507,11 @@ class GraphDBBackend(ABC):
 
     @staticmethod
     def _filter_analysis_triples_in_python(
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         *,
-        class_filter: Optional[List[str]] = None,
-        predicate_filter: Optional[List[str]] = None,
-    ) -> List[Dict[str, str]]:
+        class_filter: list[str] | None = None,
+        predicate_filter: list[str] | None = None,
+    ) -> list[dict[str, str]]:
         """In-Python equivalent of the :meth:`query_triples_for_analysis` SQL.
 
         Used by non-SQL backends so they return the same triple set, and by
@@ -549,7 +550,7 @@ class GraphDBBackend(ABC):
 
         return out
 
-    def get_predicate_distribution(self, table_name: str) -> List[Dict[str, Any]]:
+    def get_predicate_distribution(self, table_name: str) -> list[dict[str, Any]]:
         """Return count per predicate URI, ordered descending."""
         sql = (
             f"SELECT predicate, COUNT(*) AS cnt FROM {self._sql_relation(table_name)} "
@@ -563,8 +564,8 @@ class GraphDBBackend(ABC):
         type_uri: str,
         limit: int = 50,
         offset: int = 0,
-        search: Optional[str] = None,
-    ) -> List[str]:
+        search: str | None = None,
+    ) -> list[str]:
         """Return distinct subject URIs that are ``rdf:type`` *type_uri*.
 
         When *search* is given, matches against all literal values for the
@@ -594,7 +595,7 @@ class GraphDBBackend(ABC):
 
     def resolve_subject_by_id(
         self, table_name: str, type_uri: str, id_fragment: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Find a subject URI by type and trailing local-name fragment."""
         esc_type = self._sql_escape(type_uri)
         esc_id = self._sql_escape(id_fragment)
@@ -608,8 +609,8 @@ class GraphDBBackend(ABC):
         return rows[0]["subject"] if rows else None
 
     def get_entity_metadata(
-        self, table_name: str, subjects: List[str]
-    ) -> List[Dict[str, str]]:
+        self, table_name: str, subjects: list[str]
+    ) -> list[dict[str, str]]:
         """Return ``rdf:type`` and ``rdfs:label`` for each subject.
 
         Returns a list of dicts with keys ``uri``, ``type`` (full URI),
@@ -631,10 +632,10 @@ class GraphDBBackend(ABC):
         type_rows = self.execute_query(type_sql) or []
         label_rows = self.execute_query(label_sql) or []
 
-        types: Dict[str, str] = {}
+        types: dict[str, str] = {}
         for r in type_rows:
             types.setdefault(r["subject"], r["object"])
-        labels: Dict[str, str] = {}
+        labels: dict[str, str] = {}
         for r in label_rows:
             labels.setdefault(r["subject"], r["object"])
 
@@ -645,8 +646,8 @@ class GraphDBBackend(ABC):
         ]
 
     def get_triples_for_subjects(
-        self, table_name: str, subjects: List[str]
-    ) -> List[Dict[str, str]]:
+        self, table_name: str, subjects: list[str]
+    ) -> list[dict[str, str]]:
         """Return all triples whose subject is in *subjects*."""
         if not subjects:
             return []
@@ -657,7 +658,7 @@ class GraphDBBackend(ABC):
         )
         return self.execute_query(sql)
 
-    def get_predicates_for_type(self, table_name: str, type_uri: str) -> List[str]:
+    def get_predicates_for_type(self, table_name: str, type_uri: str) -> list[str]:
         """Return distinct predicates used by instances of *type_uri*."""
         esc_type = self._sql_escape(type_uri)
         sql = (
@@ -674,10 +675,10 @@ class GraphDBBackend(ABC):
     def paginated_triples(
         self,
         table_name: str,
-        conditions: List[str],
+        conditions: list[str],
         limit: int,
         offset: int,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """Return triples matching *conditions* with LIMIT/OFFSET pagination."""
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
         sql = (
@@ -686,7 +687,7 @@ class GraphDBBackend(ABC):
         )
         return self.execute_query(sql)
 
-    def paginated_count(self, table_name: str, conditions: List[str]) -> int:
+    def paginated_count(self, table_name: str, conditions: list[str]) -> int:
         """Return count of triples matching *conditions*."""
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
         sql = f"SELECT COUNT(*) AS cnt FROM {self._sql_relation(table_name)}{where}"
@@ -700,7 +701,7 @@ class GraphDBBackend(ABC):
         depth: int,
         search: str = "",
         entity_type: str = "",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """BFS traversal from seed entities.
 
         *seed_where* is a SQL WHERE clause (including the ``WHERE`` keyword)
@@ -743,7 +744,7 @@ class GraphDBBackend(ABC):
         match_type: str = "contains",
         value: str = "",
         limit: int = 0,
-    ) -> Set[str]:
+    ) -> set[str]:
         """Return distinct subjects matching type and/or value criteria.
 
         *field* is ``"label"`` (match on ``rdfs:label``), ``"id"`` (match on
@@ -813,8 +814,8 @@ class GraphDBBackend(ABC):
         return {r["subject"] for r in rows}
 
     def find_subjects_by_patterns(
-        self, table_name: str, like_patterns: List[str]
-    ) -> Set[str]:
+        self, table_name: str, like_patterns: list[str]
+    ) -> set[str]:
         """Return subjects matching any of the given SQL LIKE patterns."""
         if not like_patterns:
             return set()
@@ -834,9 +835,9 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         predicate_uri: str,
-        start_uri: Optional[str] = None,
+        start_uri: str | None = None,
         max_depth: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compute transitive closure along *predicate_uri*.
 
         Returns triples ``(subject, predicate, object)`` reachable through
@@ -884,7 +885,7 @@ class GraphDBBackend(ABC):
         self,
         table_name: str,
         predicate_uri: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Find missing symmetric counterparts for *predicate_uri*.
 
         For every ``(a, P, b)`` where ``(b, P, a)`` does not exist,
@@ -919,7 +920,7 @@ class GraphDBBackend(ABC):
         source_uri: str,
         target_uri: str,
         max_depth: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Find shortest path between two entities.
 
         Default SQL implementation returns an empty list — shortest-path
@@ -972,8 +973,8 @@ class GraphDBBackend(ABC):
             return 0
 
     def expand_entity_neighbors(
-        self, table_name: str, entity_uris: Set[str]
-    ) -> Set[str]:
+        self, table_name: str, entity_uris: set[str]
+    ) -> set[str]:
         """Expand one BFS level: find typed neighbors of *entity_uris*.
 
         Only returns URIs that have an ``rdf:type`` assertion (real entity
@@ -1051,7 +1052,7 @@ class GraphDBBackend(ABC):
         """
         return table_name
 
-    def get_graph_schema(self) -> Optional[Any]:
+    def get_graph_schema(self) -> Any | None:
         """Return the graph schema object, or *None* if not available."""
         return None
 
@@ -1063,7 +1064,7 @@ class GraphDBBackend(ABC):
         self,
         uc_path: str,
         volume_service: Any,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Upload local DB to remote storage.  No-op by default."""
         return False, "Not supported by this backend"
 
@@ -1071,15 +1072,15 @@ class GraphDBBackend(ABC):
         self,
         uc_path: str,
         volume_service: Any,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Download DB from remote storage.  No-op by default."""
         return False, "Not supported by this backend"
 
-    def local_path(self) -> Optional[str]:
+    def local_path(self) -> str | None:
         """Return the local file/directory path, or *None* for remote-only."""
         return None
 
-    def remote_archive_path(self, uc_domain_path: str) -> Optional[str]:
+    def remote_archive_path(self, uc_domain_path: str) -> str | None:
         """Return the remote archive path for sync, or *None*."""
         return None
 

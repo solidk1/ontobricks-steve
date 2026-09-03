@@ -11,8 +11,8 @@ from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL
 from back.core.graphdb.neo4j.graph_model import (
     is_uri,
     label_from_class_uri,
-    reltype_from_predicate,
     plan_writes,
+    reltype_from_predicate,
 )
 
 pytestmark = pytest.mark.unit

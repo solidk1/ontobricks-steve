@@ -485,7 +485,7 @@ class _InMemoryStore(RegistryStore):
 
 
 class TestRegistryFactory:
-    def test_lakebase_factory_does_not_eagerly_import_psycopg(self, monkeypatch):
+    def test_postgres_factory_does_not_eagerly_import_psycopg(self, monkeypatch):
         """The Lakebase backend must be import-safe even when ``psycopg``
         is missing — the actual driver is only required when a method
         that touches Postgres runs (``initialize``/connect/…).
@@ -495,17 +495,17 @@ class TestRegistryFactory:
         monkeypatch.setenv("PGDATABASE", "ontobricks_registry")
         monkeypatch.setenv("PGUSER", "sp-test")
 
-        store = RegistryFactory.lakebase(
+        store = RegistryFactory.postgres(
             registry_cfg=CFG, schema="ontobricks_registry"
         )
         from back.objects.registry.store.postgres import PostgresRegistryStore
 
         assert isinstance(store, PostgresRegistryStore)
-        assert store.backend == "lakebase"
+        assert store.backend == "postgres"
         assert store.cache_key.startswith("lakebase:")
 
     def test_postgres_database_override_propagates_to_store(self, monkeypatch):
-        """``RegistryFactory.lakebase(database=...)`` must store the
+        """``RegistryFactory.postgres(database=...)`` must store the
         override on the resulting store and surface it both via
         ``describe()`` and the (effective) ``cache_key`` so callers
         like ``RegistryService._build_store`` can route Browse traffic
@@ -516,7 +516,7 @@ class TestRegistryFactory:
         monkeypatch.setenv("PGDATABASE", "ontobricks_registry")
         monkeypatch.setenv("PGUSER", "sp-test")
 
-        store = RegistryFactory.lakebase(
+        store = RegistryFactory.postgres(
             registry_cfg=CFG,
             schema="ontobricks_registry",
             database="ontobricks_other",

@@ -44,7 +44,7 @@ def psycopg_installed(monkeypatch):
     yield
 
 
-class TestLakebaseSchemaStatus:
+class TestPostgresSchemaStatus:
     def test_returns_false_pair_when_psycopg_missing(self, monkeypatch):
         # Simulate the optional extra not installed: ``import psycopg``
         # at module scope inside the helper raises ImportError.
@@ -71,7 +71,7 @@ class TestLakebaseSchemaStatus:
         store = MagicMock()
         store.is_initialized.return_value = False
         with patch(
-            "back.objects.registry.store.RegistryFactory.lakebase",
+            "back.objects.registry.store.RegistryFactory.postgres",
             return_value=store,
         ):
             status = SettingsService._postgres_schema_status(_rcfg())
@@ -91,7 +91,7 @@ class TestLakebaseSchemaStatus:
         }
         with patch.dict(sys.modules, {"psycopg": MagicMock()}), \
              patch(
-                 "back.objects.registry.store.RegistryFactory.lakebase",
+                 "back.objects.registry.store.RegistryFactory.postgres",
                  return_value=store,
              ):
             assert SettingsService._postgres_schema_status(_rcfg()) == {
@@ -114,7 +114,7 @@ class TestLakebaseSchemaStatus:
         }
         with patch.dict(sys.modules, {"psycopg": MagicMock()}), \
              patch(
-                 "back.objects.registry.store.RegistryFactory.lakebase",
+                 "back.objects.registry.store.RegistryFactory.postgres",
                  return_value=store,
              ):
             assert SettingsService._postgres_schema_status(_rcfg()) == {
@@ -123,11 +123,11 @@ class TestLakebaseSchemaStatus:
             }
 
     def test_factory_failure_is_swallowed(self, psycopg_installed):
-        # Mirrors the failure mode where ``RegistryFactory.lakebase``
+        # Mirrors the failure mode where ``RegistryFactory.postgres``
         # itself raises (e.g. broken config). The probe must keep the
         # admin UI rendering — never raise.
         with patch(
-            "back.objects.registry.store.RegistryFactory.lakebase",
+            "back.objects.registry.store.RegistryFactory.postgres",
             side_effect=RuntimeError("factory boom"),
         ):
             assert SettingsService._postgres_schema_status(_rcfg()) == {
@@ -146,7 +146,7 @@ class TestLakebaseSchemaStatus:
         store.table_row_counts.side_effect = RuntimeError("permission denied")
         with patch.dict(sys.modules, {"psycopg": MagicMock()}), \
              patch(
-                 "back.objects.registry.store.RegistryFactory.lakebase",
+                 "back.objects.registry.store.RegistryFactory.postgres",
                  return_value=store,
              ):
             assert SettingsService._postgres_schema_status(_rcfg()) == {

@@ -21,8 +21,9 @@ need no migration.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
+from typing import Any
 
 from back.core.errors import InfrastructureError
 from back.core.graphdb.postgres import _companion_ddl
@@ -48,7 +49,7 @@ def _is_index_row_size_error(exc: BaseException) -> bool:
     return exc.__class__.__name__ == "ProgramLimitExceeded"
 
 
-def _long_literal_detail(batch: List[Dict[str, str]]) -> str:
+def _long_literal_detail(batch: list[dict[str, str]]) -> str:
     worst = max(
         batch,
         key=lambda t: len((t.get("object") or "").encode("utf-8")),
@@ -59,7 +60,7 @@ def _long_literal_detail(batch: List[Dict[str, str]]) -> str:
 
 
 def _reraise_lakebase_index_limit(
-    exc: BaseException, batch: List[Dict[str, str]]
+    exc: BaseException, batch: list[dict[str, str]]
 ) -> None:
     if not _is_index_row_size_error(exc):
         raise exc
@@ -159,7 +160,7 @@ class PostgresFlatStore(PostgresBase):
         return base[:63]
 
     @staticmethod
-    def _literal_meta(t: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    def _literal_meta(t: dict[str, Any]) -> tuple[str | None, str | None]:
         """Normalize optional RDF literal metadata for storage (NULL when absent)."""
         dt = t.get("datatype")
         lang = t.get("lang")
@@ -172,8 +173,8 @@ class PostgresFlatStore(PostgresBase):
         return dt_val, lang_val
 
     @staticmethod
-    def _row_to_triple(row: Dict[str, Any]) -> Dict[str, str]:
-        out: Dict[str, str] = {
+    def _row_to_triple(row: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {
             "subject": row["subject"] or "",
             "predicate": row["predicate"] or "",
             "object": row["object"] or "",
@@ -224,7 +225,7 @@ class PostgresFlatStore(PostgresBase):
 
         return _require_psycopg()
 
-    def execute_query(self, query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, query: str) -> list[dict[str, Any]]:
         _, dict_row = self._require_pg()
         pool = self._pool()
         with pool.connection() as conn:
@@ -236,8 +237,8 @@ class PostgresFlatStore(PostgresBase):
                 return []
 
     def find_subjects_by_patterns(
-        self, table_name: str, like_patterns: List[str]
-    ) -> Set[str]:
+        self, table_name: str, like_patterns: list[str]
+    ) -> set[str]:
         """Optimized alias expansion for Lakebase Postgres.
 
         ``describe_entity`` may pass hundreds or thousands of ``%/<local-id>``
@@ -343,7 +344,7 @@ class PostgresFlatStore(PostgresBase):
         )
 
     @contextmanager
-    def _txn_cursor(self) -> Iterator[Tuple[Any, Any]]:
+    def _txn_cursor(self) -> Iterator[tuple[Any, Any]]:
         """Yield ``(conn, cur)`` inside an explicit transaction.
 
         The pool runs connections with ``autocommit=True`` so that read paths
@@ -363,7 +364,7 @@ class PostgresFlatStore(PostgresBase):
                     cur.execute(f'SET search_path TO "{self._schema}"')
                     yield conn, cur
 
-    def _copy_insert_batch_phy(self, phy: str, batch: List[Dict[str, str]]) -> int:
+    def _copy_insert_batch_phy(self, phy: str, batch: list[dict[str, str]]) -> int:
         """COPY *batch* into a temp staging table then ``INSERT … ON CONFLICT DO NOTHING``.
 
         Takes the resolved physical Postgres table name directly so callers can
@@ -405,7 +406,7 @@ class PostgresFlatStore(PostgresBase):
         return len(batch)
 
     def _copy_insert_batch(
-        self, table_name: str, batch: List[Dict[str, str]]
+        self, table_name: str, batch: list[dict[str, str]]
     ) -> int:
         """Route a COPY batch to the writable companion table for *table_name*."""
         if not batch:
@@ -414,7 +415,7 @@ class PostgresFlatStore(PostgresBase):
         return self._copy_insert_batch_phy(self._writable_table_id(table_name), batch)
 
     def _copy_delete_batch(
-        self, table_name: str, batch: List[Dict[str, str]]
+        self, table_name: str, batch: list[dict[str, str]]
     ) -> int:
         """COPY *batch* into a temp staging table then ``DELETE … USING`` join.
 
@@ -456,9 +457,9 @@ class PostgresFlatStore(PostgresBase):
     def _insert_triples_executemany(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Insert rows with ``executemany`` (small-payload fallback, < ``_BULK_INSERT_THRESHOLD``)."""
         validate_table_name(table_name)
@@ -495,9 +496,9 @@ class PostgresFlatStore(PostgresBase):
     def insert_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         validate_table_name(table_name)
         if not triples:
@@ -516,9 +517,9 @@ class PostgresFlatStore(PostgresBase):
     def bulk_insert_iter(
         self,
         table_name: str,
-        triple_iterator: Iterable[Dict[str, str]],
+        triple_iterator: Iterable[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Insert triples from an iterator in fixed-size batches via ``COPY FROM STDIN``.
 
@@ -528,7 +529,7 @@ class PostgresFlatStore(PostgresBase):
         per-batch and a single bad batch does not abort the entire load.
         """
         validate_table_name(table_name)
-        batch: List[Dict[str, str]] = []
+        batch: list[dict[str, str]] = []
         total = 0
         for t in triple_iterator:
             batch.append(t)
@@ -553,9 +554,9 @@ class PostgresFlatStore(PostgresBase):
     def bulk_load_into_sync(
         self,
         table_name: str,
-        triple_iterator: Iterable[Dict[str, str]],
+        triple_iterator: Iterable[dict[str, str]],
         batch_size: int = 5000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Bulk-load warehouse data into the ``*_sync`` table for *table_name*.
 
@@ -570,7 +571,7 @@ class PostgresFlatStore(PostgresBase):
         """
         validate_table_name(table_name)
         sync_phy = _companion_ddl.synced_phy(table_name)
-        batch: List[Dict[str, str]] = []
+        batch: list[dict[str, str]] = []
         total = 0
         for t in triple_iterator:
             batch.append(t)
@@ -595,16 +596,16 @@ class PostgresFlatStore(PostgresBase):
     def bulk_delete_iter(
         self,
         table_name: str,
-        triple_iterator: Iterable[Dict[str, str]],
+        triple_iterator: Iterable[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Delete triples from an iterator in fixed-size batches via temp-table JOIN.
 
         Mirror of :meth:`bulk_insert_iter` for the incremental remove path.
         """
         validate_table_name(table_name)
-        batch: List[Dict[str, str]] = []
+        batch: list[dict[str, str]] = []
         deleted = 0
         for t in triple_iterator:
             batch.append(t)
@@ -629,9 +630,9 @@ class PostgresFlatStore(PostgresBase):
     def delete_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         validate_table_name(table_name)
         if not triples:
@@ -662,7 +663,7 @@ class PostgresFlatStore(PostgresBase):
         logger.info("Deleted %d triple rows from %s.%s", deleted, self._schema, phy)
         return deleted
 
-    def query_triples(self, table_name: str) -> List[Dict[str, str]]:
+    def query_triples(self, table_name: str) -> list[dict[str, str]]:
         validate_table_name(table_name)
         phy = self._readable_table_id(table_name)
         with self._cursor() as cur:
@@ -677,7 +678,7 @@ class PostgresFlatStore(PostgresBase):
         self,
         table_name: str,
         batch_size: int = 5000,
-    ) -> Iterator[Dict[str, str]]:
+    ) -> Iterator[dict[str, str]]:
         """Yield triple rows in sort order without loading the full graph into memory."""
         validate_table_name(table_name)
         phy = self._readable_table_id(table_name)
@@ -728,14 +729,14 @@ class PostgresFlatStore(PostgresBase):
             )
             return cur.fetchone() is not None
 
-    def get_status(self, table_name: str) -> Dict[str, Any]:
+    def get_status(self, table_name: str) -> dict[str, Any]:
         validate_table_name(table_name)
         count = self.count_triples(table_name)
         return {
             "count": count,
             "last_modified": None,
             "path": None,
-            "format": "lakebase",
+            "format": "postgres",
             "schema": self._schema,
             "database": self._effective_database_display(),
         }
@@ -759,7 +760,7 @@ class PostgresFlatStore(PostgresBase):
 
 def resolve_postgres_graph_schema(
     domain: Any,
-    settings: Optional[Any],
+    settings: Any | None,
     config_schema: str,
 ) -> str:
     """Postgres / UC schema segment for Lakebase triple tables.

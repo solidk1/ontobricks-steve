@@ -55,7 +55,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from back.core.databricks import get_lakebase_auth
 from back.core.databricks.lakebase import get_postgres_pool
@@ -177,16 +177,16 @@ def _get_pool(auth: Any, schema: str, database: str = ""):
 # though the underlying data is intact.
 # ---------------------------------------------------------------------------
 
-_TRIPLET_CACHE: Dict[Tuple[str, str], Optional[Tuple[str, str, str]]] = {}
+_TRIPLET_CACHE: dict[tuple[str, str], tuple[str, str, str] | None] = {}
 _TRIPLET_LOCK = threading.Lock()
 _TRIPLET_NEGATIVE_TTL_S = 60.0
-_TRIPLET_NEG_TS: Dict[Tuple[str, str], float] = {}
+_TRIPLET_NEG_TS: dict[tuple[str, str], float] = {}
 
 
 def fetch_lakebase_registry_triplet(
     schema: str,
     database: str = "",
-) -> Optional[Tuple[str, str, str]]:
+) -> tuple[str, str, str] | None:
     """Return the ``(catalog, schema, volume)`` stored in the Lakebase ``registries`` row.
 
     Returns ``None`` when Lakebase is unavailable, the row doesn't exist
@@ -293,7 +293,7 @@ class PostgresRegistryStore(RegistryStore):
         self._schema = schema
         self._database = database or ""
         self._auth = get_lakebase_auth()
-        self._registry_id: Optional[str] = None  # cached after initialize()
+        self._registry_id: str | None = None  # cached after initialize()
         # Guards the lazy ``CREATE TABLE IF NOT EXISTS build_runs`` used to
         # self-heal deployments created before the build-run trace existed
         # (the full DDL only runs from the Settings "Initialize" action).
@@ -345,7 +345,7 @@ class PostgresRegistryStore(RegistryStore):
 
     @property
     def backend(self) -> str:
-        return "lakebase"
+        return "postgres"
 
     @property
     def cache_key(self) -> str:
@@ -384,7 +384,7 @@ class PostgresRegistryStore(RegistryStore):
         """
         return self.init_status()["initialized"]
 
-    def init_status(self) -> Dict[str, Any]:
+    def init_status(self) -> dict[str, Any]:
         """Detailed initialise-probe with explicit failure reasons.
 
         Returns ``{initialized: bool, reason: str, error: Optional[str]}``.
@@ -486,7 +486,7 @@ class PostgresRegistryStore(RegistryStore):
                 "error": f"Lakebase probe failed: {exc}",
             }
 
-    def check_permissions(self) -> Dict[str, Any]:
+    def check_permissions(self) -> dict[str, Any]:
         """Run a comprehensive permission diagnostic against the Lakebase registry.
 
         Executes two lightweight queries in a single connection:
@@ -656,7 +656,7 @@ class PostgresRegistryStore(RegistryStore):
             "checks": checks,
         }
 
-    def initialize(self, *, client: Any = None) -> Tuple[bool, str]:
+    def initialize(self, *, client: Any = None) -> tuple[bool, str]:
         """Initialize or upgrade the Lakebase registry schema.
 
         Idempotent: safe to re-run on an already-initialized registry.
@@ -695,8 +695,8 @@ class PostgresRegistryStore(RegistryStore):
             return False, f"Failed to initialise Lakebase registry: {exc}"
 
     def grant_app_permissions(
-        self, *, app_names: List[str], uc_catalog: str = ""
-    ) -> Dict[str, Any]:
+        self, *, app_names: list[str], uc_catalog: str = ""
+    ) -> dict[str, Any]:
         """In-app port of ``scripts/bootstrap-lakebase-perms.sh`` (registry schema).
 
         Runs as the app's own service principal, which **owns** the
@@ -743,7 +743,7 @@ class PostgresRegistryStore(RegistryStore):
             }
 
         sp_ids, warnings = resolve_app_service_principals(api, app_names)
-        granted: List[str] = []
+        granted: list[str] = []
         if not sp_ids:
             return {
                 "success": False,
@@ -798,7 +798,7 @@ class PostgresRegistryStore(RegistryStore):
     # Domain listings
     # ------------------------------------------------------------------
 
-    def list_domain_folders(self) -> Tuple[bool, List[str], str]:
+    def list_domain_folders(self) -> tuple[bool, list[str], str]:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
@@ -811,7 +811,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             return False, [], str(exc)
 
-    def list_domains_with_metadata(self) -> Tuple[bool, List[DomainSummary], str]:
+    def list_domains_with_metadata(self) -> tuple[bool, list[DomainSummary], str]:
         try:
             self._ensure_domain_versions_status_column()
             self._ensure_domains_review_quorum_column()
@@ -844,13 +844,13 @@ class PostgresRegistryStore(RegistryStore):
                     )
                     version_rows = cur.fetchall()
 
-            by_domain: Dict[str, List[Dict[str, Any]]] = {}
+            by_domain: dict[str, list[dict[str, Any]]] = {}
             for v in version_rows:
                 by_domain.setdefault(str(v["domain_id"]), []).append(v)
 
             from back.core.graphdb.GraphDBFactory import normalize_graph_backend
 
-            result: List[DomainSummary] = []
+            result: list[DomainSummary] = []
             for d in domain_rows:
                 versions = by_domain.get(str(d["id"]), [])
                 description = d["description"] or ""
@@ -923,7 +923,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.debug("get_domain_quorum(%s) failed: %s", folder, exc)
             return 1
 
-    def delete_domain(self, folder: str) -> List[str]:
+    def delete_domain(self, folder: str) -> list[str]:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
@@ -940,7 +940,7 @@ class PostgresRegistryStore(RegistryStore):
     # Versions
     # ------------------------------------------------------------------
 
-    def list_versions(self, folder: str) -> Tuple[bool, List[str], str]:
+    def list_versions(self, folder: str) -> tuple[bool, list[str], str]:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
@@ -960,7 +960,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def read_version(
         self, folder: str, version: str
-    ) -> Tuple[bool, Dict[str, Any], str]:
+    ) -> tuple[bool, dict[str, Any], str]:
         try:
             self._ensure_domain_versions_status_column()
             self._ensure_domains_review_quorum_column()
@@ -1012,8 +1012,8 @@ class PostgresRegistryStore(RegistryStore):
             return False, {}, str(exc)
 
     def write_version(
-        self, folder: str, version: str, data: Dict[str, Any]
-    ) -> Tuple[bool, str]:
+        self, folder: str, version: str, data: dict[str, Any]
+    ) -> tuple[bool, str]:
         try:
             self._ensure_domain_versions_status_column()
             self._ensure_domains_review_quorum_column()
@@ -1098,7 +1098,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.exception("write_version failed for %s/%s", folder, version)
             return False, str(exc)
 
-    def delete_version(self, folder: str, version: str) -> Tuple[bool, str]:
+    def delete_version(self, folder: str, version: str) -> tuple[bool, str]:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
@@ -1119,7 +1119,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def update_version_status(
         self, folder: str, version: str, status: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Set the lifecycle ``status`` of a single (domain, version).
 
         Targeted single-row UPDATE so a status transition never rewrites
@@ -1156,7 +1156,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def get_version_status(
         self, folder: str, version: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Cheap single-column lifecycle status lookup (no document read)."""
         try:
             with self._connect() as conn, conn.cursor() as cur:
@@ -1188,7 +1188,7 @@ class PostgresRegistryStore(RegistryStore):
     # App-level roles (replaces the Databricks App ACL)
     # ------------------------------------------------------------------
 
-    def list_app_roles(self) -> List[Dict[str, Any]]:
+    def list_app_roles(self) -> list[dict[str, Any]]:
         """Return every app-level role grant, ordered by principal."""
         try:
             _psycopg, dict_row = _require_psycopg()
@@ -1212,7 +1212,7 @@ class PostgresRegistryStore(RegistryStore):
         *,
         principal_type: str = "user",
         display_name: str = "",
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Upsert one app-level role grant."""
         principal = (principal or "").strip()
         if not principal:
@@ -1237,7 +1237,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.warning("grant_app_role(%s) failed: %s", principal, exc)
             return False, str(exc)
 
-    def revoke_app_role(self, principal: str) -> Tuple[bool, str]:
+    def revoke_app_role(self, principal: str) -> tuple[bool, str]:
         """Remove one app-level role grant."""
         principal = (principal or "").strip()
         if not principal:
@@ -1254,7 +1254,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.warning("revoke_app_role(%s) failed: %s", principal, exc)
             return False, str(exc)
 
-    def load_domain_permissions(self, folder: str) -> Dict[str, Any]:
+    def load_domain_permissions(self, folder: str) -> dict[str, Any]:
         try:
             psycopg, dict_row = _require_psycopg()
             with self._connect() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -1275,8 +1275,8 @@ class PostgresRegistryStore(RegistryStore):
             return {"version": 1, "permissions": []}
 
     def save_domain_permissions(
-        self, folder: str, data: Dict[str, Any]
-    ) -> Tuple[bool, str]:
+        self, folder: str, data: dict[str, Any]
+    ) -> tuple[bool, str]:
         entries = data.get("permissions") or []
         try:
             with self._connect() as conn, conn.cursor() as cur:
@@ -1320,7 +1320,7 @@ class PostgresRegistryStore(RegistryStore):
     # Schedules + history
     # ------------------------------------------------------------------
 
-    def load_schedules(self) -> Dict[str, Dict[str, Any]]:
+    def load_schedules(self) -> dict[str, dict[str, Any]]:
         try:
             self._ensure_schedule_task_columns()
             self._import_legacy_cohort_schedules()
@@ -1337,7 +1337,7 @@ class PostgresRegistryStore(RegistryStore):
                     (self._registry(),),
                 )
                 rows = cur.fetchall()
-            out: Dict[str, Dict[str, Any]] = {}
+            out: dict[str, dict[str, Any]] = {}
             for r in rows:
                 task_type = r["task_type"] or "build"
                 target_key = r["target_key"] or ""
@@ -1361,8 +1361,8 @@ class PostgresRegistryStore(RegistryStore):
             return {}
 
     def save_schedules(
-        self, schedules: Dict[str, Dict[str, Any]]
-    ) -> Tuple[bool, str]:
+        self, schedules: dict[str, dict[str, Any]]
+    ) -> tuple[bool, str]:
         try:
             self._ensure_schedule_task_columns()
             with self._connect() as conn, conn.cursor() as cur:
@@ -1413,7 +1413,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
 
-    def load_schedule_history(self, key: str) -> List[ScheduleHistoryEntry]:
+    def load_schedule_history(self, key: str) -> list[ScheduleHistoryEntry]:
         task_type, domain_name, target_key = parse_schedule_key(key)
         try:
             self._ensure_schedule_task_columns()
@@ -1988,7 +1988,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.warning("record_build_run(%s) failed: %s", folder, exc)
 
     @staticmethod
-    def _build_run_row_to_entry(r: Dict[str, Any]) -> BuildRunEntry:
+    def _build_run_row_to_entry(r: dict[str, Any]) -> BuildRunEntry:
         return {
             "id": int(r.get("id") or 0),
             "version": r["version"],
@@ -2018,7 +2018,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def stamp_last_build(
         self, folder: str, version: str, ts: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Targeted UPDATE for ``domain_versions.last_build``.
 
         Avoids a full read + re-write of the JSONB blobs: only the scalar
@@ -2046,16 +2046,16 @@ class PostgresRegistryStore(RegistryStore):
         self,
         folder: str,
         *,
-        version: Optional[str] = None,
+        version: str | None = None,
         limit: int = 100,
-    ) -> List[BuildRunEntry]:
+    ) -> list[BuildRunEntry]:
         if not self._ensure_build_runs_table():
             return []
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             clauses = ["d.registry_id = %s", "d.folder = %s"]
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version:
                 clauses.append("b.version = %s")
                 params.append(version)
@@ -2096,17 +2096,17 @@ class PostgresRegistryStore(RegistryStore):
     def load_all_build_runs(
         self,
         *,
-        folder: Optional[str] = None,
+        folder: str | None = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> Tuple[List[BuildRunEntry], int]:
+    ) -> tuple[list[BuildRunEntry], int]:
         if not self._ensure_build_runs_table():
             return [], 0
         try:
             _psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             where = "WHERE d.registry_id = %s"
-            params: List[Any] = [self._registry()]
+            params: list[Any] = [self._registry()]
             if folder:
                 where += " AND d.folder = %s"
                 params.append(folder)
@@ -2262,7 +2262,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.warning("save_graph_analytics(%s) failed: %s", folder, exc)
 
     @staticmethod
-    def _graph_analytics_row_to_entry(r: Dict[str, Any]) -> GraphAnalyticsResult:
+    def _graph_analytics_row_to_entry(r: dict[str, Any]) -> GraphAnalyticsResult:
         return {
             "version": r["version"],
             "status": r["status"] or "completed",
@@ -2281,7 +2281,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def load_graph_analytics(
         self, folder: str, version: str
-    ) -> Optional[GraphAnalyticsResult]:
+    ) -> GraphAnalyticsResult | None:
         if not self._ensure_graph_analytics_table():
             return None
         try:
@@ -2435,7 +2435,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.warning("record_graph_analytics_run(%s) failed: %s", folder, exc)
 
     @staticmethod
-    def _graph_analytics_run_row_to_entry(r: Dict[str, Any]) -> GraphAnalyticsRun:
+    def _graph_analytics_run_row_to_entry(r: dict[str, Any]) -> GraphAnalyticsRun:
         return {
             "id": int(r.get("id") or 0),
             "version": r["version"],
@@ -2455,15 +2455,15 @@ class PostgresRegistryStore(RegistryStore):
         }
 
     def load_graph_analytics_runs(
-        self, folder: str, version: Optional[str] = None, *, limit: int = 100
-    ) -> List[GraphAnalyticsRun]:
+        self, folder: str, version: str | None = None, *, limit: int = 100
+    ) -> list[GraphAnalyticsRun]:
         if not self._ensure_graph_analytics_runs_table():
             return []
         try:
             _psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             where = "WHERE d.registry_id = %s AND d.folder = %s"
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version is not None:
                 where += " AND r.version = %s"
                 params.append(version)
@@ -2492,17 +2492,17 @@ class PostgresRegistryStore(RegistryStore):
     def load_all_graph_analytics_runs(
         self,
         *,
-        folder: Optional[str] = None,
+        folder: str | None = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> Tuple[List[GraphAnalyticsRun], int]:
+    ) -> tuple[list[GraphAnalyticsRun], int]:
         if not self._ensure_graph_analytics_runs_table():
             return [], 0
         try:
             _psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             where = "WHERE d.registry_id = %s"
-            params: List[Any] = [self._registry()]
+            params: list[Any] = [self._registry()]
             if folder:
                 where += " AND d.folder = %s"
                 params.append(folder)
@@ -2540,7 +2540,7 @@ class PostgresRegistryStore(RegistryStore):
             return [], 0
 
     @staticmethod
-    def _empty_analytics() -> Dict[str, Any]:
+    def _empty_analytics() -> dict[str, Any]:
         return {
             "total_runs": 0,
             "success_runs": 0,
@@ -2555,15 +2555,15 @@ class PostgresRegistryStore(RegistryStore):
         }
 
     def build_analytics(
-        self, folder: str, *, version: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, folder: str, *, version: str | None = None
+    ) -> dict[str, Any]:
         if not self._ensure_build_runs_table():
             return self._empty_analytics()
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             scope = ["d.registry_id = %s", "d.folder = %s"]
-            scope_params: List[Any] = [self._registry(), folder]
+            scope_params: list[Any] = [self._registry(), folder]
             if version:
                 scope.append("b.version = %s")
                 scope_params.append(version)
@@ -2740,8 +2740,8 @@ class PostgresRegistryStore(RegistryStore):
         from_status: str = "",
         to_status: str = "",
         comment: str = "",
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, str]:
+        meta: dict[str, Any] | None = None,
+    ) -> tuple[bool, str]:
         if not self._ensure_review_events_table():
             return False, "review audit log unavailable"
         try:
@@ -2778,7 +2778,7 @@ class PostgresRegistryStore(RegistryStore):
             return False, str(exc)
 
     @staticmethod
-    def _review_row_to_event(r: Dict[str, Any]) -> ReviewEvent:
+    def _review_row_to_event(r: dict[str, Any]) -> ReviewEvent:
         return {
             "id": str(r.get("id") or ""),
             "folder": r.get("folder", "") or "",
@@ -2795,15 +2795,15 @@ class PostgresRegistryStore(RegistryStore):
         }
 
     def list_review_events(
-        self, folder: str, version: Optional[str] = None
-    ) -> List[ReviewEvent]:
+        self, folder: str, version: str | None = None
+    ) -> list[ReviewEvent]:
         if not self._ensure_review_events_table():
             return []
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             clauses = ["d.registry_id = %s", "d.folder = %s"]
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version:
                 clauses.append("e.version = %s")
                 params.append(version)
@@ -2827,7 +2827,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.debug("list_review_events(%s) failed: %s", folder, exc)
             return []
 
-    def list_all_review_events(self) -> List[ReviewEvent]:
+    def list_all_review_events(self) -> list[ReviewEvent]:
         if not self._ensure_review_events_table():
             return []
         try:
@@ -2922,8 +2922,8 @@ class PostgresRegistryStore(RegistryStore):
         folder: str,
         version: str,
         actor: str,
-        events: List[Dict[str, Any]],
-    ) -> Tuple[bool, str]:
+        events: list[dict[str, Any]],
+    ) -> tuple[bool, str]:
         if not events:
             return True, ""
         if not self._ensure_change_events_table():
@@ -2975,7 +2975,7 @@ class PostgresRegistryStore(RegistryStore):
             return False, str(exc)
 
     @staticmethod
-    def _change_row_to_event(r: Dict[str, Any]) -> ChangeEvent:
+    def _change_row_to_event(r: dict[str, Any]) -> ChangeEvent:
         return {
             "id": str(r.get("id") or ""),
             "folder": r.get("folder", "") or "",
@@ -2996,15 +2996,15 @@ class PostgresRegistryStore(RegistryStore):
         }
 
     def list_change_events(
-        self, folder: str, version: Optional[str] = None, limit: int = 500
-    ) -> List[ChangeEvent]:
+        self, folder: str, version: str | None = None, limit: int = 500
+    ) -> list[ChangeEvent]:
         if not self._ensure_change_events_table():
             return []
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             clauses = ["d.registry_id = %s", "d.folder = %s"]
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version:
                 clauses.append("e.version = %s")
                 params.append(version)
@@ -3127,7 +3127,7 @@ class PostgresRegistryStore(RegistryStore):
 
     @staticmethod
     def _comment_row_to_dict(
-        r: Dict[str, Any], folder: str = ""
+        r: dict[str, Any], folder: str = ""
     ) -> DomainComment:
         return {
             "id": str(r.get("id") or ""),
@@ -3149,8 +3149,8 @@ class PostgresRegistryStore(RegistryStore):
         *,
         author: str,
         body: str,
-        parent_id: Optional[str] = None,
-    ) -> Optional[DomainComment]:
+        parent_id: str | None = None,
+    ) -> DomainComment | None:
         if not self._ensure_collab_tables():
             return None
         try:
@@ -3189,17 +3189,17 @@ class PostgresRegistryStore(RegistryStore):
     def list_comments(
         self,
         folder: str,
-        version: Optional[str] = None,
+        version: str | None = None,
         *,
         include_resolved: bool = True,
-    ) -> List[DomainComment]:
+    ) -> list[DomainComment]:
         if not self._ensure_collab_tables():
             return []
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             clauses = ["d.registry_id = %s", "d.folder = %s"]
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version:
                 clauses.append("c.version = %s")
                 params.append(version)
@@ -3226,7 +3226,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def resolve_comment(
         self, folder: str, comment_id: str, *, resolved: bool = True
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if not self._ensure_collab_tables():
             return False, "comments backend unavailable"
         try:
@@ -3253,7 +3253,7 @@ class PostgresRegistryStore(RegistryStore):
             return False, str(exc)
 
     @staticmethod
-    def _task_row_to_dict(r: Dict[str, Any], folder: str = "") -> DomainTask:
+    def _task_row_to_dict(r: dict[str, Any], folder: str = "") -> DomainTask:
         return {
             "id": str(r.get("id") or ""),
             "folder": r.get("folder", folder) or folder,
@@ -3282,9 +3282,9 @@ class PostgresRegistryStore(RegistryStore):
         created_by: str,
         title: str,
         description: str = "",
-        due_date: Optional[str] = None,
-        comment_id: Optional[str] = None,
-    ) -> Optional[DomainTask]:
+        due_date: str | None = None,
+        comment_id: str | None = None,
+    ) -> DomainTask | None:
         if not self._ensure_collab_tables():
             return None
         try:
@@ -3326,15 +3326,15 @@ class PostgresRegistryStore(RegistryStore):
             return None
 
     def list_tasks(
-        self, folder: str, version: Optional[str] = None
-    ) -> List[DomainTask]:
+        self, folder: str, version: str | None = None
+    ) -> list[DomainTask]:
         if not self._ensure_collab_tables():
             return []
         try:
             psycopg, dict_row = _require_psycopg()
             sch = self._q(self._schema)
             clauses = ["d.registry_id = %s", "d.folder = %s"]
-            params: List[Any] = [self._registry(), folder]
+            params: list[Any] = [self._registry(), folder]
             if version:
                 clauses.append("t.version = %s")
                 params.append(version)
@@ -3358,7 +3358,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.debug("list_tasks(%s) failed: %s", folder, exc)
             return []
 
-    def list_tasks_for_assignee(self, assignee: str) -> List[DomainTask]:
+    def list_tasks_for_assignee(self, assignee: str) -> list[DomainTask]:
         if not self._ensure_collab_tables():
             return []
         try:
@@ -3385,7 +3385,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def update_task_status(
         self, folder: str, task_id: str, status: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if not self._ensure_collab_tables():
             return False, "tasks backend unavailable"
         try:
@@ -3465,7 +3465,7 @@ class PostgresRegistryStore(RegistryStore):
             return False
 
     @staticmethod
-    def _edit_lock_row_to_dict(r: Dict[str, Any]) -> Dict[str, Any]:
+    def _edit_lock_row_to_dict(r: dict[str, Any]) -> dict[str, Any]:
         return {
             "holder_email": r.get("holder_email") or "",
             "holder_name": r.get("holder_name") or "",
@@ -3491,7 +3491,7 @@ class PostgresRegistryStore(RegistryStore):
         holder_session: str = "",
         force: bool = False,
         ttl_seconds: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Atomically take the (domain, version) edit lock when available.
 
         The lock is granted when it is free, already held by the **same**
@@ -3682,7 +3682,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def get_edit_lock(
         self, folder: str, version: str, ttl_seconds: int = 0
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Return the live lock row or ``None`` when the lock is free.
 
         When ``ttl_seconds > 0`` the returned dict carries ``is_stale`` — the
@@ -3712,7 +3712,7 @@ class PostgresRegistryStore(RegistryStore):
         folder: str,
         version: str,
         ttl_seconds: int = 0,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Fetch the live lock row for (folder, version) via an open cursor.
 
         ``is_stale`` is computed server-side: true only when
@@ -3733,7 +3733,7 @@ class PostgresRegistryStore(RegistryStore):
         )
         return cur.fetchone()
 
-    def list_all_edit_locks(self, ttl_seconds: int = 0) -> List[Dict[str, Any]]:
+    def list_all_edit_locks(self, ttl_seconds: int = 0) -> list[dict[str, Any]]:
         """List every active edit lock across the registry (admin overview).
 
         Joins ``domains`` for the folder and ``domain_versions`` for the
@@ -3783,7 +3783,7 @@ class PostgresRegistryStore(RegistryStore):
     # Global config
     # ------------------------------------------------------------------
 
-    def load_global_config(self) -> Dict[str, Any]:
+    def load_global_config(self) -> dict[str, Any]:
         try:
             psycopg, dict_row = _require_psycopg()
             with self._connect() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -3809,7 +3809,7 @@ class PostgresRegistryStore(RegistryStore):
             logger.debug("load_global_config failed: %s", exc)
             return {}
 
-    def save_global_config(self, updates: Dict[str, Any]) -> Tuple[bool, str]:
+    def save_global_config(self, updates: dict[str, Any]) -> tuple[bool, str]:
         try:
             data = self.load_global_config()
             data["version"] = data.get("version", 1)
@@ -3841,7 +3841,7 @@ class PostgresRegistryStore(RegistryStore):
     # Misc
     # ------------------------------------------------------------------
 
-    def domain_folder_id(self, folder: str) -> Optional[str]:
+    def domain_folder_id(self, folder: str) -> str | None:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 cur.execute(
@@ -3856,7 +3856,7 @@ class PostgresRegistryStore(RegistryStore):
         except Exception:  # noqa: BLE001
             return None
 
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         c = self._cfg
         try:
             host = self._auth.host
@@ -3878,7 +3878,7 @@ class PostgresRegistryStore(RegistryStore):
             "volume_volume": c.volume,
         }
 
-    def table_row_counts(self, tables: Tuple[str, ...]) -> Dict[str, int]:
+    def table_row_counts(self, tables: tuple[str, ...]) -> dict[str, int]:
         """Return ``{table_name: row_count}`` for tables in this schema.
 
         Tables that do not exist (schema not yet initialised, or table
@@ -3889,7 +3889,7 @@ class PostgresRegistryStore(RegistryStore):
         *tables* is matched against :data:`_KNOWN_TABLES` to keep the
         dynamic SQL safe.
         """
-        result: Dict[str, int] = {t: 0 for t in tables}
+        result: dict[str, int] = {t: 0 for t in tables}
         wanted = [t for t in tables if t in _KNOWN_TABLES]
         if not wanted:
             return result
@@ -3941,7 +3941,7 @@ class PostgresRegistryStore(RegistryStore):
             self._registry_id = self._fetch_registry_id() or self._ensure_registry_row()
         return self._registry_id
 
-    def _fetch_registry_id(self) -> Optional[str]:
+    def _fetch_registry_id(self) -> str | None:
         """Find the singleton registry row for this Lakebase schema.
 
         Identity model: **one Postgres schema = one OntoBricks
@@ -4048,7 +4048,7 @@ class PostgresRegistryStore(RegistryStore):
 
     def _apply_ddl(self) -> None:
         ddl_path = os.path.join(os.path.dirname(__file__), _DDL_FILENAME)
-        with open(ddl_path, "r", encoding="utf-8") as fh:
+        with open(ddl_path, encoding="utf-8") as fh:
             ddl = fh.read()
         ddl = ddl.replace(_SCHEMA_TOKEN, self._schema)
         with self._connect() as conn, conn.cursor() as cur:

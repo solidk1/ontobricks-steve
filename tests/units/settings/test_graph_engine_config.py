@@ -137,8 +137,8 @@ class TestGlobalConfigGraphEngineConfig:
         }
         with patch.object(svc, "load", return_value=data):
             cfg = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)
-        assert cfg["lakebase"]["database"] == "analytics"
-        assert cfg["lakebase"]["schema"] == "ontobricks_graph"
+        assert cfg["postgres"]["database"] == "analytics"
+        assert cfg["postgres"]["schema"] == "ontobricks_graph"
         assert cfg["neo4j"]["uri"] == "bolt://neo4j.local"
 
     def test_get_graph_engine_config_returns_empty_when_missing(self):
@@ -147,7 +147,7 @@ class TestGlobalConfigGraphEngineConfig:
         del data["graph_engine_config"]
         with patch.object(svc, "load", return_value=data):
             cfg = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)
-        assert cfg == {"lakebase": {}, "neo4j": {}, "lakehouse": {}}
+        assert cfg == {"postgres": {}, "neo4j": {}, "lakehouse": {}}
 
     def test_get_graph_engine_config_returns_empty_when_not_a_dict(self):
         svc = GlobalConfigService()
@@ -155,7 +155,7 @@ class TestGlobalConfigGraphEngineConfig:
         data["graph_engine_config"] = "not-a-dict"
         with patch.object(svc, "load", return_value=data):
             cfg = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)
-        assert cfg == {"lakebase": {}, "neo4j": {}, "lakehouse": {}}
+        assert cfg == {"postgres": {}, "neo4j": {}, "lakehouse": {}}
 
     def test_set_graph_engine_config_valid(self):
         svc = GlobalConfigService()
@@ -165,7 +165,7 @@ class TestGlobalConfigGraphEngineConfig:
         assert ok
         saved = mock_save.call_args[0][3]["graph_engine_config"]
         assert saved == {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {"uri": "bolt://localhost", "username": "neo4j"},
             "lakehouse": {},
         }
@@ -181,7 +181,7 @@ class TestGlobalConfigGraphEngineConfig:
             REGISTRY_CFG,
             {
                 "graph_engine_config": {
-                    "lakebase": {},
+                    "postgres": {},
                     "neo4j": {},
                     "lakehouse": {},
                 }
@@ -195,7 +195,7 @@ class TestGlobalConfigGraphEngineConfig:
             ok, msg = svc.set_graph_engine_config("h", "t", REGISTRY_CFG, cfg)
         assert ok
         saved = mock_save.call_args[0][3]["graph_engine_config"]
-        assert saved["lakebase"] == {
+        assert saved["postgres"] == {
             "database": "analytics",
             "schema": "ontobricks_graph",
         }
@@ -237,8 +237,8 @@ class TestGlobalConfigGraphEngineConfig:
             ok, _ = svc.set_graph_engine_config("h", "t", REGISTRY_CFG, cfg)
         assert ok
         saved = mock_save.call_args[0][3]["graph_engine_config"]
-        assert saved["lakebase"]["sync_mode"] == "managed_synced"
-        assert saved["lakebase"]["sync_uc_catalog"] == "main"
+        assert saved["postgres"]["sync_mode"] == "managed_synced"
+        assert saved["postgres"]["sync_uc_catalog"] == "main"
         assert saved["neo4j"] == {}
         assert saved["lakehouse"] == {}
 
@@ -302,7 +302,7 @@ class TestBulkLoadingSyncModeRegistryRoundTrip:
                 },
             )
             assert ok
-            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["lakebase"]
+            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["postgres"]
             assert lb["sync_mode"] == "managed_synced"
             assert lb["sync_table_mode"] == "snapshot"
             assert lb["sync_timeout_s"] == 900
@@ -323,7 +323,7 @@ class TestBulkLoadingSyncModeRegistryRoundTrip:
                 },
             )
             assert ok
-            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["lakebase"]
+            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["postgres"]
             assert lb["sync_mode"] == "app_managed"
             assert "sync_uc_catalog" not in lb
             assert "sync_table_mode" not in lb
@@ -345,7 +345,7 @@ class TestBulkLoadingSyncModeRegistryRoundTrip:
                 },
             )
             assert ok
-            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["lakebase"]
+            lb = svc.get_graph_engine_config("h", "t", REGISTRY_CFG)["postgres"]
             assert lb["sync_mode"] == "managed_synced"
             assert lb["sync_table_mode"] == "triggered"
             assert lb["sync_timeout_s"] == 600
@@ -362,7 +362,7 @@ class TestSettingsServiceGraphEngineConfig:
     def test_get_graph_engine_config_result(self):
         session_mgr, settings = _mock_context()
         expected_cfg = {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {"uri": "bolt://remote.db"},
             "lakehouse": {},
         }
@@ -401,7 +401,7 @@ class TestSettingsServiceGraphEngineConfig:
 
         assert result["success"]
         assert result["graph_engine_config"] == {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {},
             "lakehouse": {},
         }
@@ -425,7 +425,7 @@ class TestSettingsServiceGraphEngineConfig:
             }
         }
         nested = {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {
                 "connections": [
                     {
@@ -519,7 +519,7 @@ class TestSettingsServiceRegistryPayloadGraphEngine:
                 return_value=(MagicMock(), "h", "t", REGISTRY_CFG),
             ),
             patch.object(SettingsService, "is_registry_locked", return_value=False),
-            patch.object(SettingsService, "_lakebase_runtime_info", return_value={}),
+            patch.object(SettingsService, "_postgres_runtime_info", return_value={}),
             patch.object(_svc_module, "global_config_service") as gcs,
         ):
             gcs.get_graph_engine_config.return_value = {"schema": "ontobricks_graph"}
@@ -545,7 +545,7 @@ class TestSettingsServiceRegistryPayloadGraphEngine:
         with (
             patch.object(RegistryCfg, "from_session", return_value=rcfg),
             patch.object(SettingsService, "is_registry_locked", return_value=False),
-            patch.object(SettingsService, "_lakebase_runtime_info", return_value={}),
+            patch.object(SettingsService, "_postgres_runtime_info", return_value={}),
         ):
             payload = SettingsService.build_registry_get_payload(session_mgr, settings)
 

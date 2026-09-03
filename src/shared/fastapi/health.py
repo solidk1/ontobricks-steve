@@ -375,9 +375,9 @@ def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
 
         store = RegistryFactory.from_cfg(cfg)
         global_cfg = store.load_global_config()
-        from back.core.graphdb.engine_config import lakebase_section
+        from back.core.graphdb.engine_config import postgres_section
 
-        engine_cfg = lakebase_section(global_cfg.get("graph_engine_config") or {})
+        engine_cfg = postgres_section(global_cfg.get("graph_engine_config") or {})
     except Exception as exc:  # noqa: BLE001
         return _WARNING, f"Could not load graph engine config: {exc}"
 
@@ -1013,9 +1013,9 @@ def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
 
         store = RegistryFactory.from_cfg(cfg)
         global_cfg = store.load_global_config()
-        from back.core.graphdb.engine_config import lakebase_section
+        from back.core.graphdb.engine_config import postgres_section
 
-        engine_cfg = lakebase_section(global_cfg.get("graph_engine_config") or {})
+        engine_cfg = postgres_section(global_cfg.get("graph_engine_config") or {})
     except Exception as exc:
         return _WARNING, f"Could not load graph engine config: {exc}"
 
@@ -1075,9 +1075,9 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
 
         store = RegistryFactory.from_cfg(cfg)
         global_cfg = store.load_global_config()
-        from back.core.graphdb.engine_config import lakebase_section
+        from back.core.graphdb.engine_config import postgres_section
 
-        engine_cfg = lakebase_section(global_cfg.get("graph_engine_config") or {})
+        engine_cfg = postgres_section(global_cfg.get("graph_engine_config") or {})
     except Exception as exc:
         return _WARNING, f"Could not load graph engine config: {exc}"
 
@@ -1174,7 +1174,7 @@ def _check_delta_warehouse(settings: Settings) -> Tuple[str, str]:
 
         store = RegistryFactory.from_cfg(cfg)
         global_cfg = store.load_global_config()
-        backend = global_cfg.get("triple_store_backend", "lakebase")
+        backend = global_cfg.get("triple_store_backend", "postgres")
         delta_warehouse_id = resolve_lakehouse_warehouse_id(
             global_cfg.get("graph_engine_config") or {}
         )
@@ -1212,7 +1212,7 @@ def _check_delta_objects_exist(settings: Settings) -> Tuple[str, str]:
 
         store = RegistryFactory.from_cfg(cfg)
         global_cfg = store.load_global_config()
-        backend = global_cfg.get("triple_store_backend", "lakebase")
+        backend = global_cfg.get("triple_store_backend", "postgres")
     except Exception as exc:
         return _WARNING, f"Could not read triple-store config: {exc}"
 
@@ -1567,8 +1567,8 @@ def run_readiness_checks(settings: Optional[Settings] = None) -> Dict[str, Any]:
     )
     checks.append(
         _safely_run(
-            "lakebase",
-            "Lakebase — Registry Postgres",
+            "postgres",
+            "PostgreSQL — Registry",
             lambda: _check_lakebase(settings),
         )
     )

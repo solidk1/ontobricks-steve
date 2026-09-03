@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from back.core.helpers import safe_identifier, sql_cast
+from back.core.helpers import safe_identifier
 
 HASH_FUNCTION_NAME = "sha256_utf8"
 

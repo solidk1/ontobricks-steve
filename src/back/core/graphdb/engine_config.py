@@ -3,7 +3,7 @@
 ``graph_engine_config`` is stored as a nested object so backends share nothing::
 
     {
-      "lakebase":  {"database": "...", "schema": "..."},
+      "postgres":  {"database": "...", "schema": "..."},
       "neo4j":     {"connections": [{"name": "...", "uri": "...", ...}, ...]},
       "lakehouse": {"warehouse_id": "..."}
     }
@@ -17,7 +17,8 @@ named connection.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, MutableMapping, Optional
+from collections.abc import Mapping, MutableMapping
+from typing import Any
 
 # Keys that belong exclusively to the Neo4j settings panel.
 _NEO4J_FLAT_KEYS = frozenset(
@@ -34,25 +35,45 @@ _NEO4J_FLAT_KEYS = frozenset(
     }
 )
 
-_BACKEND_KEYS = frozenset({"lakebase", "neo4j", "lakehouse"})
+#: Canonical bucket name for the Postgres engine.
+PG_BUCKET = "postgres"
+
+#: The pre-0.8 name for the same bucket. Stored ``global_config`` rows still
+#: carry it, so it is accepted on read and folded into :data:`PG_BUCKET`;
+#: nothing writes it any more.
+LEGACY_PG_BUCKET = "lakebase"
+
+_BACKEND_KEYS = frozenset({PG_BUCKET, LEGACY_PG_BUCKET, "neo4j", "lakehouse"})
 
 
-def _empty_normalized() -> Dict[str, Dict[str, Any]]:
-    return {"lakebase": {}, "neo4j": {}, "lakehouse": {}}
+def _empty_normalized() -> dict[str, dict[str, Any]]:
+    return {PG_BUCKET: {}, "neo4j": {}, "lakehouse": {}}
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _pg_bucket(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the Postgres bucket, folding a legacy ``lakebase`` one into it.
+
+    Keys present in both are taken from ``postgres``: it is the name written
+    today, so it is the fresher of the two.
+    """
+    merged = _as_dict(cfg.get(LEGACY_PG_BUCKET))
+    merged.update(_as_dict(cfg.get(PG_BUCKET)))
+    return merged
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
 
 
-def is_nested_graph_engine_config(cfg: Optional[Mapping[str, Any]]) -> bool:
+def is_nested_graph_engine_config(cfg: Mapping[str, Any] | None) -> bool:
     """True when *cfg* already uses a per-backend bucket."""
     if not isinstance(cfg, Mapping):
         return False
     return (
-        isinstance(cfg.get("lakebase"), dict)
+        isinstance(cfg.get(PG_BUCKET), dict)
+        or isinstance(cfg.get(LEGACY_PG_BUCKET), dict)
         or isinstance(cfg.get("neo4j"), dict)
         or isinstance(cfg.get("lakehouse"), dict)
     )
@@ -83,8 +104,8 @@ def _looks_like_neo4j_section(cfg: Mapping[str, Any]) -> bool:
     return isinstance(cfg.get("connections"), list)
 
 def normalize_graph_engine_config(
-    cfg: Optional[Mapping[str, Any]],
-) -> Dict[str, Dict[str, Any]]:
+    cfg: Mapping[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
     """Return ``{lakebase, neo4j, lakehouse}``, migrating flat legacy blobs.
 
     Always returns a fresh dict with all three keys present (possibly empty).
@@ -98,13 +119,13 @@ def normalize_graph_engine_config(
     # Already a Neo4j section passed through neo4j_section() / factory create().
     if _looks_like_neo4j_section(cfg) and not is_nested_graph_engine_config(cfg):
         return {
-            "lakebase": {},
+            PG_BUCKET: {},
             "neo4j": _finalize_neo4j_bucket(_as_dict(cfg)),
             "lakehouse": {},
         }
 
     if is_nested_graph_engine_config(cfg):
-        lakebase = _as_dict(cfg.get("lakebase"))
+        lakebase = _pg_bucket(cfg)
         neo4j = _as_dict(cfg.get("neo4j"))
         lakehouse = _as_dict(cfg.get("lakehouse"))
         # Fold any stray flat leftovers left from a partial write.
@@ -142,15 +163,15 @@ def normalize_graph_engine_config(
             elif key not in lakebase:
                 lakebase[key] = value
         return {
-            "lakebase": lakebase,
+            PG_BUCKET: lakebase,
             "neo4j": _finalize_neo4j_bucket(neo4j),
             "lakehouse": _finalize_lakehouse_bucket(lakehouse),
         }
 
     # ---- flat legacy shape ----
-    lakebase: Dict[str, Any] = {}
-    neo4j: Dict[str, Any] = {}
-    lakehouse: Dict[str, Any] = {}
+    lakebase: dict[str, Any] = {}
+    neo4j: dict[str, Any] = {}
+    lakehouse: dict[str, Any] = {}
     for key, value in cfg.items():
         if key in _BACKEND_KEYS:
             continue
@@ -187,13 +208,13 @@ def normalize_graph_engine_config(
             lakebase["database"] = raw_db
 
     return {
-        "lakebase": lakebase,
+        PG_BUCKET: lakebase,
         "neo4j": _finalize_neo4j_bucket(neo4j),
         "lakehouse": _finalize_lakehouse_bucket(lakehouse),
     }
 
 
-def _finalize_neo4j_connection(entry: Mapping[str, Any]) -> Dict[str, Any]:
+def _finalize_neo4j_connection(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Normalise one named Neo4j connection profile (no password invention)."""
     out = dict(entry)
     name = str(out.get("name") or "").strip()
@@ -212,14 +233,14 @@ def _finalize_neo4j_connection(entry: Mapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _finalize_neo4j_bucket(neo4j: MutableMapping[str, Any]) -> Dict[str, Any]:
+def _finalize_neo4j_bucket(neo4j: MutableMapping[str, Any]) -> dict[str, Any]:
     out = dict(neo4j)
     legacy = out.pop("neo4j_database", None)
     if legacy and not str(out.get("database") or "").strip():
         out["database"] = legacy
     raw_conns = out.get("connections")
     if isinstance(raw_conns, list):
-        cleaned: List[Dict[str, Any]] = []
+        cleaned: list[dict[str, Any]] = []
         for item in raw_conns:
             if not isinstance(item, Mapping):
                 continue
@@ -233,7 +254,7 @@ def _finalize_neo4j_bucket(neo4j: MutableMapping[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _finalize_lakehouse_bucket(lakehouse: MutableMapping[str, Any]) -> Dict[str, Any]:
+def _finalize_lakehouse_bucket(lakehouse: MutableMapping[str, Any]) -> dict[str, Any]:
     out = dict(lakehouse)
     wid = str(out.get("warehouse_id") or "").strip()
     if wid:
@@ -243,17 +264,21 @@ def _finalize_lakehouse_bucket(lakehouse: MutableMapping[str, Any]) -> Dict[str,
     return out
 
 
-def lakebase_section(cfg: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    """Return the Lakebase connection/options dict from any stored shape."""
-    return dict(normalize_graph_engine_config(cfg).get("lakebase") or {})
+def postgres_section(cfg: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return the Postgres connection/options dict from any stored shape.
+
+    Accepts a config still keyed ``lakebase`` and returns it under the
+    canonical name, so a row written before 0.8 keeps resolving.
+    """
+    return dict(normalize_graph_engine_config(cfg).get(PG_BUCKET) or {})
 
 
-def neo4j_section(cfg: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+def neo4j_section(cfg: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return the Neo4j bucket from any stored shape (may include ``connections``)."""
     return dict(normalize_graph_engine_config(cfg).get("neo4j") or {})
 
 
-def list_neo4j_connections(cfg: Optional[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+def list_neo4j_connections(cfg: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     """Return named Neo4j connection profiles from ``neo4j.connections``.
 
     Flat legacy keys on the Neo4j bucket are ignored — they are never turned
@@ -263,7 +288,7 @@ def list_neo4j_connections(cfg: Optional[Mapping[str, Any]]) -> List[Dict[str, A
     raw = neo.get("connections")
     if not isinstance(raw, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw:
         if not isinstance(item, Mapping):
@@ -278,8 +303,8 @@ def list_neo4j_connections(cfg: Optional[Mapping[str, Any]]) -> List[Dict[str, A
 
 
 def resolve_neo4j_connection(
-    cfg: Optional[Mapping[str, Any]], name: str
-) -> Dict[str, Any]:
+    cfg: Mapping[str, Any] | None, name: str
+) -> dict[str, Any]:
     """Return the named Neo4j connection profile, or ``{}`` if missing."""
     target = str(name or "").strip()
     if not target:
@@ -290,11 +315,11 @@ def resolve_neo4j_connection(
     return {}
 
 
-def lakehouse_section(cfg: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+def lakehouse_section(cfg: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return the Lakehouse (Delta) connection dict from any stored shape."""
     return dict(normalize_graph_engine_config(cfg).get("lakehouse") or {})
 
 
-def resolve_lakehouse_warehouse_id(cfg: Optional[Mapping[str, Any]]) -> str:
+def resolve_lakehouse_warehouse_id(cfg: Mapping[str, Any] | None) -> str:
     """Return ``lakehouse.warehouse_id`` (empty string when unset)."""
     return str(lakehouse_section(cfg).get("warehouse_id") or "").strip()

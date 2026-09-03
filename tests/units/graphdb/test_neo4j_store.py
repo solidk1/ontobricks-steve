@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 pytestmark = pytest.mark.unit
 
 
@@ -38,7 +37,7 @@ pytestmark = pytest.mark.skipif(
 #  Helpers
 # ---------------------------------------------------------------------------
 
-def _basic_config(**overrides: Any) -> Dict[str, Any]:
+def _basic_config(**overrides: Any) -> dict[str, Any]:
     cfg = {
         "uri": "neo4j+s://b4810af7.databases.neo4j.io",
         "database": "neo4j",
@@ -52,13 +51,13 @@ def _basic_config(**overrides: Any) -> Dict[str, Any]:
 
 def _connections_config(
     name: str = "Aura Prod", **profile_overrides: Any
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     profile = _basic_config(**profile_overrides)
     profile["name"] = name
     return {"connections": [profile]}
 
 
-def _secret_config(**overrides: Any) -> Dict[str, Any]:
+def _secret_config(**overrides: Any) -> dict[str, Any]:
     cfg = {
         "uri": "neo4j+s://b4810af7.databases.neo4j.io",
         "database": "neo4j",

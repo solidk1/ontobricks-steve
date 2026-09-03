@@ -32,13 +32,13 @@ class FakeGraph:
     """
 
     def __init__(self) -> None:
-        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self.nodes: dict[str, dict[str, Any]] = {}
         self.rels: set = set()
-        self.schema: Dict[str, Dict[str, str]] = {}
+        self.schema: dict[str, dict[str, str]] = {}
         self.constraints: set = set()
 
     # The connection interface used by the ops: run(cypher, **params) -> list[dict]
-    def run(self, cypher: str, **params: Any) -> List[Dict[str, Any]]:
+    def run(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         c = " ".join(cypher.split())  # normalise whitespace
 
         # ---- schema map load ----
@@ -146,7 +146,7 @@ class FakeGraph:
         raise AssertionError(f"FakeGraph got unhandled Cypher: {c[:200]}")
 
 
-def _insurbricks_triples() -> List[Dict[str, str]]:
+def _insurbricks_triples() -> list[dict[str, str]]:
     cust = f"{NS}Customer/CUST-1007"
     pol = f"{NS}Policy/POL-20008"
     return [
@@ -161,14 +161,14 @@ def _insurbricks_triples() -> List[Dict[str, str]]:
     ]
 
 
-def _norm(triples: List[Dict[str, str]]) -> set:
+def _norm(triples: list[dict[str, str]]) -> set:
     return {(t["subject"], t["predicate"], t["object"]) for t in triples}
 
 
 class TestRoundTripParity:
     def test_write_then_read_reproduces_triples(self):
-        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
         from back.core.graphdb.neo4j.Neo4jReadOps import Neo4jReadOps
+        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
 
         fake = FakeGraph()
         w = Neo4jWriteOps(fake)   # ops call conn.run — FakeGraph.run satisfies it
@@ -183,8 +183,8 @@ class TestRoundTripParity:
         assert _norm(read_back) == _norm(original)
 
     def test_count_matches_triple_count(self):
-        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
         from back.core.graphdb.neo4j.Neo4jReadOps import Neo4jReadOps
+        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
 
         fake = FakeGraph()
         w = Neo4jWriteOps(fake)
@@ -198,8 +198,8 @@ class TestRoundTripParity:
         assert r.count_triples("InsurBricks_V1") == len(original)
 
     def test_get_triples_for_subjects_scopes_correctly(self):
-        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
         from back.core.graphdb.neo4j.Neo4jReadOps import Neo4jReadOps
+        from back.core.graphdb.neo4j.Neo4jWriteOps import Neo4jWriteOps
 
         fake = FakeGraph()
         w = Neo4jWriteOps(fake)

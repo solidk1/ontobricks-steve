@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from back.core.databricks import has_implicit_credentials
 from back.core.helpers import get_databricks_host_and_token, resolve_delta_warehouse_id
@@ -13,8 +13,8 @@ logger = get_logger(__name__)
 
 def create_databricks_client(
     domain: Any,
-    settings: Optional[Any] = None,
-) -> Optional[Any]:
+    settings: Any | None = None,
+) -> Any | None:
     """Return a :class:`DatabricksClient` or *None* if configuration is incomplete."""
     try:
         from back.core.databricks import DatabricksClient
@@ -45,8 +45,8 @@ def create_databricks_client(
 
 
 def resolve_credentials(
-    domain: Any, settings: Optional[Any] = None
-) -> Tuple[str, str, str]:
+    domain: Any, settings: Any | None = None
+) -> tuple[str, str, str]:
     """Return ``(host, token, warehouse_id)`` for build tasks."""
     if settings is not None:
         host, token = get_databricks_host_and_token(domain, settings)

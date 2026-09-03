@@ -557,9 +557,11 @@ function updateDtwinCard(data) {
     // `dt.graph_engine` is the engine recorded on the domain at build time and
     // can be stale relative to the active global engine. Reconcile unconditionally
     // against `/settings/graph-engine`.
-    var eng = dt.graph_engine || 'lakebase';
+    // 'lakebase' is the pre-0.8 spelling and may arrive from a stale payload.
+    var eng = (dt.graph_engine || 'postgres') === 'lakebase' ? 'postgres' : (dt.graph_engine || 'postgres');
     var engineLabels = {
-        'lakebase': 'Graph DB (Lakebase)',
+        'postgres': 'Graph DB (PostgreSQL)',
+        'lakebase': 'Graph DB (PostgreSQL)',
         'databricks': 'Graph DB (Lakehouse)',
         'delta':     'Graph DB (Lakehouse)',
         'neo4j':    'Graph DB (Neo4j)'
@@ -567,7 +569,7 @@ function updateDtwinCard(data) {
 
     function _psSetBackendBrandIcon(element, backend) {
         if (!element) return;
-        var key = String(backend || 'lakebase').toLowerCase();
+        var key = String(backend || 'postgres').toLowerCase();
         var iconClass = 'ob-icon-postgresql';
         if (key === 'databricks' || key === 'delta' || key === 'lakehouse') {
             iconClass = 'ob-icon-lakehouse';
@@ -620,7 +622,7 @@ function updateDtwinCard(data) {
         else if (dt.lakebase_table_exists === false) graphCard.classList.add('border-danger');
     }
 
-    if (eng === 'lakebase') {
+    if (eng === 'postgres') {
         var psDb  = document.getElementById('psDtLakebaseDatabase');
         var psSch = document.getElementById('psDtLakebaseSchema');
         var psTbl = document.getElementById('psDtLakebaseTable');

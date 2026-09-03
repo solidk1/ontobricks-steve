@@ -533,7 +533,7 @@ class SettingsService:
             )
         try:
             from back.objects.registry.store import RegistryFactory  # noqa: PLC0415
-            store = RegistryFactory.lakebase(
+            store = RegistryFactory.postgres(
                 registry_cfg=rcfg,
                 schema=rcfg.postgres_schema,
                 database=rcfg.postgres_database,
@@ -657,13 +657,13 @@ class SettingsService:
             **rcfg.as_dict(),
             "configured": initialized,
             "registry_locked": SettingsService.is_registry_locked(settings),
-            "lakebase": SettingsService._lakebase_runtime_info(rcfg),
+            "postgres": SettingsService._postgres_runtime_info(rcfg),
             "graph_engine_config": graph_engine_config,
             "delta_warehouse_id": delta_warehouse_id,
         }
 
     @staticmethod
-    def _lakebase_runtime_info(rcfg: RegistryCfg) -> Dict[str, Any]:
+    def _postgres_runtime_info(rcfg: RegistryCfg) -> Dict[str, Any]:
         """Surface the read-only Lakebase connection params for the UI.
 
         Returns an empty block when the Lakebase resource is not bound.
@@ -772,7 +772,7 @@ class SettingsService:
         try:
             from back.objects.registry.store import RegistryFactory
 
-            store = RegistryFactory.lakebase(
+            store = RegistryFactory.postgres(
                 registry_cfg=rcfg,
                 schema=rcfg.postgres_schema,
                 database=rcfg.postgres_database,
@@ -857,7 +857,7 @@ class SettingsService:
                         token,
                         registry_cfg,
                         {
-                            "graph_engine": "lakebase",
+                            "graph_engine": "postgres",
                             "graph_engine_config": (
                                 blob["graph_engine_config"]
                                 if isinstance(blob.get("graph_engine_config"), dict)
@@ -939,7 +939,7 @@ class SettingsService:
         try:
             from back.objects.registry.store import RegistryFactory  # noqa: PLC0415
 
-            store = RegistryFactory.lakebase(
+            store = RegistryFactory.postgres(
                 registry_cfg=rcfg,
                 schema=rcfg.postgres_schema,
                 database=rcfg.postgres_database,
@@ -1738,12 +1738,12 @@ class SettingsService:
         cfg = normalize_graph_engine_config(
             global_config_service.get_graph_engine_config(host, token, registry_cfg)
         )
-        lb = dict(cfg.get("lakebase") or {})
+        lb = dict(cfg.get("postgres") or {})
 
         _env_db = _os.environ.get("PGDATABASE", "")
         if not lb.get("database") and _env_db:
             lb["database"] = _env_db
-        cfg["lakebase"] = lb
+        cfg["postgres"] = lb
 
         return {"success": True, "graph_engine_config": cfg}
 
@@ -1957,7 +1957,7 @@ class SettingsService:
         import os
 
         from back.core.databricks import get_graph_auth
-        from back.core.graphdb.engine_config import lakebase_section
+        from back.core.graphdb.engine_config import postgres_section
         from back.core.graphdb.postgres.PostgresBase import (
             default_schema,
             resolve_postgres_database_override,
@@ -1970,7 +1970,7 @@ class SettingsService:
                 session_mgr, settings
             )
             global_config_service.load(host, token, registry_cfg, force=True)
-            gcfg = lakebase_section(
+            gcfg = postgres_section(
                 global_config_service.get_graph_engine_config(
                     host, token, registry_cfg
                 )
@@ -2680,12 +2680,12 @@ class SettingsService:
         Returns ``""`` on any failure so callers fall back gracefully.
         """
         try:
-            from back.core.graphdb.engine_config import lakebase_section
+            from back.core.graphdb.engine_config import postgres_section
 
             domain = get_domain(session_mgr)
             host, token = get_databricks_host_and_token(domain, settings)
             registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
-            ge = lakebase_section(
+            ge = postgres_section(
                 global_config_service.get_graph_engine_config(host, token, registry_cfg)
             )
             return (ge.get("database") or "").strip()
@@ -2719,12 +2719,12 @@ class SettingsService:
 
         # Load saved config to fill gaps not supplied by the form.
         try:
-            from back.core.graphdb.engine_config import lakebase_section
+            from back.core.graphdb.engine_config import postgres_section
 
             domain = get_domain(session_mgr)
             host, token = get_databricks_host_and_token(domain, settings)
             registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
-            ge = lakebase_section(
+            ge = postgres_section(
                 global_config_service.get_graph_engine_config(host, token, registry_cfg)
             )
             if not branch_path:

@@ -4,27 +4,27 @@ from __future__ import annotations
 
 from back.core.graphdb.engine_config import (
     is_nested_graph_engine_config,
-    lakebase_section,
     lakehouse_section,
     list_neo4j_connections,
     neo4j_section,
     normalize_graph_engine_config,
+    postgres_section,
     resolve_lakehouse_warehouse_id,
     resolve_neo4j_connection,
 )
-from back.core.graphdb.postgres.PostgresBase import resolve_postgres_database_override
 from back.core.graphdb.neo4j.Neo4jConnection import resolve_neo4j_database
+from back.core.graphdb.postgres.PostgresBase import resolve_postgres_database_override
 
 
 class TestNormalizeGraphEngineConfig:
     def test_empty(self):
         assert normalize_graph_engine_config(None) == {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {},
             "lakehouse": {},
         }
         assert normalize_graph_engine_config({}) == {
-            "lakebase": {},
+            "postgres": {},
             "neo4j": {},
             "lakehouse": {},
         }
@@ -36,13 +36,13 @@ class TestNormalizeGraphEngineConfig:
             "lakehouse": {"warehouse_id": "wh-123"},
         }
         out = normalize_graph_engine_config(raw)
-        assert out["lakebase"]["database"] == "analytics"
+        assert out["postgres"]["database"] == "analytics"
         assert out["neo4j"]["uri"] == "bolt://x"
         assert out["neo4j"]["database"] == "neo4j"
         assert out["lakehouse"]["warehouse_id"] == "wh-123"
-        assert "uri" not in out["lakebase"]
+        assert "uri" not in out["postgres"]
         assert "schema" not in out["neo4j"]
-        assert "warehouse_id" not in out["lakebase"]
+        assert "warehouse_id" not in out["postgres"]
 
     def test_flat_split_no_collision(self):
         raw = {
@@ -56,14 +56,14 @@ class TestNormalizeGraphEngineConfig:
             "warehouse_id": "wh-abc",
         }
         out = normalize_graph_engine_config(raw)
-        assert out["lakebase"]["database"] == "analytics"
-        assert out["lakebase"]["schema"] == "ontobricks_graph"
+        assert out["postgres"]["database"] == "analytics"
+        assert out["postgres"]["schema"] == "ontobricks_graph"
         assert out["neo4j"]["uri"] == "neo4j+s://aura.example"
         assert out["neo4j"]["database"] == "neo4j"
         assert out["neo4j"]["username"] == "neo4j"
         assert "password" in out["neo4j"]
         assert out["lakehouse"]["warehouse_id"] == "wh-abc"
-        assert "uri" not in out["lakebase"]
+        assert "uri" not in out["postgres"]
         assert "neo4j_database" not in out["neo4j"]
 
     def test_flat_polluted_database_neo4j_goes_to_neo4j_only(self):
@@ -73,9 +73,9 @@ class TestNormalizeGraphEngineConfig:
             "schema": "ontobricks_graph",
         }
         out = normalize_graph_engine_config(raw)
-        assert "database" not in out["lakebase"]
+        assert "database" not in out["postgres"]
         assert out["neo4j"]["database"] == "neo4j"
-        assert out["lakebase"]["schema"] == "ontobricks_graph"
+        assert out["postgres"]["schema"] == "ontobricks_graph"
         assert out["lakehouse"] == {}
 
     def test_sections_helpers(self):
@@ -84,7 +84,7 @@ class TestNormalizeGraphEngineConfig:
             "neo4j": {"uri": "bolt://x"},
             "lakehouse": {"warehouse_id": "wh-1"},
         }
-        assert lakebase_section(raw)["database"] == "lb"
+        assert postgres_section(raw)["database"] == "lb"
         assert neo4j_section(raw)["uri"] == "bolt://x"
         assert lakehouse_section(raw)["warehouse_id"] == "wh-1"
         assert resolve_lakehouse_warehouse_id(raw) == "wh-1"

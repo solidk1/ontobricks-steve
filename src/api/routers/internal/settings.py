@@ -279,7 +279,7 @@ async def check_registry_access(
     return {
         "success": True,
         "uc": uc_result,
-        "lakebase": lb_result,
+        "postgres": lb_result,
     }
 
 

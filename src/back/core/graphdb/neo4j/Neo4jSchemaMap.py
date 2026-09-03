@@ -21,7 +21,7 @@ persisted maps, so incremental inserts never lose earlier mappings.
 """
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from back.core.graphdb.constants import RDFS_LABEL
 from back.core.graphdb.neo4j.Neo4jConnection import Neo4jConnection
@@ -43,7 +43,7 @@ class Neo4jSchemaMap:
     #  Persistence
     # ------------------------------------------------------------------
 
-    def load(self, graph_label: str) -> Dict[str, Dict[str, str]]:
+    def load(self, graph_label: str) -> dict[str, dict[str, str]]:
         """Return ``{label_map, reltype_map, prop_map}`` for *graph_label*.
 
         Missing schema node → empty maps (safe for a never-built graph).
@@ -66,9 +66,9 @@ class Neo4jSchemaMap:
     def merge_and_save(
         self,
         graph_label: str,
-        label_map: Dict[str, str],
-        reltype_map: Dict[str, str],
-        prop_map: Dict[str, str],
+        label_map: dict[str, str],
+        reltype_map: dict[str, str],
+        prop_map: dict[str, str],
     ) -> None:
         """Merge new mappings into the persisted schema node (idempotent)."""
         existing = self.load(graph_label)
@@ -102,7 +102,7 @@ class Neo4jSchemaMap:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def predicate_for_property(prop_map: Dict[str, str], key: str) -> str:
+    def predicate_for_property(prop_map: dict[str, str], key: str) -> str:
         """Full predicate URI for a sanitised property key.
 
         ``name`` always reverses to ``rdfs:label``; otherwise consult the map,
@@ -114,7 +114,7 @@ class Neo4jSchemaMap:
         return prop_map.get(key, key)
 
 
-def _loads(value: Any) -> Dict[str, str]:
+def _loads(value: Any) -> dict[str, str]:
     """Parse a JSON string map; tolerate None / already-dict / bad JSON."""
     if isinstance(value, dict):
         return dict(value)

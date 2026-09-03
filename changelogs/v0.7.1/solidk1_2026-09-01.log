@@ -829,3 +829,66 @@ registry's `global_config` row), and the reader is named after the key it reads.
 
 Tests: **4840 passed, 21 skipped, 283 deselected**. 7 co-tenancy `db` tests green against
 the live Azure server. No new ruff violations (1 before, 1 after).
+
+## P3d — migrate the persisted `lakebase` bucket key and backend values to `postgres`
+
+Context: follow-up to P3c. Three values were persisted with the literal `lakebase`:
+
+| Value | Stored in |
+|---|---|
+| `graph_engine_config.lakebase` | registry `global_config` row |
+| `domain.info.graph_backend` | persisted domain JSON |
+| `global_config.triple_store_backend` | registry `global_config` row |
+
+Unlike the field names in P3c, these genuinely *are* stored, so this is a read-both /
+write-new migration rather than a plain rename.
+
+**Design decision: one canonical name, legacy accepted on read, never written.**
+`engine_config` gained `PG_BUCKET = "postgres"` and `LEGACY_PG_BUCKET = "lakebase"`.
+`normalize_graph_engine_config` folds a legacy bucket into the canonical one via
+`_pg_bucket()`, taking `postgres` where both exist because that is the name written today,
+while keeping legacy-only keys from the merge. It always *emits* `postgres`, so a row is
+rewritten canonically the next time an admin saves. `normalize_graph_backend` maps
+`lakebase` → `postgres` for the same reason.
+
+**Design decision: `normalize_graph_backend` maps rather than relies on the default.**
+An unrecognised value already falls back to `DEFAULT_GRAPH_BACKEND`, which happens to be
+`postgres` today — so mapping looks redundant. It is not: if the default ever changes, a
+pre-0.8 domain would silently switch engine. The explicit map makes the intent survive that.
+
+Renamed: `lakebase_section()` → `postgres_section()` (7 files),
+`RegistryFactory.lakebase()` → `.postgres()`, `SettingsService._lakebase_runtime_info` →
+`_postgres_runtime_info`, the `/settings/registry/status` response key `lakebase` →
+`postgres`, the registry store's `backend` tag and the flat store's `format` tag, and the
+health check id/title (`lakebase` / "Lakebase — Registry Postgres" → `postgres` /
+"PostgreSQL — Registry", since the registry may now be Azure).
+
+Frontend: `normalizeEngineConfigRoot` accepts either bucket and always writes `postgres`;
+`registry.js` normalises `graph_backend`; the domain-information `<option>` is now
+`value="postgres"` and stays selected for a stored `lakebase`.
+
+**Frontend break I introduced and then fixed.** After the backend started emitting
+`postgres`, roughly 25 JS sites in `query-sync.js`, `query-databricks-build.js`,
+`domain.js` and `domain-validation.js` still treated `'lakebase'` as canonical — defaults,
+`eng === 'lakebase'` branches and engine-label maps. Those branches would simply never fire,
+so the Postgres panel would not render. Fixed with a `_pgCanon()` helper plus label-map
+entries for both spellings. Python tests could not have caught this; it was found by
+grepping for the literal after the Python side was green.
+
+**What still says `lakebase`, deliberately:** `LEGACY_PG_BUCKET` and
+`_LEGACY_GRAPH_BACKENDS` (the migration constants); the `("postgres", "lakebase")` and
+`isinstance(data.get("lakebase"), dict)` read-side acceptances; `DomainSession`'s stripping
+of a legacy top-level `lakebase` key; `ONTOBRICKS_PG_AUTH=lakebase` (a real auth mode); the
+`lakebase` sidebar-section id in the Settings UI; and `back/core/databricks/lakebase/`
+itself.
+
+tests/units/graphdb/test_legacy_bucket_migration.py (new, 17 tests) is the migration
+contract: legacy bucket resolves, canonical wins where both exist, legacy-only keys survive
+the merge, the flat pre-nesting shape still folds in, `neo4j` is not absorbed, and
+`graph_backend: "lakebase"` maps to `postgres` case- and whitespace-insensitively.
+
+52 files changed, 762 insertions, 690 deletions.
+
+Tests: **4857 passed, 21 skipped, 283 deselected**. All 148 graphdb tests pass against the
+live Azure server. `node --check` clean on all six touched JS files. No new ruff violations
+(1 before, 1 after).

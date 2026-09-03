@@ -38,7 +38,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from back.core.errors import InfrastructureError, ValidationError
 from back.core.logging import get_logger
@@ -71,7 +71,7 @@ _SECRET_VALUE_CACHE_TTL_SECONDS = 300
 NEO4J_DATABASE_KEY = "neo4j_database"
 
 
-def resolve_neo4j_database(cfg: Optional[Dict[str, Any]]) -> str:
+def resolve_neo4j_database(cfg: dict[str, Any] | None) -> str:
     """Return the Neo4j Bolt database name from a Neo4j (or legacy flat) config.
 
     Preference order: ``neo4j_database`` (legacy) → ``database`` → ``neo4j``.
@@ -79,7 +79,11 @@ def resolve_neo4j_database(cfg: Optional[Dict[str, Any]]) -> str:
     extracted first.
     """
     data = cfg if isinstance(cfg, dict) else {}
-    if isinstance(data.get("neo4j"), dict) or isinstance(data.get("lakebase"), dict):
+    if (
+        isinstance(data.get("neo4j"), dict)
+        or isinstance(data.get("postgres"), dict)
+        or isinstance(data.get("lakebase"), dict)
+    ):
         from back.core.graphdb.engine_config import neo4j_section
 
         data = neo4j_section(data)
@@ -153,7 +157,7 @@ class Neo4jConnection:
     # Class-level cache: { (host, scope, key): (value, ts) }. Shared across
     # instances so repeated per-request Neo4jStore construction doesn't
     # re-hit the Secrets API — see _SECRET_VALUE_CACHE_TTL_SECONDS.
-    _secret_value_cache: Dict[Tuple[str, str, str], Tuple[str, float]] = {}
+    _secret_value_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
     _secret_value_cache_lock = threading.Lock()
 
     def __init__(
@@ -161,7 +165,7 @@ class Neo4jConnection:
         uri: str,
         database: str,
         auth_method: str,
-        engine_config: Dict[str, Any],
+        engine_config: dict[str, Any],
         encrypted: bool = True,
     ) -> None:
         if _neo4j is None:
@@ -174,7 +178,7 @@ class Neo4jConnection:
         self._auth_method = auth_method
         self._engine_config = engine_config
         self._encrypted = encrypted
-        self._driver: Optional[Any] = None
+        self._driver: Any | None = None
 
     @property
     def database(self) -> str:
@@ -193,7 +197,7 @@ class Neo4jConnection:
         if self._driver is not None:
             return self._driver
         auth = self._resolve_auth()
-        kwargs: Dict[str, Any] = {"auth": auth}
+        kwargs: dict[str, Any] = {"auth": auth}
         # neo4j+s:// embeds TLS — passing encrypted=True is rejected.
         if not self._uri.startswith(("neo4j+s://", "neo4j+ssc://", "bolt+s://", "bolt+ssc://")):
             kwargs["encrypted"] = self._encrypted
@@ -217,7 +221,7 @@ class Neo4jConnection:
 
         return RuntimeEnv.is_containerized()
 
-    def _resolve_auth(self) -> Tuple[str, str]:
+    def _resolve_auth(self) -> tuple[str, str]:
         cfg = self._engine_config
         user = str(cfg.get("username") or "").strip()
         if not user:
@@ -289,7 +293,7 @@ class Neo4jConnection:
             cls._secret_value_cache[cache_key] = (value, now)
         return value
 
-    def run(self, cypher: str, **params: Any) -> List[Dict[str, Any]]:
+    def run(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         """Execute a Cypher statement against the configured database.
 
         Returns rows as dicts. Wraps the session in a single transaction.

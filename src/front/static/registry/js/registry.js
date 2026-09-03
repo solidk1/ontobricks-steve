@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!panel) return;
         panel.style.display = '';
 
-        const lb = registryCfg.lakebase || {};
+        const lb = registryCfg.postgres || {};
         const set = (id, val) => {
             const el = document.getElementById(id);
             if (el) el.textContent = val || '—';
@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!schemaLabel && !volumeLabel) return;
 
         if (registryCfg.catalog && registryCfg.schema) {
-            const lb = registryCfg.lakebase || {};
+            const lb = registryCfg.postgres || {};
             // Schema line: catalog.schema
             const schemaPath = escapeHtml(registryCfg.catalog + '.' + registryCfg.schema);
             if (schemaLabel) schemaLabel.innerHTML = '<span class="font-monospace">' + schemaPath + '</span>';
@@ -327,7 +327,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const uri = d.base_uri
                     ? '<span class="font-monospace small">' + escapeHtml(d.base_uri) + '</span>'
                     : '<span class="fst-italic text-muted">—</span>';
-                const backendKey = (d.graph_backend || 'lakebase').toLowerCase();
+                // 'lakebase' is the pre-0.8 spelling; stored domains may still carry it.
+                const raw = (d.graph_backend || 'postgres').toLowerCase();
+                const backendKey = raw === 'lakebase' ? 'postgres' : raw;
                 const backendIcon = backendIconClasses[backendKey] || 'ob-icon-postgresql';
                 const backend = '<span class="badge bg-light text-dark border d-inline-flex align-items-center">' +
                     '<i class="ob-brand-icon ' + backendIcon + ' me-1" aria-hidden="true"></i>' +

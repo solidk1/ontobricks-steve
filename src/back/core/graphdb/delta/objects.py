@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from back.core.errors import InfrastructureError
 
@@ -45,12 +45,12 @@ def _drop_sort_key(name: str, kind: str) -> tuple:
 
 
 def group_triplestore_objects(
-    raw_tables: List[Dict[str, Any]],
+    raw_tables: list[dict[str, Any]],
     catalog: str,
     schema: str,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Group UC table entries whose names start with ``triplestore_`` by domain base."""
-    groups: Dict[str, Dict[str, Any]] = {}
+    groups: dict[str, dict[str, Any]] = {}
     for tbl in raw_tables:
         name = (tbl.get("name") or "").strip()
         if not name.startswith(_TRIPLESTORE_PREFIX):
@@ -123,12 +123,12 @@ def _analytics_drop_sort_key(name: str) -> tuple:
 
 
 def group_analytics_objects(
-    raw_tables: List[Dict[str, Any]],
+    raw_tables: list[dict[str, Any]],
     catalog: str,
     schema: str,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Group UC entries named ``graph_metrics_*`` by their domain-version slug."""
-    groups: Dict[str, Dict[str, Any]] = {}
+    groups: dict[str, dict[str, Any]] = {}
     for tbl in raw_tables:
         name = (tbl.get("name") or "").strip()
         if not name.startswith(_ANALYTICS_PREFIX):
@@ -156,7 +156,7 @@ def group_analytics_objects(
     return groups
 
 
-def fetch_uc_schema_tables(catalog: str, schema: str) -> List[Dict[str, Any]]:
+def fetch_uc_schema_tables(catalog: str, schema: str) -> list[dict[str, Any]]:
     """Enumerate tables and views in a UC schema via the REST API."""
     from databricks.sdk import WorkspaceClient
 

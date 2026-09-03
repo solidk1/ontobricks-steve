@@ -39,7 +39,7 @@ class RegistryFactory:
     Typical usage
     -------------
     >>> from back.objects.registry.store import RegistryFactory
-    >>> store = RegistryFactory.lakebase(registry_cfg=cfg)
+    >>> store = RegistryFactory.postgres(registry_cfg=cfg)
     >>> store.is_initialized()
     True
     """
@@ -49,9 +49,9 @@ class RegistryFactory:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def lakebase(
+    def postgres(
         *,
-        registry_cfg: "RegistryCfg",
+        registry_cfg: RegistryCfg,
         schema: str = _DEFAULT_PG_SCHEMA,
         database: str = "",
     ) -> RegistryStore:
@@ -80,10 +80,10 @@ class RegistryFactory:
     @classmethod
     def from_cfg(
         cls,
-        registry_cfg: "RegistryCfg",
+        registry_cfg: RegistryCfg,
     ) -> RegistryStore:
         """Build the Lakebase store from a fully-populated :class:`RegistryCfg`."""
-        return cls.lakebase(
+        return cls.postgres(
             registry_cfg=registry_cfg,
             schema=registry_cfg.postgres_schema,
             database=getattr(registry_cfg, "postgres_database", ""),

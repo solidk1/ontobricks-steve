@@ -8,9 +8,9 @@ on the ``(subject, predicate, object)`` model and subclass
 view store (``view``).  See ``_starter_kit/`` for a copy-paste template.
 """
 
+from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL  # noqa: F401
 from back.core.graphdb.GraphDBBackend import GraphDBBackend  # noqa: F401
 from back.core.graphdb.GraphDBFactory import GraphDBFactory  # noqa: F401
-from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL  # noqa: F401
 
 get_graphdb = GraphDBFactory.get_graphdb
 GRAPHDB_AVAILABLE = GraphDBFactory.POSTGRES_AVAILABLE

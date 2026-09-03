@@ -21,8 +21,7 @@ Contracts:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
-
+from typing import Any, TypedDict
 
 _SCHEDULE_KEY_SEP = "::"
 
@@ -34,7 +33,7 @@ def schedule_key(task_type: str, domain_name: str, target_key: str = "") -> str:
     )
 
 
-def parse_schedule_key(key: str) -> Tuple[str, str, str]:
+def parse_schedule_key(key: str) -> tuple[str, str, str]:
     """Inverse of :func:`schedule_key`, tolerant of malformed input.
 
     Returns ``(task_type, domain_name, target_key)``. A key without
@@ -72,7 +71,7 @@ class DomainSummary(TypedDict, total=False):
     graph_backend: str       # lakebase | databricks | neo4j (from latest version info)
     neo4j_connection: str    # Settings Neo4j connection name (when backend is neo4j)
     review_quorum: int       # per-domain sign-off quorum (>= 1)
-    versions: List[Dict[str, Any]]
+    versions: list[dict[str, Any]]
 
 
 class ScheduleHistoryEntry(TypedDict, total=False):
@@ -89,7 +88,7 @@ class ScheduleHistoryEntry(TypedDict, total=False):
     message: str
     duration_s: float
     triple_count: int
-    detail: Dict[str, Any]
+    detail: dict[str, Any]
 
 
 class BuildRunEntry(TypedDict, total=False):
@@ -121,8 +120,8 @@ class BuildRunEntry(TypedDict, total=False):
     view_table: str
     graph_name: str
     task_id: str
-    phase_times: Dict[str, Any]
-    stats: Dict[str, Any]
+    phase_times: dict[str, Any]
+    stats: dict[str, Any]
 
 
 class GraphAnalyticsResult(TypedDict, total=False):
@@ -140,10 +139,10 @@ class GraphAnalyticsResult(TypedDict, total=False):
     version: str
     status: str                  # 'completed' | 'failed'
     graph_name: str
-    class_filter: List[str]      # entity-type URIs used ([] = all)
-    stats: Dict[str, Any]
-    top_pagerank: List[Any]
-    result: Dict[str, Any]       # full compute payload
+    class_filter: list[str]      # entity-type URIs used ([] = all)
+    stats: dict[str, Any]
+    top_pagerank: list[Any]
+    result: dict[str, Any]       # full compute payload
     error: str
     task_id: str
     duration_ms: int
@@ -164,7 +163,7 @@ class GraphAnalyticsRun(TypedDict, total=False):
     domain: str                  # folder — only set by cross-domain reads
     version: str
     status: str                  # 'completed' | 'failed'
-    class_filter: List[str]      # entity-type URIs used ([] = all)
+    class_filter: list[str]      # entity-type URIs used ([] = all)
     node_count: int
     edge_count: int
     connected_components: int
@@ -194,7 +193,7 @@ class ReviewEvent(TypedDict, total=False):
     from_status: str
     to_status: str
     comment: str
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
     created_at: str          # ISO timestamp
 
 
@@ -219,7 +218,7 @@ class ChangeEvent(TypedDict, total=False):
     entity_type: str         # class | property | shacl | swrl | mapping | ...
     entity_ref: str          # uri or name of the affected entity
     summary: str
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
     occurred_at: str         # ISO timestamp (real edit time)
     created_at: str          # ISO timestamp (flush/save time)
 
@@ -275,7 +274,7 @@ class RegistryStore(ABC):
     @property
     @abstractmethod
     def backend(self) -> str:
-        """Backend tag — always ``"lakebase"`` for now."""
+        """Backend tag — always ``"postgres"`` for now."""
 
     @property
     @abstractmethod
@@ -287,7 +286,7 @@ class RegistryStore(ABC):
         """Return ``True`` when the backing store is ready for use."""
 
     @abstractmethod
-    def initialize(self, *, client: Any = None) -> Tuple[bool, str]:
+    def initialize(self, *, client: Any = None) -> tuple[bool, str]:
         """Bring the backend up to a usable state (idempotent).
 
         For :class:`PostgresRegistryStore` this applies the DDL in
@@ -300,11 +299,11 @@ class RegistryStore(ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def list_domain_folders(self) -> Tuple[bool, List[str], str]:
+    def list_domain_folders(self) -> tuple[bool, list[str], str]:
         """Sorted domain folder names; hidden entries excluded."""
 
     @abstractmethod
-    def list_domains_with_metadata(self) -> Tuple[bool, List[DomainSummary], str]:
+    def list_domains_with_metadata(self) -> tuple[bool, list[DomainSummary], str]:
         """Like :meth:`list_domain_folders` but enriched with per-version
         ``active``/``last_update``/``last_build`` and the latest version's
         ``description`` + ``base_uri``.
@@ -322,7 +321,7 @@ class RegistryStore(ABC):
         """
 
     @abstractmethod
-    def delete_domain(self, folder: str) -> List[str]:
+    def delete_domain(self, folder: str) -> list[str]:
         """Delete a domain (versions + permissions + history). Returns
         a list of error messages — empty on success.
         """
@@ -332,36 +331,36 @@ class RegistryStore(ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def list_versions(self, folder: str) -> Tuple[bool, List[str], str]: ...
+    def list_versions(self, folder: str) -> tuple[bool, list[str], str]: ...
 
     @abstractmethod
     def read_version(
         self, folder: str, version: str
-    ) -> Tuple[bool, Dict[str, Any], str]:
+    ) -> tuple[bool, dict[str, Any], str]:
         """Return the parsed domain document (``info``/``versions``/…)."""
 
     @abstractmethod
     def write_version(
-        self, folder: str, version: str, data: Dict[str, Any]
-    ) -> Tuple[bool, str]:
+        self, folder: str, version: str, data: dict[str, Any]
+    ) -> tuple[bool, str]:
         """Persist the parsed document. Implementations may serialise
         to JSON (Volume) or normalise into typed columns (Lakebase).
         """
 
     @abstractmethod
-    def delete_version(self, folder: str, version: str) -> Tuple[bool, str]: ...
+    def delete_version(self, folder: str, version: str) -> tuple[bool, str]: ...
 
     @abstractmethod
     def update_version_status(
         self, folder: str, version: str, status: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Set the lifecycle ``status`` (DRAFT / IN-REVIEW / PUBLISHED) of
         a single (domain, version) without rewriting the full document.
         """
 
     def get_version_status(
         self, folder: str, version: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Return the lifecycle status of one version, or ``None`` if absent.
 
         Default derives it from the full document; stores with a
@@ -377,7 +376,7 @@ class RegistryStore(ABC):
     # Domain-level permissions
     # ------------------------------------------------------------------
 
-    def list_app_roles(self) -> List[Dict[str, Any]]:
+    def list_app_roles(self) -> list[dict[str, Any]]:
         """Return every app-level role grant (admin / app_user).
 
         Concrete, not abstract: this ABC exists partly so tests can fake a
@@ -395,24 +394,24 @@ class RegistryStore(ABC):
         *,
         principal_type: str = "user",
         display_name: str = "",
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Upsert one app-level role grant."""
         return False, "This registry store does not support app-level roles"
 
-    def revoke_app_role(self, principal: str) -> Tuple[bool, str]:
+    def revoke_app_role(self, principal: str) -> tuple[bool, str]:
         """Remove one app-level role grant."""
         return False, "This registry store does not support app-level roles"
 
     @abstractmethod
-    def load_domain_permissions(self, folder: str) -> Dict[str, Any]:
+    def load_domain_permissions(self, folder: str) -> dict[str, Any]:
         """Return ``{"version": 1, "permissions": [...]}`` (empty when
         unset). Must NOT raise on missing-file / missing-row.
         """
 
     @abstractmethod
     def save_domain_permissions(
-        self, folder: str, data: Dict[str, Any]
-    ) -> Tuple[bool, str]: ...
+        self, folder: str, data: dict[str, Any]
+    ) -> tuple[bool, str]: ...
 
     # ------------------------------------------------------------------
     # Scheduled tasks + history
@@ -426,16 +425,16 @@ class RegistryStore(ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def load_schedules(self) -> Dict[str, Dict[str, Any]]:
+    def load_schedules(self) -> dict[str, dict[str, Any]]:
         """Return ``{ schedule_key: schedule_dict }`` (may be empty)."""
 
     @abstractmethod
     def save_schedules(
-        self, schedules: Dict[str, Dict[str, Any]]
-    ) -> Tuple[bool, str]: ...
+        self, schedules: dict[str, dict[str, Any]]
+    ) -> tuple[bool, str]: ...
 
     @abstractmethod
-    def load_schedule_history(self, key: str) -> List[ScheduleHistoryEntry]:
+    def load_schedule_history(self, key: str) -> list[ScheduleHistoryEntry]:
         """Oldest-first run history for the schedule *key* (capped)."""
 
     @abstractmethod
@@ -463,7 +462,7 @@ class RegistryStore(ABC):
 
     def stamp_last_build(
         self, folder: str, version: str, ts: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Lightweight update: write *ts* into ``domain_versions.last_build``
         for ``(folder, version)`` without touching any other column.
 
@@ -485,17 +484,17 @@ class RegistryStore(ABC):
         self,
         folder: str,
         *,
-        version: Optional[str] = None,
+        version: str | None = None,
         limit: int = 100,
-    ) -> List[BuildRunEntry]:
+    ) -> list[BuildRunEntry]:
         """Newest-first build runs for *folder* (optionally a single
         *version*), capped at *limit* rows. Empty list on any error.
         """
 
     @abstractmethod
     def build_analytics(
-        self, folder: str, *, version: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, folder: str, *, version: str | None = None
+    ) -> dict[str, Any]:
         """Aggregate build statistics for *folder* (optionally scoped to
         a single *version*).
 
@@ -524,10 +523,10 @@ class RegistryStore(ABC):
     def load_all_build_runs(
         self,
         *,
-        folder: Optional[str] = None,
+        folder: str | None = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> Tuple[List[BuildRunEntry], int]:
+    ) -> tuple[list[BuildRunEntry], int]:
         """One newest-first page of build runs across the whole registry.
 
         Returns ``(page_rows, total_matching_rows)`` — the total is the
@@ -564,7 +563,7 @@ class RegistryStore(ABC):
 
     def load_graph_analytics(
         self, folder: str, version: str
-    ) -> Optional[GraphAnalyticsResult]:
+    ) -> GraphAnalyticsResult | None:
         """Return the stored analytics result for ``(folder, version)``,
         or ``None`` when none exists. Never raises (returns ``None`` on
         any error). Default is ``None`` for stores without a cache.
@@ -581,8 +580,8 @@ class RegistryStore(ABC):
         """
 
     def load_graph_analytics_runs(
-        self, folder: str, version: Optional[str] = None, *, limit: int = 100
-    ) -> List[GraphAnalyticsRun]:
+        self, folder: str, version: str | None = None, *, limit: int = 100
+    ) -> list[GraphAnalyticsRun]:
         """Newest-first analytics run history for *folder*, capped at *limit*.
 
         ``version=None`` spans every version of the folder, which is what
@@ -595,10 +594,10 @@ class RegistryStore(ABC):
     def load_all_graph_analytics_runs(
         self,
         *,
-        folder: Optional[str] = None,
+        folder: str | None = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> Tuple[List[GraphAnalyticsRun], int]:
+    ) -> tuple[list[GraphAnalyticsRun], int]:
         """One newest-first page of analytics runs across the registry.
 
         The cross-domain counterpart of :meth:`load_graph_analytics_runs`,
@@ -632,8 +631,8 @@ class RegistryStore(ABC):
         from_status: str = "",
         to_status: str = "",
         comment: str = "",
-        meta: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, str]:
+        meta: dict[str, Any] | None = None,
+    ) -> tuple[bool, str]:
         """Append a review-audit row for ``(folder, version)``.
 
         Best-effort: returns ``(False, msg)`` instead of raising so a
@@ -643,14 +642,14 @@ class RegistryStore(ABC):
 
     @abstractmethod
     def list_review_events(
-        self, folder: str, version: Optional[str] = None
-    ) -> List[ReviewEvent]:
+        self, folder: str, version: str | None = None
+    ) -> list[ReviewEvent]:
         """Oldest-first review events for *folder* (optionally a single
         *version*). Empty list on any error.
         """
 
     @abstractmethod
-    def list_all_review_events(self) -> List[ReviewEvent]:
+    def list_all_review_events(self) -> list[ReviewEvent]:
         """All review events across the registry, each enriched with its
         ``folder``. Oldest-first. Backs the cross-domain "My Tasks"
         worklist. Empty list on any error.
@@ -671,8 +670,8 @@ class RegistryStore(ABC):
         folder: str,
         version: str,
         actor: str,
-        events: List[Dict[str, Any]],
-    ) -> Tuple[bool, str]:
+        events: list[dict[str, Any]],
+    ) -> tuple[bool, str]:
         """Append a batch of change-audit rows for ``(folder, version)``.
 
         Each entry in *events* is a buffered edit
@@ -684,8 +683,8 @@ class RegistryStore(ABC):
 
     @abstractmethod
     def list_change_events(
-        self, folder: str, version: Optional[str] = None, limit: int = 500
-    ) -> List[ChangeEvent]:
+        self, folder: str, version: str | None = None, limit: int = 500
+    ) -> list[ChangeEvent]:
         """Oldest-first change events for *folder* (optionally a single
         *version*), capped at *limit*. Empty list on any error.
         """
@@ -711,8 +710,8 @@ class RegistryStore(ABC):
         *,
         author: str,
         body: str,
-        parent_id: Optional[str] = None,
-    ) -> Optional[DomainComment]:
+        parent_id: str | None = None,
+    ) -> DomainComment | None:
         """Append a comment for ``(folder, version)``; return the created
         row (with its id + timestamp) or ``None`` on failure.
         """
@@ -721,10 +720,10 @@ class RegistryStore(ABC):
     def list_comments(
         self,
         folder: str,
-        version: Optional[str] = None,
+        version: str | None = None,
         *,
         include_resolved: bool = True,
-    ) -> List[DomainComment]:
+    ) -> list[DomainComment]:
         """Oldest-first comments for *folder*, optionally scoped to a
         version. Empty list on any error.
         """
@@ -732,7 +731,7 @@ class RegistryStore(ABC):
     @abstractmethod
     def resolve_comment(
         self, folder: str, comment_id: str, *, resolved: bool = True
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Flip a comment's ``resolved`` flag. ``(False, msg)`` when the
         comment does not exist or on error.
         """
@@ -747,21 +746,21 @@ class RegistryStore(ABC):
         created_by: str,
         title: str,
         description: str = "",
-        due_date: Optional[str] = None,
-        comment_id: Optional[str] = None,
-    ) -> Optional[DomainTask]:
+        due_date: str | None = None,
+        comment_id: str | None = None,
+    ) -> DomainTask | None:
         """Create a task for ``(folder, version)``; return the created row
         or ``None`` on failure.
         """
 
     @abstractmethod
     def list_tasks(
-        self, folder: str, version: Optional[str] = None
-    ) -> List[DomainTask]:
+        self, folder: str, version: str | None = None
+    ) -> list[DomainTask]:
         """Newest-first tasks for *folder* (optionally one *version*)."""
 
     @abstractmethod
-    def list_tasks_for_assignee(self, assignee: str) -> List[DomainTask]:
+    def list_tasks_for_assignee(self, assignee: str) -> list[DomainTask]:
         """All tasks across the registry assigned to *assignee* (case-
         insensitive), each enriched with its ``folder``. Newest-first.
         Backs the assignee's "My Tasks" worklist.
@@ -770,7 +769,7 @@ class RegistryStore(ABC):
     @abstractmethod
     def update_task_status(
         self, folder: str, task_id: str, status: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Set a task's ``status``. ``(False, msg)`` when the task does
         not exist or on error.
         """
@@ -780,18 +779,18 @@ class RegistryStore(ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def load_global_config(self) -> Dict[str, Any]:
+    def load_global_config(self) -> dict[str, Any]:
         """Return the merged global-config blob. Empty dict when unset."""
 
     @abstractmethod
-    def save_global_config(self, updates: Dict[str, Any]) -> Tuple[bool, str]:
+    def save_global_config(self, updates: dict[str, Any]) -> tuple[bool, str]:
         """Merge *updates* into the persisted blob (last-write-wins)."""
 
     # ------------------------------------------------------------------
     # Optional helpers
     # ------------------------------------------------------------------
 
-    def health_check(self) -> Tuple[bool, str]:
+    def health_check(self) -> tuple[bool, str]:
         """Cheap probe used by the settings UI / startup wake-up.
 
         Default implementation defers to :meth:`is_initialized`.
@@ -801,7 +800,7 @@ class RegistryStore(ABC):
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
 
-    def describe(self) -> Dict[str, Any]:
+    def describe(self) -> dict[str, Any]:
         """Return a JSON-serialisable description of the backend.
 
         Used by ``GET /settings/registry`` to render the read-only
@@ -809,7 +808,7 @@ class RegistryStore(ABC):
         """
         return {"backend": self.backend, "cache_key": self.cache_key}
 
-    def table_row_counts(self, tables: Tuple[str, ...]) -> Dict[str, int]:
+    def table_row_counts(self, tables: tuple[str, ...]) -> dict[str, int]:
         """Return ``{table_name: row_count}`` for *tables*.
 
         Default implementation returns ``0`` for every table — used by
@@ -825,7 +824,7 @@ class RegistryStore(ABC):
         """Release any held resources. Default: nothing to do."""
 
     @abstractmethod
-    def domain_folder_id(self, folder: str) -> Optional[str]:
+    def domain_folder_id(self, folder: str) -> str | None:
         """Return a stable internal identifier for *folder* (or ``None``).
 
         Used by the UI's "rename folder" admin action. The Lakebase

@@ -310,7 +310,7 @@ class GlobalConfigService:
         from back.core.graphdb.postgres.PostgresBase import validate_engine_config_keys
 
         nested = normalize_graph_engine_config(config)
-        ok_keys, msg_keys = validate_engine_config_keys(nested.get("lakebase") or {})
+        ok_keys, msg_keys = validate_engine_config_keys(nested.get("postgres") or {})
         if not ok_keys:
             return False, msg_keys
         return self._save(host, token, registry_cfg, {"graph_engine_config": nested})

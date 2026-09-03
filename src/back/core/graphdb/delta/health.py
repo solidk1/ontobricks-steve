@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
-from back.core.logging import get_logger
 from back.core.graphdb.delta.DeltaFlatStore import DeltaFlatStore
+from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def probe_table_status(store: DeltaFlatStore, table_fqn: str) -> Dict[str, Any]:
+def probe_table_status(store: DeltaFlatStore, table_fqn: str) -> dict[str, Any]:
     """Return existence, count, and optional ``DESCRIBE DETAIL`` metadata."""
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "table_fqn": table_fqn,
         "exists": False,
         "has_data": False,
@@ -43,7 +43,7 @@ def probe_table_status(store: DeltaFlatStore, table_fqn: str) -> Dict[str, Any]:
     return out
 
 
-def probe_from_client(client: Any, table_fqn: str) -> Dict[str, Any]:
+def probe_from_client(client: Any, table_fqn: str) -> dict[str, Any]:
     """Convenience wrapper when only a Databricks client is available."""
     if client is None:
         return {
@@ -58,9 +58,9 @@ def probe_from_client(client: Any, table_fqn: str) -> Dict[str, Any]:
 
 def settings_health_summary(
     domain: Any,
-    settings: Optional[Any] = None,
-    registry_cfg: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    settings: Any | None = None,
+    registry_cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Payload for Settings → Lakehouse triple-store health card."""
     from back.core.graphdb.delta import _table_naming
     from back.core.graphdb.delta.DeltaBase import create_databricks_client

@@ -305,7 +305,7 @@ async function saveDomainInfo() {
             base_uri_auto: _baseUriAutoMode,
             llm_endpoint: llmEndpointEl ? llmEndpointEl.value : '',
             review_quorum: quorumEl ? Math.max(1, parseInt(quorumEl.value, 10) || 1) : 1,
-            graph_backend: graphBackendEl ? graphBackendEl.value : 'lakebase',
+            graph_backend: graphBackendEl ? graphBackendEl.value : 'postgres',
             neo4j_connection: (graphBackendEl && graphBackendEl.value === 'neo4j' && neo4jDbEl)
                 ? neo4jDbEl.value : '',
         };

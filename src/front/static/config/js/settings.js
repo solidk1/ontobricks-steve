@@ -886,9 +886,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function normalizeEngineConfigRoot(raw) {
         let o = raw;
         if (typeof o !== 'object' || o === null || Array.isArray(o)) o = {};
-        if (o.lakebase || o.neo4j || o.lakehouse) {
-            const lakebase = (typeof o.lakebase === 'object' && o.lakebase && !Array.isArray(o.lakebase))
-                ? Object.assign({}, o.lakebase) : {};
+        if (o.postgres || o.lakebase || o.neo4j || o.lakehouse) {
+            // `lakebase` is the pre-0.8 bucket name. Read it, prefer `postgres`
+            // where both exist, and always emit `postgres` below.
+            const isObj = (v) => typeof v === 'object' && v && !Array.isArray(v);
+            const lakebase = Object.assign(
+                {},
+                isObj(o.lakebase) ? o.lakebase : {},
+                isObj(o.postgres) ? o.postgres : {}
+            );
             const neo4j = (typeof o.neo4j === 'object' && o.neo4j && !Array.isArray(o.neo4j))
                 ? Object.assign({}, o.neo4j) : {};
             const lakehouse = (typeof o.lakehouse === 'object' && o.lakehouse && !Array.isArray(o.lakehouse))
@@ -900,13 +906,14 @@ document.addEventListener('DOMContentLoaded', function () {
             if (o.warehouse_id && !lakehouse.warehouse_id) {
                 lakehouse.warehouse_id = o.warehouse_id;
             }
-            return { lakebase: lakebase, neo4j: neo4j, lakehouse: lakehouse };
+            return { postgres: lakebase, neo4j: neo4j, lakehouse: lakehouse };
         }
         const lakebase = {};
         const neo4j = {};
         const lakehouse = {};
         Object.keys(o).forEach(function (k) {
-            if (k === 'lakebase' || k === 'neo4j' || k === 'lakehouse' || k === 'database') return;
+            if (k === 'postgres' || k === 'lakebase' || k === 'neo4j'
+                || k === 'lakehouse' || k === 'database') return;
             if (k === 'warehouse_id') {
                 if (o[k]) lakehouse.warehouse_id = o[k];
                 return;
@@ -930,7 +937,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 lakebase.database = db;
             }
         }
-        return { lakebase: lakebase, neo4j: neo4j, lakehouse: lakehouse };
+        return { postgres: lakebase, neo4j: neo4j, lakehouse: lakehouse };
     }
 
     function readEngineConfigRoot() {
@@ -945,7 +952,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!ta) return;
         const normalized = normalizeEngineConfigRoot(root || {});
         ta.value = JSON.stringify({
-            lakebase: normalized.lakebase || {},
+            postgres: normalized.postgres || {},
             neo4j: normalized.neo4j || {},
             lakehouse: normalized.lakehouse || {},
         }, null, 2);
@@ -969,7 +976,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const branchSel  = document.getElementById('lakebaseBranch');
         if (!dbSel) return;
         const root = readEngineConfigRoot();
-        const o = root.lakebase || {};
+        const o = root.postgres || {};
 
         o.database          = dbSel.value || '';
         o.schema            = _getCurrentSchemaValue();
@@ -984,7 +991,7 @@ document.addEventListener('DOMContentLoaded', function () {
         delete o.sync_timeout_s;
         delete o.sync_uc_catalog;
         delete o.sync_uc_schema;
-        root.lakebase = o;
+        root.postgres = o;
         writeEngineConfigRoot(root);
     }
 
@@ -1019,7 +1026,7 @@ document.addEventListener('DOMContentLoaded', function () {
      * workspace cascade can't list/match them (stale or unreachable project).
      */
     function prefillLakebaseConnectionFromConfig() {
-        const o = (readEngineConfigRoot().lakebase || {});
+        const o = (readEngineConfigRoot().postgres || {});
         // Connection tab — all 4 cascading selects
         _ensureSelectedOption(document.getElementById('lakebaseProject'),    o.lakebase_project || '');
         _ensureSelectedOption(document.getElementById('lakebaseBranch'),     o.lakebase_branch  || '');
@@ -1031,7 +1038,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyLakebaseFormFromConfigTextarea() {
         if (!document.getElementById('graphEngineConfig')) return;
-        const o = (readEngineConfigRoot().lakebase || {});
+        const o = (readEngineConfigRoot().postgres || {});
 
         // schema input mirror + UC schema display (always mirrors Postgres graph schema)
         const schIn = document.getElementById('lakebaseGraphSchemaInput');

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
-from back.core.graphdb.GraphDBBackend import GraphDBBackend
 from back.core.graphdb.delta import _table_naming, materialize
-from back.core.helpers import sql_escape as _escape_sql_string, validate_table_name
+from back.core.graphdb.GraphDBBackend import GraphDBBackend
+from back.core.helpers import sql_escape as _escape_sql_string
+from back.core.helpers import validate_table_name
 from back.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -138,9 +140,9 @@ class DeltaFlatStore(GraphDBBackend):
     def _execute_insert_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int,
-        on_progress: Optional[Callable[[int, int], None]],
+        on_progress: Callable[[int, int], None] | None,
     ) -> int:
         """Batch insert triples into *table_name* using one persistent connection."""
         validate_table_name(table_name)
@@ -180,9 +182,9 @@ class DeltaFlatStore(GraphDBBackend):
     def insert_triples(
         self,
         table_name: str,
-        triples: List[Dict[str, str]],
+        triples: list[dict[str, str]],
         batch_size: int = 2000,
-        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> int:
         """Insert triples, routing app writes to the inferred companion table.
 
@@ -205,7 +207,7 @@ class DeltaFlatStore(GraphDBBackend):
                 "OPTIMIZE inferred companion failed for %s: %s", table_name, exc
             )
 
-    def query_triples(self, table_name: str) -> List[Dict[str, str]]:
+    def query_triples(self, table_name: str) -> list[dict[str, str]]:
         """SELECT all triples."""
         validate_table_name(table_name)
         return self._client.execute_query(
@@ -236,11 +238,11 @@ class DeltaFlatStore(GraphDBBackend):
                 return False
             raise
 
-    def get_status(self, table_name: str) -> Dict[str, Any]:
+    def get_status(self, table_name: str) -> dict[str, Any]:
         """Return dict with count, last_modified, etc."""
         validate_table_name(table_name)
         count = self.count_triples(table_name)
-        status: Dict[str, Any] = {"count": count, "last_modified": None}
+        status: dict[str, Any] = {"count": count, "last_modified": None}
         try:
             detail = self._client.execute_query(f"DESCRIBE DETAIL {table_name}")
             if detail and len(detail) > 0:
@@ -258,7 +260,7 @@ class DeltaFlatStore(GraphDBBackend):
         logger.info("Optimizing Delta table: %s", table_name)
         self._client.execute_statement(f"OPTIMIZE {table_name}")
 
-    def execute_query(self, query: str) -> List[Dict[str, Any]]:
+    def execute_query(self, query: str) -> list[dict[str, Any]]:
         return self._client.execute_query(query)
 
     def get_inferred_triple_count(self, table_name: str) -> int:

@@ -24,7 +24,7 @@ def _readops(router):
 
 class TestListLabels:
     def test_parses_constraints_into_graphs_with_counts(self):
-        def router(cypher: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        def router(cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             if cypher.startswith("SHOW CONSTRAINTS"):
                 return [
                     {"labels": ["InsurBricks_V1"]},
@@ -46,7 +46,7 @@ class TestListLabels:
         assert by_label["ContactCenter_V2"]["nodes"] == 15769
 
     def test_excludes_schema_label(self):
-        def router(cypher: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        def router(cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             if cypher.startswith("SHOW CONSTRAINTS"):
                 return [{"labels": ["__GraphSchema"]}, {"labels": ["G1"]}]
             if "count(n) AS nodes" in cypher:
@@ -67,7 +67,7 @@ class TestListLabels:
 
 class TestListDatabases:
     def test_filters_system_and_sorts(self):
-        def router(cypher: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        def router(cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
             return [{"name": "neo4j"}, {"name": "system"}, {"name": "insurbricks"}]
 
         r, _ = _readops(router)
@@ -75,7 +75,7 @@ class TestListDatabases:
 
     def test_returns_empty_on_error(self):
         # Aura free / Community may reject SHOW DATABASES → graceful fallback.
-        def router(cypher: str, params: Dict[str, Any]):
+        def router(cypher: str, params: dict[str, Any]):
             raise RuntimeError("SHOW DATABASES not permitted on this tier")
 
         r, _ = _readops(router)
