@@ -18,13 +18,10 @@ except ImportError:  # pragma: no cover
     LAKEBASE_AVAILABLE = False
     LakebaseFlatStore = None  # type: ignore[misc, assignment]
 
-from back.core.graphdb.lakebase.SyncedTableManager import SyncedTableManager  # noqa: E402
-
 __all__ = [
     "DEFAULT_GRAPH_SCHEMA",
     "LAKEBASE_AVAILABLE",
     "LakebaseFlatStore",
-    "SyncedTableManager",
     "default_schema",
     "validate_engine_config_keys",
     "validate_graph_schema",

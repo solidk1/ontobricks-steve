@@ -295,7 +295,6 @@ function _applyBuildGraphEngineUi(dtExist) {
         var lkDb  = document.getElementById('dtLakebaseDatabase');
         var lkSch = document.getElementById('dtLakebaseSchema');
         var lkTbl = document.getElementById('dtLakebaseTable');
-        var lkUc    = document.getElementById('dtLakebaseSyncedUc');
         if (lkDb)  lkDb.textContent  = dt.lakebase_database || '—';
         if (lkSch) lkSch.textContent = dt.lakebase_schema   || '—';
         if (lkTbl) lkTbl.textContent = dt.lakebase_table    || '—';
@@ -310,14 +309,7 @@ function _applyBuildGraphEngineUi(dtExist) {
             else if (pending) lkFullName.innerHTML = _archSpinnerName();
             else lkFullName.textContent = '—';
         }
-        var hasUcName = !!(dt.lakebase_synced_uc);
-        if (lkUc) {
-            if (hasUcName) lkUc.textContent = dt.lakebase_synced_uc;
-            else if (pending) lkUc.innerHTML = _archSpinnerName();
-            else lkUc.textContent = '—';
-        }
-
-        // existence badges for table and UC sync
+        // existence badge for the triple table
         var tblExistsEl = document.getElementById('dtLakebaseTableExists');
         if (tblExistsEl) {
             if (dt.lakebase_table_exists === true) {
@@ -334,34 +326,15 @@ function _applyBuildGraphEngineUi(dtExist) {
                     : 'Could not reach Lakebase Postgres to verify the triple table.';
             }
         }
-        var ucExistsEl = document.getElementById('dtLakebaseSyncedUcExists');
-        if (ucExistsEl) {
-            if (dt.lakebase_synced_uc_exists === true) {
-                ucExistsEl.innerHTML = '<span class="badge bg-success bg-opacity-10 text-success border border-success" style="font-size:.65rem;"><i class="bi bi-check-circle-fill me-1"></i>Exists</span>';
-            } else if (dt.lakebase_synced_uc_exists === false) {
-                ucExistsEl.innerHTML = '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:.65rem;"><i class="bi bi-dash-circle me-1"></i>Not found</span>';
-            } else if (pending) {
-                ucExistsEl.innerHTML = _archSpinnerBadge('Loading');
-            } else if (hasUcName) {
-                ucExistsEl.innerHTML = '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning" style="font-size:.65rem;" title="Could not verify whether the UC sync table exists."><i class="bi bi-question-circle me-1"></i>Unable to check</span>';
-            } else {
-                ucExistsEl.innerHTML = '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:.65rem;"><i class="bi bi-dash-circle me-1"></i>Not found</span>';
-            }
-        }
-
         // in-card build note (replaces footnote below the card)
         var buildNote = document.getElementById('dtLakebaseBuildNote');
         if (buildNote) {
             var fn2Db  = document.getElementById('fnLkDatabase2');
             var fn2Sch = document.getElementById('fnLkSchema2');
             var fn2Tbl = document.getElementById('fnLkTable2');
-            var fn2Uc  = document.getElementById('fnLkSyncedUc2');
-            var fn2Sync = document.getElementById('fnLkSyncNote');
             if (fn2Db)  fn2Db.textContent  = dt.lakebase_database || '…';
             if (fn2Sch) fn2Sch.textContent = dt.lakebase_schema   || '…';
             if (fn2Tbl) fn2Tbl.textContent = dt.lakebase_table    || '…';
-            if (fn2Sync) fn2Sync.classList.toggle('d-none', !hasUcName);
-            if (fn2Uc && hasUcName) fn2Uc.textContent = dt.lakebase_synced_uc;
             buildNote.style.display = '';
         }
     }
@@ -1807,7 +1780,6 @@ async function _loadDtExistence() {
         _applyBuildGraphEngineUi({
             pending: false,
             lakebase_table_exists: null,
-            lakebase_synced_uc_exists: null,
             lakebase_check_error: String(e && e.message ? e.message : e),
             graph_engine: (window.__TRIPLESTORE_CONFIG || {}).graph_engine || 'lakebase',
         });

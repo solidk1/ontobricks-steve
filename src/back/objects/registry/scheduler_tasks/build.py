@@ -88,92 +88,10 @@ def _stream_into_store(
     return store.insert_triples(graph_name, list(rows), batch_size=min(batch, 500))
 
 
-def _is_managed_synced(store) -> bool:
-    """Lakebase store in managed_synced mode -- bulk goes via Lakeflow."""
-    return bool(getattr(store, "is_synced", False))
 
 
-def _view_sql_for_graph_store(sql_text: str, store) -> str:
-    """Return VIEW DDL, emitting ``object_hash`` when Lakeflow sync is active."""
-    if store and _is_managed_synced(store):
-        from back.core.graphdb.lakebase._companion_ddl import (
-            wrap_triple_view_sql_for_lakeflow,
-        )
-
-        return wrap_triple_view_sql_for_lakeflow(sql_text)
-    return sql_text
 
 
-def _apply_synced_pipeline(
-    store,
-    src,
-    delta_cfg: Dict[str, Any],
-    graph_name: str,
-    view_table: str,
-    *,
-    full: bool,
-    domain_name: str,
-    domain: Any = None,
-    settings: Any = None,
-) -> None:
-    """Trigger the Lakeflow synced-table refresh for *graph_name*.
-
-    Mirrors :meth:`_BuildPipeline._apply_via_synced_pipeline` so scheduled
-    builds also keep bulk data movement on the data plane.
-    """
-    from back.core.graphdb.lakebase.LakebaseFlatStore import (
-        resolve_sync_uc_fallback_catalog,
-    )
-    from back.core.graphdb.lakebase._sync_uc_schema import (
-        ensure_uc_schema_for_synced_table_fqn,
-    )
-
-    mgr = store.synced_manager()
-    if domain is not None and settings is not None:
-        fallback_cat = resolve_sync_uc_fallback_catalog(domain, settings, delta_cfg)
-    else:
-        fallback_cat = (delta_cfg or {}).get("catalog", "")
-    synced_uc = store.synced_uc_name(graph_name, fallback_catalog=fallback_cat)
-    logger.info(
-        "Scheduled build [%s]: managed-sync UC target %s "
-        "(sync_uc_catalog=%r; fallback_catalog=%r; graph_schema=%s)",
-        domain_name,
-        synced_uc,
-        (store.sync_uc_catalog or "").strip() or None,
-        fallback_cat or None,
-        store.graph_schema,
-    )
-    ensure_uc_schema_for_synced_table_fqn(
-        src,
-        synced_uc,
-        task_log_prefix=f"Scheduled build [{domain_name}]",
-    )
-    from back.core.graphdb.lakebase._companion_ddl import LAKEFLOW_SYNC_PRIMARY_KEY
-
-    mgr.ensure(
-        synced_uc,
-        source_table_full_name=view_table,
-        primary_key_columns=list(LAKEFLOW_SYNC_PRIMARY_KEY),
-        sync_mode=store.sync_table_mode,
-    )
-    store.ensure_synced_companion(graph_name)
-    state = mgr.trigger_and_wait(synced_uc, timeout_s=store.sync_timeout_s)
-    logger.info(
-        "Scheduled build [%s]: synced table %s state=%s",
-        domain_name,
-        synced_uc,
-        state,
-    )
-    store.ensure_synced_union_view(graph_name)
-    if full:
-        try:
-            store.truncate_companion(graph_name)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Scheduled build [%s]: companion truncate failed (non-fatal): %s",
-                domain_name,
-                exc,
-            )
 
 
 def _count_view_triples(src, view_table: str) -> int:
@@ -197,24 +115,9 @@ def _write_graph_triples(
 ) -> int:
     """Write triples to the graph store. Returns the triple count.
 
-    When the store is in Lakebase ``managed_synced`` mode the entire branch is
-    replaced by a Lakeflow snapshot refresh — triples never enter this process.
-    Otherwise a full drop-and-rebuild is performed.
+    A full drop-and-rebuild: the app streams every triple from the warehouse
+    VIEW into the graph store.
     """
-    if _is_managed_synced(store):
-        _apply_synced_pipeline(
-            store,
-            src,
-            delta_cfg or {},
-            graph_name,
-            view_table,
-            full=True,
-            domain_name=domain_name,
-            domain=domain,
-            settings=settings,
-        )
-        return _count_view_triples(src, view_table)
-
     triple_count = _count_view_triples(src, view_table)
     logger.info(
         "Scheduled build [%s]: %d triples reported by VIEW",
@@ -303,13 +206,11 @@ def run(ctx: TaskContext) -> RunOutcome:
         }
     )
 
-    # Resolve the graph backend before VIEW creation so managed_synced builds
-    # can emit object_hash (Lakeflow keys the synced PK on that column).
     store = ctx.graph_store
     src = ctx.warehouse_client
 
     ctx.advance(f"Creating VIEW {view_table}...")
-    view_sql = _view_sql_for_graph_store(sql_text, store)
+    view_sql = sql_text
     cat, sch, vname = view_table.split(".")
     logger.info("Scheduled build [%s]: creating VIEW %s", domain_name, view_table)
     view_ok, view_msg = src.create_or_replace_view(cat, sch, vname, view_sql)

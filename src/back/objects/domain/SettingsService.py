@@ -2949,162 +2949,6 @@ class SettingsService:
                 "list Lakebase database objects failed", detail=str(exc)
             ) from exc
 
-    @staticmethod
-    def graph_engine_lakebase_sync_objects_result(
-        database: str,
-        branch_path: str,
-        session_mgr: SessionManager,
-        settings: Settings,
-    ) -> Dict[str, Any]:
-        """List UC Delta tables in the configured graph schema, plus Lakeflow state.
-
-        Approach:
-
-        1. Resolve ``sync_uc_catalog`` and ``uc_schema`` from engine config,
-           falling back to the registry catalog when the former is unset.
-        2. Call the UC REST API (``/api/2.1/unity-catalog/tables``) to enumerate
-           every table/view in that schema — works regardless of sync_mode and
-           requires no SQL warehouse.
-        3. When ``sync_mode == managed_synced``, probe every ``_sync`` table via
-           the Lakebase synced-tables API (parallel, max 4 workers) and attach
-           ``state``, ``pipeline_id``, and ``source_table`` to the result.
-        """
-        import concurrent.futures
-
-        try:
-            from back.core.graphdb.engine_config import lakebase_section
-
-            _, host, token, registry_cfg = SettingsService._resolve_context(
-                session_mgr, settings
-            )
-            gcfg = lakebase_section(
-                global_config_service.get_graph_engine_config(host, token, registry_cfg)
-            )
-            sync_mode = gcfg.get("sync_mode", "app_managed")
-
-            # ── Resolve UC catalog / schema ───────────────────────────────
-            sync_uc_catalog = (gcfg.get("sync_uc_catalog") or "").strip()
-            sync_uc_schema_override = (gcfg.get("sync_uc_schema") or "").strip()
-            graph_schema = (gcfg.get("schema") or "").strip()
-
-            # Fall back to registry catalog when sync_uc_catalog is not set
-            if not sync_uc_catalog:
-                rcfg = RegistryCfg.from_session(session_mgr, settings)
-                sync_uc_catalog = (rcfg.catalog or "").strip()
-
-            uc_schema = sync_uc_schema_override or graph_schema or ""
-
-            if not sync_uc_catalog or not uc_schema:
-                return {
-                    "success": True,
-                    "sync_mode": sync_mode,
-                    "uc_tables": [],
-                    "message": (
-                        "UC catalog or schema not configured "
-                        "(set graph_engine_config.sync_uc_catalog and schema)"
-                    ),
-                }
-
-            # ── List UC tables via REST API (no warehouse required) ───────
-            from databricks.sdk import WorkspaceClient
-
-            w = WorkspaceClient()
-            api = getattr(w, "api_client", None)
-            if api is None or not hasattr(api, "do"):
-                raise InfrastructureError("Databricks SDK api_client unavailable")
-
-            raw = api.do(
-                "GET",
-                "/api/2.1/unity-catalog/tables",
-                query={"catalog_name": sync_uc_catalog, "schema_name": uc_schema},
-            ) or {}
-            uc_raw_tables = raw.get("tables", []) or []
-
-            # ── For managed_synced: probe Lakeflow state per _sync table ──
-            lk_states: Dict[str, Any] = {}
-            if sync_mode == "managed_synced" and uc_raw_tables:
-                from back.core.graphdb.lakebase.SyncedTableManager import (
-                    SyncedTableManager,
-                    _to_dict,
-                )
-
-                mgr = SyncedTableManager()
-
-                def _extract_source_table(synced: Any) -> str:
-                    spec = getattr(synced, "spec", None)
-                    if spec is not None:
-                        val = getattr(spec, "source_table_full_name", "") or ""
-                        if val:
-                            return str(val)
-                    d = _to_dict(synced)
-                    return str(d.get("spec", {}).get("source_table_full_name", "") or "")
-
-                def _probe_lk(tbl_raw: Dict[str, Any]) -> None:
-                    name = tbl_raw.get("name", "")
-                    if not name.endswith("_sync"):
-                        return
-                    full_name = (
-                        tbl_raw.get("full_name")
-                        or f"{sync_uc_catalog}.{uc_schema}.{name}"
-                    )
-                    try:
-                        synced = mgr.get(full_name)
-                        if synced is None:
-                            lk_states[full_name] = {
-                                "state": "NOT_FOUND",
-                                "pipeline_id": "",
-                                "source_table": "",
-                            }
-                        else:
-                            spec = getattr(synced, "spec", None)
-                            lk_states[full_name] = {
-                                "state": SyncedTableManager._extract_state(synced) or "UNKNOWN",
-                                "pipeline_id": SyncedTableManager._extract_pipeline_id(synced),
-                                "source_table": _extract_source_table(synced),
-                            }
-                    except Exception as probe_exc:  # noqa: BLE001
-                        lk_states[full_name] = {
-                            "state": "ERROR",
-                            "pipeline_id": "",
-                            "source_table": "",
-                            "error": str(probe_exc)[:300],
-                        }
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                    list(executor.map(_probe_lk, uc_raw_tables))
-
-            # ── Build response ────────────────────────────────────────────
-            uc_tables = []
-            for t in uc_raw_tables:
-                name = t.get("name", "")
-                full_name = t.get("full_name") or f"{sync_uc_catalog}.{uc_schema}.{name}"
-                table_type = str(t.get("table_type", "") or "")
-                lk = lk_states.get(full_name, {})
-                uc_tables.append({
-                    "name": name,
-                    "full_name": full_name,
-                    "table_type": table_type,
-                    "is_sync": name.endswith("_sync"),
-                    "state": lk.get("state", ""),
-                    "pipeline_id": lk.get("pipeline_id", ""),
-                    "source_table": lk.get("source_table", ""),
-                    "error": lk.get("error", ""),
-                })
-
-            return {
-                "success": True,
-                "sync_mode": sync_mode,
-                "uc_catalog": sync_uc_catalog,
-                "uc_schema": uc_schema,
-                "uc_tables": uc_tables,
-            }
-        except OntoBricksError:
-            raise
-        except Exception as exc:
-            logger.warning("graph_engine_lakebase_sync_objects failed: %s", exc)
-            raise InfrastructureError(
-                "list Lakebase sync objects failed", detail=str(exc)
-            ) from exc
 
     @staticmethod
     def graph_engine_lakebase_drop_object_result(
@@ -3185,14 +3029,11 @@ class SettingsService:
         _session_mgr: SessionManager,
         _settings: Settings,
     ) -> Dict[str, Any]:
-        """Drop a Unity Catalog table or Lakeflow synced-table registration.
+        """Drop a Unity Catalog table or view via the Unity Catalog REST API.
 
-        When ``is_sync=True`` the entry is a Lakeflow-managed synced table:
-        ``SyncedTableManager.delete()`` is used so both the Lakebase control-plane
-        reservation and the UC registration are cleaned up.
-
-        When ``is_sync=False`` a plain UC Delta table / view is deleted via the
-        Unity Catalog REST API.
+        ``is_sync`` is retained for call-shape compatibility and no longer
+        changes behaviour: the Lakeflow synced-table branch went with the
+        managed-synced mode it served.
         """
         if not full_name or full_name.count(".") < 2:
             raise ValidationError(
@@ -3207,13 +3048,7 @@ class SettingsService:
             if api is None or not hasattr(api, "do"):
                 raise InfrastructureError("Databricks SDK api_client unavailable")
 
-            if is_sync:
-                from back.core.graphdb.lakebase.SyncedTableManager import SyncedTableManager
-
-                mgr = SyncedTableManager()
-                mgr.delete(full_name, purge_data=True)
-            else:
-                api.do("DELETE", f"/api/2.1/unity-catalog/tables/{full_name}")
+            api.do("DELETE", f"/api/2.1/unity-catalog/tables/{full_name}")
 
             return {"success": True, "message": f"Dropped {full_name}"}
         except OntoBricksError:

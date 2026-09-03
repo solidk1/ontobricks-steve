@@ -625,7 +625,6 @@ function updateDtwinCard(data) {
         var psSch = document.getElementById('psDtLakebaseSchema');
         var psTbl = document.getElementById('psDtLakebaseTable');
         var psUcRow = document.getElementById('psDtLakebaseSyncedUcRow');
-        var psUc    = document.getElementById('psDtLakebaseSyncedUc');
         if (psDb)  psDb.textContent  = dt.lakebase_database || '—';
         if (psSch) psSch.textContent = dt.lakebase_schema   || '—';
         if (psTbl) psTbl.textContent = dt.lakebase_table    || '—';
@@ -634,9 +633,6 @@ function updateDtwinCard(data) {
             var db = dt.lakebase_database || '', sch = dt.lakebase_schema || '', tbl = dt.lakebase_table || '';
             psFullName.textContent = (db && sch && tbl) ? db + '.' + sch + '.' + tbl : (db || sch || tbl || '—');
         }
-        var hasUcName = !!(dt.lakebase_synced_uc);
-        if (psUc) psUc.textContent = dt.lakebase_synced_uc || '—';
-
         // existence badges
         var psTblExistsEl = document.getElementById('psDtLakebaseTableExists');
         if (psTblExistsEl) {
@@ -651,19 +647,6 @@ function updateDtwinCard(data) {
                 if (psSp) psSp.title = dt.lakebase_check_error
                     ? String(dt.lakebase_check_error)
                     : 'Could not reach Lakebase Postgres to verify the triple table.';
-            }
-        }
-        var psUcExistsEl = document.getElementById('psDtLakebaseSyncedUcExists');
-        if (psUcExistsEl) {
-            if (dt.lakebase_synced_uc_exists === true) {
-                psUcExistsEl.innerHTML = '<span class="badge bg-success bg-opacity-10 text-success border border-success" style="font-size:.65rem;"><i class="bi bi-check-circle-fill me-1"></i>Exists</span>';
-            } else if (dt.lakebase_synced_uc_exists === false) {
-                psUcExistsEl.innerHTML = '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:.65rem;"><i class="bi bi-dash-circle me-1"></i>Not found</span>';
-            } else if (hasUcName) {
-                // name is configured but existence probe didn't return yet / failed
-                psUcExistsEl.innerHTML = '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning" style="font-size:.65rem;" title="Could not verify whether the UC sync table exists."><i class="bi bi-question-circle me-1"></i>Unable to check</span>';
-            } else {
-                psUcExistsEl.innerHTML = '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:.65rem;"><i class="bi bi-dash-circle me-1"></i>Not found</span>';
             }
         }
     }

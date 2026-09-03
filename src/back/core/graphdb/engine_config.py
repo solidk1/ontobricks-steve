@@ -3,7 +3,7 @@
 ``graph_engine_config`` is stored as a nested object so backends share nothing::
 
     {
-      "lakebase":  {"database": "...", "schema": "...", "sync_mode": "...", ...},
+      "lakebase":  {"database": "...", "schema": "..."},
       "neo4j":     {"connections": [{"name": "...", "uri": "...", ...}, ...]},
       "lakehouse": {"warehouse_id": "..."}
     }
@@ -71,9 +71,9 @@ def _looks_like_neo4j_section(cfg: Mapping[str, Any]) -> bool:
         k in cfg
         for k in (
             "schema",
-            "sync_mode",
-            "sync_table_mode",
-            "sync_uc_catalog",
+            "sync_mode",          # legacy managed-synced keys: still recognised
+            "sync_table_mode",    # as Lakebase markers so stored configs keep
+            "sync_uc_catalog",    # normalising into the right bucket.
             "sync_uc_schema",
             "warehouse_id",
             "lakebase_branch",

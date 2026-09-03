@@ -271,10 +271,6 @@ class TestSettingsPage:
         html = _html(client, "/settings")
         assert _find(_tags(html), id_="lakebaseGraphHealthDl") is not None
 
-    def test_graph_db_lakebase_sync_controls_present(self, client):
-        html = _html(client, "/settings")
-        assert _find(_tags(html), id_="lakebaseSyncMode") is not None
-        assert _find(_tags(html), id_="lakebaseManagedSyncPanel") is not None
 
     def test_registry_modal_on_home(self, client):
         html = _html(client, "/")

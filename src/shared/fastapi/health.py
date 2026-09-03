@@ -1185,79 +1185,6 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
         return _ERROR, f"Graph DB permission check failed (schema={schema}): {exc}"
 
 
-def _check_graphdb_uc_catalog(settings: Settings) -> Tuple[str, str]:
-    """Verify UC ALL_PRIVILEGES on sync_uc_catalog when sync_mode == managed_synced.
-
-    In managed_synced mode the app's service principal must hold ALL_PRIVILEGES on
-    the Unity Catalog catalog so Lakeflow can create/refresh the synced Delta table.
-    This check is informational (warning) when sync_mode is not managed_synced.
-    """
-    cfg = _resolve_registry_cfg(settings)
-    try:
-        from back.objects.registry.store import RegistryFactory
-
-        store = RegistryFactory.from_cfg(cfg)
-        global_cfg = store.load_global_config()
-        from back.core.graphdb.engine_config import lakebase_section
-
-        engine_cfg = lakebase_section(global_cfg.get("graph_engine_config") or {})
-    except Exception as exc:
-        return _WARNING, f"Could not load graph engine config: {exc}"
-
-    sync_mode = (engine_cfg.get("sync_mode") or "app_managed").strip()
-    if sync_mode != "managed_synced":
-        return (
-            _OK,
-            f"sync_mode={sync_mode!r} — UC catalog grant not required (only needed for managed_synced)",
-        )
-
-    uc_catalog = (engine_cfg.get("sync_uc_catalog") or "").strip()
-    if not uc_catalog:
-        # Fall back to registry catalog when sync_uc_catalog is not explicit.
-        uc_catalog = (getattr(cfg, "catalog", None) or "").strip()
-
-    if not uc_catalog:
-        return (
-            _ERROR,
-            "sync_mode=managed_synced but sync_uc_catalog is not configured. "
-            "Set graph_engine_config.sync_uc_catalog to the UC catalog where Lakeflow "
-            "will register the synced Delta table.",
-        )
-
-    try:
-        from back.core.databricks.DatabricksClient import DatabricksClient
-
-        client = DatabricksClient()
-        grants = (
-            client.api_client.do(
-                "GET",
-                f"/api/2.1/unity-catalog/permissions/catalog/{uc_catalog}",
-            )
-            or {}
-        )
-        privilege_assignments = grants.get("privilege_assignments") or []
-        # Check that at least one principal holds ALL_PRIVILEGES or a broad superset.
-        _all_priv_markers = {"ALL_PRIVILEGES", "CREATE_TABLE", "CREATE_SCHEMA"}
-        for assignment in privilege_assignments:
-            privs = {p.upper() for p in (assignment.get("privileges") or [])}
-            if "ALL_PRIVILEGES" in privs or _all_priv_markers.issubset(privs):
-                principal = assignment.get("principal") or "?"
-                return (
-                    _OK,
-                    f"UC catalog '{uc_catalog}': ALL_PRIVILEGES confirmed for '{principal}'.",
-                )
-        return (
-            _WARNING,
-            f"UC catalog '{uc_catalog}': ALL_PRIVILEGES not found in grant list. "
-            "Run Settings → Lakebase → Create graph DB (with 'Grant UC catalog' enabled) "
-            "or: GRANT ALL_PRIVILEGES ON CATALOG <catalog> TO <sp_client_id>.",
-        )
-    except Exception as exc:
-        return (
-            _WARNING,
-            f"Could not read UC catalog grants for '{uc_catalog}': {exc}. "
-            "Ensure the service principal has permission to read UC permissions.",
-        )
 
 
 def _check_delta_warehouse(settings: Settings) -> Tuple[str, str]:
@@ -1501,11 +1428,6 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
             "Graph DB — Postgres USAGE + CREATE + DML on schema",
             lambda: _check_graphdb_permissions(settings),
         ),
-        _safely_run(
-            "graphdb.uc_catalog",
-            "Graph DB — UC catalog ALL_PRIVILEGES (managed_synced only)",
-            lambda: _check_graphdb_uc_catalog(settings),
-        ),
     ]
     groups.append(
         {
@@ -1515,21 +1437,15 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
                 "Checks the Lakebase Postgres database used to store Knowledge Graph triples. "
                 "This is a separate database from the registry (configured in "
                 "Settings → Lakebase → Connection). "
-                "Triple tables are created per domain+version during a Knowledge Graph build: "
-                "a raw triple table (<domain>_<version>) and a materialized copy "
-                "(<domain>_<version>_data). "
-                "When Managed Sync mode is active, a _sync foreign table is also created. "
-                "Required Postgres grants: (1) USAGE on the graph schema (to connect); "
-                "(2) CREATE on the graph schema (to create new triple tables per KG build — "
-                "one pair of tables is created each time a domain is rebuilt); "
-                "(3) SELECT / INSERT / UPDATE / DELETE on all triple tables. "
-                "In managed_synced mode only: the app's service principal also needs "
-                "ALL_PRIVILEGES on the Unity Catalog catalog (sync_uc_catalog) so Lakeflow "
-                "can create and refresh the synced Delta table inside UC. "
-                "Use Settings → Lakebase → Permissions to grant superuser to users who need "
-                "direct Postgres access. "
-                "Use Settings → Lakebase → Create graph DB (with 'Grant UC catalog' enabled) "
-                "to provision a new instance from scratch."
+                "Three Postgres objects are created per domain+version during a "
+                "Knowledge Graph build: a bulk table (<graph>_sync), a writable "
+                "companion (<graph>__app) for reasoning and cohort writes, and a "
+                "union view (<graph>) that readers query. "
+                "Required grants: (1) USAGE on the graph schema (to connect); "
+                "(2) CREATE on the graph schema (each rebuild creates a new set of "
+                "objects); (3) SELECT / INSERT / UPDATE / DELETE on them. "
+                "No extensions are required, and nothing outside the schema is "
+                "touched — DROP SCHEMA ... CASCADE removes OntoBricks entirely."
             ),
             "checks": gdb_checks,
         }
@@ -1563,11 +1479,7 @@ def run_diagnostics_checks(settings: Optional[Settings] = None) -> Dict[str, Any
                 "When Lakehouse is selected in Settings → Back end → Lakehouse, OntoBricks "
                 "stores triples as VIEW + Delta TABLE pairs inside the registry UC schema. "
                 "A dedicated SQL warehouse can be configured in Settings → Lakehouse → SQL Warehouse "
-                "for Lakehouse graph queries (falls back to the global warehouse if unset). "
-                "Lakebase Accelerated Sync (synced_tables API) is an optional feature that "
-                "enables Managed Sync mode: Lakeflow keeps a Postgres mirror of the Delta VIEW "
-                "up to date automatically, replacing the app-managed COPY loop. "
-                "It requires the workspace preview to be enabled."
+                "for Lakehouse graph queries (falls back to the global warehouse if unset)."
             ),
             "checks": delta_checks,
         }

@@ -113,25 +113,6 @@ class TestVolumeFileServiceHeaders:
 # SyncedTableManager._call_api — raw-requests fallback path
 # ──────────────────────────────────────────────────────────────────────────────
 
-class TestSyncedTableManagerHeaders:
-    def test_user_agent_in_fallback_request(self, monkeypatch):
-        """When WorkspaceClient.api_client is absent, _RestDatabaseAPI falls back
-        to raw requests — those must include the User-Agent header."""
-        monkeypatch.setenv("DATABRICKS_HOST", "https://ws.example.com")
-        monkeypatch.setenv("DATABRICKS_TOKEN", "tok")
-
-        from back.core.graphdb.lakebase.SyncedTableManager import _RestDatabaseAPI
-
-        mock_wc = MagicMock()
-        # Force the raw-requests path by removing api_client
-        del mock_wc.api_client
-
-        api = _RestDatabaseAPI(mock_wc)
-
-        with patch("requests.request", return_value=_ok_response()) as mock_req:
-            api._do("GET", "/api/2.0/database/synced_tables")
-
-        assert _headers_kwarg(mock_req).get("User-Agent") == HTTP_USER_AGENT
 
 
 # ──────────────────────────────────────────────────────────────────────────────

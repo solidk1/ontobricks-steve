@@ -9,10 +9,9 @@ This module is **private** to the ``digitaltwin`` package; it is not
 re-exported from ``__init__.py`` and external callers must keep using
 ``DigitalTwin.run_build_task`` (which is now a thin delegator).
 
-Incremental diff / Delta-snapshot management was removed in v0.4.1.
-All builds are full rebuilds; when the graph engine is ``lakebase``
-in ``managed_synced`` mode the data-plane Lakeflow pipeline handles
-the refresh automatically.
+Incremental diff / Delta-snapshot management was removed in v0.4.1, so all
+builds are full rebuilds: the app streams every triple from the warehouse VIEW
+into the graph store.
 """
 
 from __future__ import annotations
@@ -220,7 +219,6 @@ class _BuildPipeline:
         # Lakebase managed-synced mode flag, resolved once before _open_store.
         self._lakebase_engine_config: Dict[str, Any] = {}
         self._graph_engine: str = ""
-        self._is_lakebase_synced: bool = False
 
     # ------------------------------------------------------------------
     # Phase utilities
@@ -237,9 +235,8 @@ class _BuildPipeline:
         """Cancel-check hook passed to long-running workers.
 
         Returns ``True`` once the user has flipped this build's task to
-        ``cancelled``. Wired into :class:`SyncedTableManager` so the
-        Lakeflow wait loops bail out promptly instead of observing a
-        stale FAILED state from a pipeline the user already abandoned.
+        ``cancelled``, so long-running workers stop promptly instead of running
+        to completion on a build the user already abandoned.
         """
         try:
             return self.tm.is_cancelled(self.task_id)
@@ -252,12 +249,10 @@ class _BuildPipeline:
 
         logger.debug("[DT-BUILD %s] resolving graph engine mode…", self.task_id)
         try:
-            # force=True bypasses the GlobalConfigService in-memory cache.
-            # At cold start, a transiently unavailable Lakebase can cause the
-            # cache to hold _empty() (no sync_mode), while the Settings UI
-            # always shows the correct value because it also uses force=True.
-            # Without this flag the build silently falls back to app_managed
-            # even when managed_synced is configured.
+            # force=True bypasses the GlobalConfigService in-memory cache: at
+            # cold start a transiently unavailable Postgres can leave the cache
+            # holding an empty config, while the Settings UI shows the saved
+            # value because it also passes force=True.
             engine = GraphDBFactory._resolve_graph_engine(
                 self.domain, self.settings, force=True
             )
@@ -271,8 +266,8 @@ class _BuildPipeline:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "[DT-BUILD %s] could not resolve lakebase mode — defaulting to "
-                "lakebase/app_managed: %s",
+                "[DT-BUILD %s] could not resolve graph engine — defaulting to "
+                "lakebase: %s",
                 self.task_id,
                 exc,
             )
@@ -280,58 +275,13 @@ class _BuildPipeline:
             cfg = {}
         self._lakebase_engine_config = cfg
         self._graph_engine = engine
-        self._is_lakebase_synced = (
-            engine == "lakebase" and cfg.get("sync_mode") == "managed_synced"
-        )
         cfg_summary = {k: v for k, v in cfg.items() if k != "schema"}
         logger.info(
-            "[DT-BUILD %s] graph engine resolved: engine=%s sync_mode=%s config=%s",
+            "[DT-BUILD %s] graph engine resolved: engine=%s config=%s",
             self.task_id,
             engine,
-            cfg.get("sync_mode", "app_managed"),
             cfg_summary or "{}",
         )
-        if self._is_lakebase_synced:
-            logger.info(
-                "[DT-BUILD %s] managed_synced active — bulk data movement runs "
-                "on the data plane via Lakeflow (sync_table_mode=%s timeout=%ss)",
-                self.task_id,
-                cfg.get("sync_table_mode", "snapshot"),
-                cfg.get("sync_timeout_s", 600),
-            )
-
-    def _lakebase_managed_synced(self) -> bool:
-        """Return ``True`` when bulk data movement should be delegated to Lakeflow."""
-        return self._is_lakebase_synced
-
-    def _sync_flags_from_store(self) -> None:
-        """Align build flags with the opened graph store (authoritative sync mode)."""
-        if self._store_is_synced():
-            if not self._is_lakebase_synced:
-                logger.warning(
-                    "[DT-BUILD %s] graph store reports managed_synced but mode "
-                    "resolution did not — using store sync_mode for VIEW/Lakeflow",
-                    self.task_id,
-                )
-            self._is_lakebase_synced = True
-
-    def _store_is_synced(self) -> bool:
-        """Return ``True`` only when the opened store is in managed_synced mode."""
-        if self.store is None:
-            return False
-        return getattr(self.store, "is_synced", False) is True
-
-    def _wrap_view_sql_for_lakeflow(self) -> bool:
-        """Return ``True`` when the warehouse VIEW must expose ``object_hash``."""
-        if self._store_is_synced():
-            return True
-        return self._lakebase_managed_synced()
-
-    def _uses_synced_pipeline(self) -> bool:
-        """Return ``True`` when the apply phase should delegate bulk sync to Lakeflow."""
-        if self._store_is_synced():
-            return True
-        return self._lakebase_managed_synced()
 
     def _count_view_triples(self) -> int:
         """Return the number of triples in the VIEW (server-side COUNT)."""
@@ -377,7 +327,6 @@ class _BuildPipeline:
 
             if not self._open_store():
                 return
-            self._sync_flags_from_store()
 
             t_phase = time.time()
             if not self._create_view():
@@ -534,15 +483,8 @@ class _BuildPipeline:
         return True
 
     def _view_sql_for_build(self) -> str:
-        """Return warehouse VIEW DDL, including ``object_hash`` when Lakeflow sync is active."""
-        view_sql = self.spark_sql or ""
-        if self._wrap_view_sql_for_lakeflow():
-            from back.core.graphdb.lakebase._companion_ddl import (
-                wrap_triple_view_sql_for_lakeflow,
-            )
-
-            view_sql = wrap_triple_view_sql_for_lakeflow(view_sql)
-        return view_sql
+        """Return the warehouse VIEW DDL for this build."""
+        return self.spark_sql or ""
 
     def _create_view(self) -> bool:
         """Create or replace the Spark VIEW. Returns ``False`` on failure."""
@@ -609,55 +551,6 @@ class _BuildPipeline:
             self.tm.fail_task(self.task_id, f"Failed to create VIEW: {detail}")
             return False
 
-    def _ensure_lakeflow_source_view(self) -> bool:
-        """Refresh the UC source VIEW so Lakeflow PK columns exist before registration."""
-        if not self._uses_synced_pipeline():
-            return True
-        from back.objects.digitaltwin.DigitalTwin import DigitalTwin
-
-        catalog, schema, vname = self.parts
-        view_sql = self._view_sql_for_build()
-        logger.info(
-            "[DT-BUILD %s] refreshing Lakeflow source VIEW %s (object_hash required)",
-            self.task_id,
-            self.view_table,
-        )
-        try:
-            view_ok, view_msg = self.source_client.create_or_replace_view(
-                catalog, schema, vname, view_sql
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[DT-BUILD %s] failed to refresh Lakeflow source VIEW %s: %s",
-                self.task_id,
-                self.view_table,
-                exc,
-            )
-            self.tm.fail_task(
-                self.task_id,
-                f"Could not refresh Lakeflow source VIEW: {exc}",
-            )
-            return False
-        if view_ok:
-            return True
-        detail = (
-            view_msg
-            if self.is_api
-            else DigitalTwin.diagnose_view_error(
-                view_msg, self.entity_mappings, self.relationship_mappings
-            )
-        )
-        logger.error(
-            "[DT-BUILD %s] failed to refresh Lakeflow source VIEW %s: %s",
-            self.task_id,
-            self.view_table,
-            detail,
-        )
-        self.tm.fail_task(
-            self.task_id,
-            f"Could not refresh Lakeflow source VIEW: {detail}",
-        )
-        return False
 
     def _post_create_view_progress(self) -> None:
         if self.is_api:
@@ -728,28 +621,16 @@ class _BuildPipeline:
             )
             self.tm.fail_task(self.task_id, "Could not initialize graph backend")
             return False
-        schema = getattr(self.store, "graph_schema", "?")
-        sync_mode = getattr(self.store, "sync_mode", "?")
-        store_cls = type(self.store).__name__
         logger.info(
-            "[DT-BUILD %s] graph backend opened: class=%s schema=%s sync_mode=%s",
+            "[DT-BUILD %s] graph backend opened: class=%s schema=%s",
             self.task_id,
-            store_cls,
-            schema,
-            sync_mode,
+            type(self.store).__name__,
+            getattr(self.store, "graph_schema", "?"),
         )
         return True
 
     def _apply_full_rebuild(self) -> bool:
-        """Drop, recreate, and bulk-insert all triples (or trigger Lakeflow sync).
-
-        In ``managed_synced`` mode the entire branch is replaced by
-        :meth:`_apply_via_synced_pipeline` — the Lakeflow snapshot pipeline
-        rewrites the synced PG table and the app does not iterate triples.
-        """
-        if self._uses_synced_pipeline():
-            return self._apply_via_synced_pipeline()
-
+        """Drop, recreate, and bulk-insert every triple from the warehouse VIEW."""
         t_fetch = time.time()
         logger.info(
             "[DT-BUILD %s] full rebuild: reading all triples from VIEW %s",
@@ -929,360 +810,6 @@ class _BuildPipeline:
         )
         return written
 
-    def _apply_via_synced_pipeline(self) -> bool:
-        """Lakebase managed-synced apply path -- triples never enter the app.
-
-        Steps:
-
-        1. Build the synced UC FQN from ``engine_config.sync_uc_catalog``.
-        2. ``CREATE SCHEMA IF NOT EXISTS`` in Unity Catalog.
-        3. ``SyncedTableManager.ensure`` — registers the synced table.
-        4. ``ensure_synced_companion`` — Postgres companion table.
-        5. ``trigger_and_wait`` — wait until sync reaches an online state.
-        6. ``ensure_synced_union_view`` — union view over ``_sync`` ∪ companion.
-        7. ``TRUNCATE`` the companion for a clean reasoning slate.
-        """
-        from back.core.errors import InfrastructureError
-        from back.core.graphdb.lakebase.LakebaseFlatStore import (
-            resolve_sync_uc_fallback_catalog,
-        )
-
-        t0 = time.time()
-        try:
-            mgr = self.store.synced_manager()
-            fallback_cat = resolve_sync_uc_fallback_catalog(
-                self.domain, self.settings, self.delta_cfg
-            )
-            synced_uc = self.store.synced_uc_name(
-                self.graph_name, fallback_catalog=fallback_cat
-            )
-            logger.info(
-                "[DT-BUILD %s] Managed-sync registers UC synced table at %s "
-                "(graph_engine_config.sync_uc_catalog=%r; fallback_catalog=%r; "
-                "UC schema segment=%s)",
-                self.task_id,
-                synced_uc,
-                (self.store.sync_uc_catalog or "").strip() or None,
-                fallback_cat or None,
-                self.store.graph_schema,
-            )
-        except InfrastructureError as exc:
-            logger.error(
-                "[DT-BUILD %s] managed_synced setup failed: %s",
-                self.task_id,
-                exc,
-            )
-            self.tm.fail_task(self.task_id, str(exc))
-            return False
-
-        def _upd(pct: int, msg: str) -> None:
-            if not self.is_api:
-                self.tm.update_progress(self.task_id, pct, msg)
-
-        def _adv() -> None:
-            """Advance to the next named task step (no-op in API mode)."""
-            if not self.is_api:
-                self.tm.advance_step(self.task_id)
-
-        # Step 2 is already active (set by _announce_apply_step → advance_step).
-        _upd(45, f"Ensuring UC schema for {synced_uc}…")
-        try:
-            from back.core.graphdb.lakebase._sync_uc_schema import (
-                ensure_uc_schema_for_synced_table_fqn,
-            )
-
-            # Step 2 — ensure the UC schema exists (warehouse DDL).
-            t_step = time.time()
-            logger.debug(
-                "[DT-BUILD %s] step 2/7: ensuring UC schema for %s",
-                self.task_id,
-                synced_uc,
-            )
-            ensure_uc_schema_for_synced_table_fqn(
-                self.source_client,
-                synced_uc,
-                task_log_prefix=f"[DT-BUILD {self.task_id}]",
-            )
-            logger.info(
-                "[DT-BUILD %s] step 2/7 done: UC schema verified in %.2fs",
-                self.task_id,
-                time.time() - t_step,
-            )
-
-            _raise_if_cancelled(self._is_cancelled)
-            _adv()  # → "Registering synced table in Unity Catalog"
-
-            # Step 3 — register/reuse the Lakebase synced table.
-            t_step = time.time()
-            if not self._ensure_lakeflow_source_view():
-                return False
-            logger.debug(
-                "[DT-BUILD %s] step 3/7: registering synced table %s "
-                "(source=%s sync_mode=%s)",
-                self.task_id,
-                synced_uc,
-                self.view_table,
-                self.store.sync_table_mode,
-            )
-            from back.core.graphdb.lakebase._companion_ddl import (
-                LAKEFLOW_SYNC_PRIMARY_KEY,
-            )
-
-            _synced_obj = mgr.ensure(
-                synced_uc,
-                source_table_full_name=self.view_table,
-                primary_key_columns=list(LAKEFLOW_SYNC_PRIMARY_KEY),
-                sync_mode=self.store.sync_table_mode,
-            )
-            # ensure() may have used a fallback name (ghost control-plane state);
-            # extract the actual UC FQN from the returned object so downstream
-            # steps (trigger_and_wait, ensure_synced_union_view) use the right name.
-            actual_synced_uc = (
-                getattr(_synced_obj, "name", None) or synced_uc
-            )
-            if actual_synced_uc != synced_uc:
-                logger.warning(
-                    "[DT-BUILD %s] synced table registered under fallback UC name %s "
-                    "(requested %s); downstream steps will use the fallback.",
-                    self.task_id,
-                    actual_synced_uc,
-                    synced_uc,
-                )
-            logger.info(
-                "[DT-BUILD %s] step 3/7 done: synced table registered in %.2fs",
-                self.task_id,
-                time.time() - t_step,
-            )
-        except OperationCancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[DT-BUILD %s] failed to register synced table %s: %s "
-                "(source_view=%s pg_schema=%s sync_table_mode=%s)",
-                self.task_id,
-                synced_uc,
-                exc,
-                self.view_table,
-                getattr(self.store, "graph_schema", "?"),
-                getattr(self.store, "sync_table_mode", "?"),
-            )
-            self.tm.fail_task(
-                self.task_id,
-                f"Could not register Lakebase synced table: {exc}",
-            )
-            return False
-
-        _raise_if_cancelled(self._is_cancelled)
-        _adv()  # → "Creating companion table"
-
-        # Step 4 — create companion table in Postgres.
-        t_step = time.time()
-        try:
-            logger.debug(
-                "[DT-BUILD %s] step 4/7: creating companion table for %s "
-                "(pg schema=%s)",
-                self.task_id,
-                self.graph_name,
-                getattr(self.store, "graph_schema", "?"),
-            )
-            self.store.ensure_synced_companion(self.graph_name)
-            logger.info(
-                "[DT-BUILD %s] step 4/7 done: companion table ready in %.2fs",
-                self.task_id,
-                time.time() - t_step,
-            )
-        except OperationCancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[DT-BUILD %s] failed to upgrade companion table for %s: %s "
-                "(pg_schema=%s)",
-                self.task_id,
-                self.graph_name,
-                exc,
-                getattr(self.store, "graph_schema", "?"),
-            )
-            self.tm.fail_task(
-                self.task_id,
-                f"Could not prepare Lakebase companion table: {exc}",
-            )
-            return False
-
-        _adv()  # → "Syncing data from Delta (Lakeflow)"
-
-        # Step 5 — trigger Lakeflow snapshot and wait for ONLINE.
-        if self.store.drop_app_owned_sync_artifacts_if_present(self.graph_name):
-            logger.info(
-                "[DT-BUILD %s] removed app-owned _sync artifacts for %s "
-                "before Lakeflow sync",
-                self.task_id,
-                self.graph_name,
-            )
-        logger.debug(
-            "[DT-BUILD %s] step 5/7: triggering Lakeflow sync for %s "
-            "(timeout=%ss)",
-            self.task_id,
-            synced_uc,
-            self.store.sync_timeout_s,
-        )
-        _human = {
-            "PROVISIONING": "provisioning pipeline…",
-            "PROVISIONING_PIPELINE_RESOURCES": "provisioning pipeline resources…",
-            "PROVISIONING_INITIAL_SNAPSHOT": "initial snapshot in progress…",
-            "ONLINE_TRIGGERED_UPDATE": "snapshot update running…",
-            "ONLINE_CONTINUOUS_UPDATE": "continuous update running…",
-            "ONLINE_PIPELINE_FAILED": "pipeline error — retrying…",
-            "OFFLINE": "pipeline offline — waiting…",
-        }
-
-        def _on_sync_state(pipeline_state: str) -> None:
-            label = _human.get(pipeline_state, pipeline_state.lower().replace("_", " "))
-            logger.info(
-                "[DT-BUILD %s] Lakeflow pipeline state → %s",
-                self.task_id,
-                pipeline_state,
-            )
-            if not self.is_api:
-                self.tm.update_progress(
-                    self.task_id,
-                    58,
-                    f"Lakebase sync — {label}",
-                )
-
-        t_sync = time.time()
-        try:
-            state = mgr.trigger_and_wait(
-                actual_synced_uc,
-                timeout_s=self.store.sync_timeout_s,
-                cancel_check=self._is_cancelled,
-                on_state_change=_on_sync_state,
-            )
-            logger.info(
-                "[DT-BUILD %s] step 5/7 done: Lakeflow pipeline reached %s "
-                "in %.1fs (total elapsed from build start=%.1fs)",
-                self.task_id,
-                state,
-                time.time() - t_sync,
-                time.time() - t0,
-            )
-        except OperationCancelledError as exc:
-            # User cancelled the task while we were polling Lakeflow. The
-            # task is already in CANCELLED — do NOT flip it to FAILED.
-            logger.info(
-                "[DT-BUILD %s] step 5/7 aborted by user cancel for %s (%s)",
-                self.task_id,
-                synced_uc,
-                exc,
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[DT-BUILD %s] step 5/7 FAILED: Lakeflow sync for %s "
-                "did not complete after %.1fs — state may be stuck in "
-                "provisioning; check the Lakebase synced-table pipeline "
-                "in the Databricks UI. Error: %s",
-                self.task_id,
-                synced_uc,
-                time.time() - t_sync,
-                exc,
-            )
-            self.tm.fail_task(
-                self.task_id, f"Lakebase sync did not complete: {exc}"
-            )
-            return False
-
-        _adv()  # → "Creating graph viewer union view"
-
-        # Step 6 — create/refresh the union view.
-        t_step = time.time()
-        logger.debug(
-            "[DT-BUILD %s] step 6/7: creating union view for %s",
-            self.task_id,
-            self.graph_name,
-        )
-        # If ensure() used a fallback name, derive the actual Postgres table name
-        # from the last component of actual_synced_uc and pass it as an override.
-        _actual_synced_phy: Optional[str] = None
-        if actual_synced_uc != synced_uc:
-            _actual_synced_phy = actual_synced_uc.split(".")[-1]
-
-        try:
-            self.store.ensure_synced_union_view(
-                self.graph_name,
-                synced_phy_override=_actual_synced_phy,
-            )
-            logger.info(
-                "[DT-BUILD %s] step 6/7 done: union view created/refreshed "
-                "in %.2fs",
-                self.task_id,
-                time.time() - t_step,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[DT-BUILD %s] step 6/7 FAILED: could not create union view "
-                "for graph=%s synced_uc=%s actual_synced_uc=%s pg_schema=%s — "
-                "the _sync table may not yet be visible in Postgres: %s",
-                self.task_id,
-                self.graph_name,
-                synced_uc,
-                actual_synced_uc,
-                getattr(self.store, "graph_schema", "?"),
-                exc,
-            )
-            self.tm.fail_task(
-                self.task_id,
-                f"Could not create Lakebase union view after sync: {exc}",
-            )
-            return False
-
-        _adv()  # → "Finalizing graph viewer"
-
-        # Step 7 — truncate companion for a clean reasoning slate.
-        t_step = time.time()
-        logger.debug(
-            "[DT-BUILD %s] step 7/7: truncating companion table for %s",
-            self.task_id,
-            self.graph_name,
-        )
-        try:
-            self.store.truncate_companion(self.graph_name)
-            logger.info(
-                "[DT-BUILD %s] step 7/7 done: companion truncated in %.2fs "
-                "(full rebuild — reasoning starts clean)",
-                self.task_id,
-                time.time() - t_step,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[DT-BUILD %s] step 7/7 WARNING: could not truncate companion "
-                "for %s (non-fatal — reasoning data may be stale): %s",
-                self.task_id,
-                self.graph_name,
-                exc,
-            )
-
-        self.triple_count = self._count_view_triples()
-        if self.triple_count == 0:
-            logger.warning(
-                "[DT-BUILD %s] post-sync VIEW %s contains 0 triples — "
-                "the Lakeflow pipeline may have synced an empty source or "
-                "the VIEW SQL produces no rows; check mappings and source data",
-                self.task_id,
-                self.view_table,
-            )
-
-        if not self.is_api:
-            self.tm.update_progress(
-                self.task_id, 90, f"Synced {self.triple_count} triples"
-            )
-        logger.info(
-            "[DT-BUILD %s] _apply_via_synced_pipeline complete: "
-            "triples=%d total_elapsed=%.1fs",
-            self.task_id,
-            self.triple_count,
-            time.time() - t0,
-        )
-        return True
 
     def _populate_session_cache(self) -> None:
         from back.objects.digitaltwin.DigitalTwin import DigitalTwin
@@ -1395,9 +922,7 @@ class _BuildPipeline:
                 "relationship_count": len(self.relationship_mappings or []),
                 "sql_chars": len(self.spark_sql or ""),
                 "graph_engine": self._graph_engine,
-                "sync_mode": (
-                    "managed_synced" if self._is_lakebase_synced else "app_managed"
-                ),
+                "sync_mode": "",
                 "view_table": self.view_table,
                 "graph_name": self.graph_name,
                 "task_id": self.task_id,

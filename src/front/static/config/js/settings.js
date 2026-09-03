@@ -26,8 +26,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // Registry rebuilt on every loadLakebaseObjects call; keyed by domain base name.
     // Avoids embedding JSON in onclick HTML attributes (double quotes break the attribute).
     let _lkDomainRegistry = {};
-    // UC/Lakeflow objects keyed by domain base name; populated by loadLakebaseSyncObjects.
-    let _lkUCRegistry = {};
     // UC analytics tables keyed by domain base name; populated by loadLakebaseAnalyticsObjects.
     let _lkAnalyticsRegistry = {};
     // Analytics groups matching no domain, keyed by slug; shown as the orphan card.
@@ -964,12 +962,11 @@ document.addEventListener('DOMContentLoaded', function () {
         writeEngineConfigRoot(root);
     }
 
-    /** Merge Lakebase form fields + optional managed-sync options into the JSON textarea. */
+    /** Merge Lakebase form fields into the JSON textarea. */
     function mergeLakebasePanelIntoConfigTextarea() {
         const dbSel      = document.getElementById('lakebaseGraphDb');
         const projSel    = document.getElementById('lakebaseProject');
         const branchSel  = document.getElementById('lakebaseBranch');
-        const syncModeEl = document.getElementById('lakebaseSyncMode');
         if (!dbSel) return;
         const root = readEngineConfigRoot();
         const o = root.lakebase || {};
@@ -979,90 +976,19 @@ document.addEventListener('DOMContentLoaded', function () {
         o.lakebase_project  = (projSel   ? projSel.value   : '') || '';
         o.lakebase_branch   = (branchSel ? branchSel.value : '') || '';
 
-        const mode = (syncModeEl && syncModeEl.value === 'managed_synced') ? 'managed_synced' : 'app_managed';
-        if (mode === 'managed_synced') {
-            o.sync_mode = 'managed_synced';
-            const stEl   = document.getElementById('lakebaseSyncTableMode');
-            const toutEl = document.getElementById('lakebaseSyncTimeout');
-            const ucCat  = document.getElementById('lakebaseUcCatalog');
-            if (stEl) o.sync_table_mode = stEl.value || 'snapshot';
-            if (toutEl) {
-                const n = parseInt(toutEl.value, 10);
-                o.sync_timeout_s = (!isNaN(n) && n > 0) ? n : 600;
-            }
-            const cat = (ucCat ? ucCat.value : '').trim();
-            if (cat) o.sync_uc_catalog = cat; else delete o.sync_uc_catalog;
-            // sync_uc_schema is always derived from the Postgres graph schema — never persisted
-            delete o.sync_uc_schema;
-        } else {
-            o.sync_mode = 'app_managed';
-            delete o.sync_table_mode;
-            delete o.sync_timeout_s;
-            delete o.sync_uc_catalog;
-            delete o.sync_uc_schema;
-        }
+        // Strip settings left over from the removed managed-synced mode. The
+        // backend tolerates them on read; deleting them here means a stored
+        // config is cleaned up the next time an admin saves.
+        delete o.sync_mode;
+        delete o.sync_table_mode;
+        delete o.sync_timeout_s;
+        delete o.sync_uc_catalog;
+        delete o.sync_uc_schema;
         root.lakebase = o;
         writeEngineConfigRoot(root);
     }
 
-    function toggleLakebaseManagedSyncPanel() {
-        const sm    = document.getElementById('lakebaseSyncMode');
-        const panel = document.getElementById('lakebaseManagedSyncPanel');
-        if (!sm || !panel) return;
-        panel.classList.toggle('d-none', sm.value !== 'managed_synced');
-    }
-
-    function updateLakebaseSyncModeHelp() {
-        const sm = document.getElementById('lakebaseSyncMode');
-        const v  = sm && sm.value === 'managed_synced' ? 'managed_synced' : 'app_managed';
-        document.querySelectorAll('[data-lk-mode]').forEach(function (el) {
-            el.classList.toggle('d-none', el.getAttribute('data-lk-mode') !== v);
-        });
-    }
-
     // ── UC catalog + schema pickers ───────────────────────────────────────────
-
-    async function loadUcCatalogsForGraphEngine() {
-        const catSel = document.getElementById('lakebaseUcCatalog');
-        const msg    = document.getElementById('lakebaseUcCatalogLoadMsg');
-        const btn    = document.getElementById('btnLoadUcCatalogs');
-        if (!catSel) return;
-        if (msg) { msg.classList.remove('d-none'); msg.className = 'form-text small mt-1 text-muted'; msg.textContent = 'Loading catalogs…'; }
-        if (btn) btn.disabled = true;
-
-        let cfgCat = '';
-        try {
-            cfgCat = (readEngineConfigRoot().lakebase || {}).sync_uc_catalog || '';
-        } catch (_) {}
-
-        try {
-            const resp = await fetch('/settings/graph-engine/uc-catalogs', { credentials: 'same-origin' });
-            const data = resp.ok ? await resp.json() : {};
-            if (data.success && Array.isArray(data.catalogs)) {
-                catSel.innerHTML = '<option value="">(none — use Registry catalog)</option>';
-                let matched = false;
-                for (const name of data.catalogs) {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    if (name === cfgCat) { opt.selected = true; matched = true; }
-                    catSel.appendChild(opt);
-                }
-                catSel.disabled = false;
-                if (msg) { msg.className = 'form-text small mt-1 text-success'; msg.textContent = data.catalogs.length + ' catalog(s) loaded.'; }
-                // no-op: UC schema is always derived from Postgres graph schema
-            } else {
-                if (msg) { msg.className = 'form-text small mt-1 text-warning'; msg.textContent = data.message || 'Could not list catalogs.'; }
-                catSel.disabled = false;
-            }
-        } catch (e) {
-            if (msg) { msg.className = 'form-text small mt-1 text-warning'; msg.textContent = e.message || 'Network error'; }
-            catSel.disabled = false;
-        } finally {
-            if (btn) btn.disabled = false;
-        }
-    }
-
     /**
      * Ensure `sel` has `value` selected, matching an existing option by exact
      * value or by short segment (last path component) so we reuse a real
@@ -1101,26 +1027,11 @@ document.addEventListener('DOMContentLoaded', function () {
         _ensureSelectedOption(document.getElementById('lakebaseGraphSchema'), o.schema          || '');
         const schIn = document.getElementById('lakebaseGraphSchemaInput');
         if (schIn && o.schema) schIn.value = o.schema;
-        // Bulk loading tab — UC catalog (managed_synced mode)
-        _ensureSelectedOption(document.getElementById('lakebaseUcCatalog'),  o.sync_uc_catalog  || '');
     }
 
     function applyLakebaseFormFromConfigTextarea() {
-        const syncModeEl = document.getElementById('lakebaseSyncMode');
         if (!document.getElementById('graphEngineConfig')) return;
         const o = (readEngineConfigRoot().lakebase || {});
-
-        if (syncModeEl) syncModeEl.value = (o.sync_mode === 'managed_synced') ? 'managed_synced' : 'app_managed';
-
-        const stEl   = document.getElementById('lakebaseSyncTableMode');
-        if (stEl && o.sync_table_mode) stEl.value = o.sync_table_mode;
-
-        const toutEl = document.getElementById('lakebaseSyncTimeout');
-        if (toutEl && o.sync_timeout_s != null) toutEl.value = String(parseInt(o.sync_timeout_s, 10) || 600);
-
-        // UC catalog — set value but don't reload options here (happens in loadUcCatalogsForGraphEngine)
-        const ucCat = document.getElementById('lakebaseUcCatalog');
-        if (ucCat && o.sync_uc_catalog != null) ucCat.value = String(o.sync_uc_catalog);
 
         // schema input mirror + UC schema display (always mirrors Postgres graph schema)
         const schIn = document.getElementById('lakebaseGraphSchemaInput');
@@ -1128,8 +1039,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const ucSchDisplay = document.getElementById('lakebaseUcSchemaDisplay');
         if (ucSchDisplay) ucSchDisplay.value = o.schema || '';
 
-        toggleLakebaseManagedSyncPanel();
-        updateLakebaseSyncModeHelp();
     }
 
     // Cache the fetched option lists (avoid re-hitting the Secrets API on every
@@ -1558,9 +1467,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Heavy load: the remote Lakebase/Delta cascade — Delta warehouse listing,
-    // Lakebase project→branch→db→schema pickers, the Lakebase health probe and
-    // (managed_synced only) the UC catalog listing. Deferred until the user
-    // actually opens the Lakebase or Delta sidebar section.
+    // Lakebase project→branch→db→schema pickers and the Lakebase health probe.
+    // Deferred until the user actually opens the Lakebase or Delta section.
     async function loadGraphDbHeavyFromServer() {
         try {
             if (!graphEngineConfigLoaded) await loadGraphEngineConfig();
@@ -1571,10 +1479,6 @@ document.addEventListener('DOMContentLoaded', function () {
             await loadLakebaseProjects();
             prefillLakebaseConnectionFromConfig();
             await loadLakebaseGraphHealth();
-            const syncModeEl = document.getElementById('lakebaseSyncMode');
-            if (syncModeEl && syncModeEl.value === 'managed_synced') {
-                await loadUcCatalogsForGraphEngine();
-            }
         } catch (e) {
             console.log('Graph DB heavy refresh failed', e);
         } finally {
@@ -2079,20 +1983,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (ucSchDisplay) ucSchDisplay.value = this.value || '';
     });
 
-    // managed-sync options
-    document.getElementById('lakebaseSyncMode')?.addEventListener('change', function () {
-        toggleLakebaseManagedSyncPanel();
-        updateLakebaseSyncModeHelp();
-        mergeLakebasePanelIntoConfigTextarea();
-    });
-    document.getElementById('lakebaseSyncTableMode')?.addEventListener('change', mergeLakebasePanelIntoConfigTextarea);
-    document.getElementById('lakebaseSyncTimeout')?.addEventListener('input',  mergeLakebasePanelIntoConfigTextarea);
-    document.getElementById('lakebaseSyncTimeout')?.addEventListener('change', mergeLakebasePanelIntoConfigTextarea);
-
-    // UC catalog change
-    document.getElementById('btnLoadUcCatalogs')?.addEventListener('click', () => loadUcCatalogsForGraphEngine());
-    document.getElementById('lakebaseUcCatalog')?.addEventListener('change', mergeLakebasePanelIntoConfigTextarea);
-
     document.getElementById('btnRefreshLakebaseGraphHealth')?.addEventListener('click', () => loadLakebaseGraphHealth());
 
     // ── Lakebase objects (schemas / tables / views) ──────────────────────────
@@ -2240,9 +2130,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         html += mkObjectRow(o.kind, o.schemaName, o.name);
                     });
                     html += '</tbody></table>';
-                    // Placeholders filled after the main load by loadLakebaseSyncObjects()
-                    // and loadLakebaseAnalyticsObjects()
-                    html += '<div class="lk-sync-slot" data-lk-base="' + escapeHtmlSettings(key) + '"></div>';
+                    // Placeholder filled after the main load by loadLakebaseAnalyticsObjects()
                     html += '<div class="lk-analytics-slot" data-lk-base="' + escapeHtmlSettings(key) + '"></div>';
                     html += '</div>';
 
@@ -2280,8 +2168,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 collapseEl.addEventListener('hide.bs.collapse', () => card.classList.remove('lk-open'));
             });
 
-            // Best-effort: load UC/Lakeflow sync objects and inject into each domain slot
-            loadLakebaseSyncObjects(database, '');
+            // Best-effort: inject UC analytics objects into each domain slot
             loadLakebaseAnalyticsObjects();
         } catch (e) {
             result.innerHTML = '<div class="alert alert-danger small py-2 mt-2">'
@@ -2486,171 +2373,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
     /** Fetch UC/Lakeflow synced-table objects and inject into each domain's sync slot. */
-    async function loadLakebaseSyncObjects(database, branchPath) {
-        const slots = document.querySelectorAll('.lk-sync-slot');
-        if (!slots.length) return;
-
-        // Show a spinner in each slot while loading
-        slots.forEach(slot => {
-            slot.innerHTML = '<div class="lk-sync-loading d-flex align-items-center gap-2 px-3 py-2 border-top">'
-                + '<span class="spinner-border spinner-border-sm text-muted" aria-hidden="true"></span>'
-                + '<span class="small text-muted">Loading sync objects…</span></div>';
-        });
-
-        function stateBadge(state) {
-            const map = {
-                ONLINE: 'bg-success-subtle text-success-emphasis',
-                ONLINE_NO_PENDING_UPDATE: 'bg-success-subtle text-success-emphasis',
-                PROVISIONING: 'bg-info-subtle text-info-emphasis',
-                PROVISIONING_INITIAL_SNAPSHOT: 'bg-info-subtle text-info-emphasis',
-                PROVISIONING_PIPELINE_RESOURCES: 'bg-info-subtle text-info-emphasis',
-                ONLINE_TRIGGERED_UPDATE: 'bg-info-subtle text-info-emphasis',
-                ONLINE_CONTINUOUS_UPDATE: 'bg-info-subtle text-info-emphasis',
-                FAILED: 'bg-danger-subtle text-danger-emphasis',
-                OFFLINE_FAILED: 'bg-danger-subtle text-danger-emphasis',
-                TABLED_OFFLINE: 'bg-danger-subtle text-danger-emphasis',
-                ERROR: 'bg-danger-subtle text-danger-emphasis',
-                NOT_FOUND: 'bg-secondary-subtle text-secondary-emphasis',
-                TIMEOUT: 'bg-warning-subtle text-warning-emphasis',
-                UNKNOWN: 'bg-secondary-subtle text-secondary-emphasis',
-            };
-            const cls = map[state] || 'bg-secondary-subtle text-secondary-emphasis';
-            return '<span class="badge border ' + cls + ' lk-sync-state-badge">'
-                + escapeHtmlSettings(state || '—') + '</span>';
-        }
-
-        try {
-            const params = new URLSearchParams();
-            if (database)   params.set('database',    database);
-            if (branchPath) params.set('branch_path', branchPath);
-            const url = '/settings/graph-engine/lakebase-sync-objects'
-                + (params.toString() ? '?' + params.toString() : '');
-            const resp = await fetch(url, { credentials: 'same-origin' });
-            const data = resp.ok ? await resp.json() : {};
-
-            if (!data.success || !data.uc_tables?.length) {
-                slots.forEach(slot => { slot.innerHTML = ''; });
-                return;
-            }
-
-            // Group UC tables by domain base name:
-            //   "domain_v1_sync"  → base "domain_v1"  (Lakeflow synced table)
-            //   "domain_v1"       → base "domain_v1"  (Delta source table/view)
-            const byBase = {};
-            (data.uc_tables || []).forEach(t => {
-                const base = t.name.endsWith('_sync') ? t.name.slice(0, -5) : t.name;
-                if (!byBase[base]) byBase[base] = [];
-                byBase[base].push(t);
-            });
-            // Publish to module-level registry so dropDomainObjects can include them.
-            _lkUCRegistry = byBase;
-
-            const ucLabel = data.uc_catalog && data.uc_schema
-                ? data.uc_catalog + '.' + data.uc_schema : '';
-
-            slots.forEach(slot => {
-                const base = slot.dataset.lkBase || '';
-                const tables = byBase[base];
-                if (!tables || !tables.length) {
-                    slot.innerHTML = '';
-                    return;
-                }
-
-                let h = '<div class="lk-sync-section border-top">';
-                h += '<div class="lk-sync-header px-3 py-1 d-flex align-items-center gap-2">'
-                    + '<span class="small text-muted fw-semibold" style="letter-spacing:.04em;font-size:.72rem;text-transform:uppercase">'
-                    + '<i class="bi bi-table me-1"></i>Unity Catalog</span>';
-                if (ucLabel) {
-                    h += '<span class="badge bg-light border text-muted font-monospace" style="font-size:.68rem">'
-                        + escapeHtmlSettings(ucLabel) + '</span>';
-                }
-                h += '</div>';
-                h += '<table class="table table-sm mb-0 lk-sync-table"><tbody>';
-
-                function mkUCDropBtn(fullName, isSync) {
-                    return '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1 lk-drop-uc-btn"'
-                        + ' data-lk-full-name="' + escapeHtmlSettings(fullName) + '"'
-                        + ' data-lk-is-sync="' + (isSync ? '1' : '0') + '"'
-                        + ' title="Drop ' + escapeHtmlSettings(fullName) + '">'
-                        + '<i class="bi bi-trash" style="font-size:.75rem"></i></button>';
-                }
-
-                tables.forEach(t => {
-                    if (t.is_sync) {
-                        // Lakeflow synced-table registration row
-                        const pipelineLink = t.pipeline_id
-                            ? ' <a href="#" class="lk-sync-pipeline-link small text-muted ms-1"'
-                              + ' data-lk-pipeline-id="' + escapeHtmlSettings(t.pipeline_id) + '"'
-                              + ' title="Copy pipeline ID: ' + escapeHtmlSettings(t.pipeline_id) + '">'
-                              + '<i class="bi bi-clipboard" style="font-size:.7rem"></i></a>'
-                            : '';
-                        const errorTip = t.error
-                            ? ' <span class="text-danger ms-1" title="' + escapeHtmlSettings(t.error) + '">'
-                              + '<i class="bi bi-exclamation-circle" style="font-size:.75rem"></i></span>'
-                            : '';
-                        h += '<tr>'
-                            + '<td style="width:90px"><span class="badge border bg-warning-subtle text-warning-emphasis lk-sync-badge">sync</span></td>'
-                            + '<td class="font-monospace lk-sync-uc-cell">'
-                            + escapeHtmlSettings(t.full_name) + errorTip + '</td>'
-                            + '<td class="text-end" style="width:120px">'
-                            + (t.state ? stateBadge(t.state) : '') + pipelineLink
-                            + ' ' + mkUCDropBtn(t.full_name, true) + '</td>'
-                            + '</tr>';
-                        // Lakeflow source table sub-row
-                        if (t.source_table) {
-                            h += '<tr class="lk-sync-source-row">'
-                                + '<td></td>'
-                                + '<td class="font-monospace lk-sync-uc-cell text-muted" colspan="2">'
-                                + '<i class="bi bi-arrow-return-right me-1 text-muted" style="font-size:.7rem"></i>'
-                                + 'source: ' + escapeHtmlSettings(t.source_table) + '</td>'
-                                + '</tr>';
-                        }
-                    } else {
-                        // Delta table / view row
-                        const typeBadge = (t.table_type || '').toLowerCase() === 'view'
-                            ? '<span class="badge border bg-info-subtle text-info-emphasis lk-sync-badge">view</span>'
-                            : '<span class="badge border bg-primary-subtle text-primary-emphasis lk-sync-badge">delta</span>';
-                        h += '<tr>'
-                            + '<td style="width:90px">' + typeBadge + '</td>'
-                            + '<td class="font-monospace lk-sync-uc-cell text-muted">'
-                            + escapeHtmlSettings(t.full_name) + '</td>'
-                            + '<td class="text-end" style="width:120px">'
-                            + mkUCDropBtn(t.full_name, false) + '</td>'
-                            + '</tr>';
-                    }
-                });
-
-                h += '</tbody></table></div>';
-                slot.innerHTML = h;
-
-                slot.querySelectorAll('.lk-sync-pipeline-link').forEach(a => {
-                    a.addEventListener('click', function (e) {
-                        e.preventDefault();
-                        const pid = this.dataset.lkPipelineId || '';
-                        if (pid && navigator.clipboard) {
-                            navigator.clipboard.writeText(pid).then(() => {
-                                showNotification('Pipeline ID copied: ' + pid, 'info', 2000);
-                            });
-                        } else if (pid) {
-                            showNotification('Pipeline ID: ' + pid, 'info', 3000);
-                        }
-                    });
-                });
-
-                slot.querySelectorAll('.lk-drop-uc-btn').forEach(btn => {
-                    btn.addEventListener('click', function () {
-                        dropUCObject(
-                            this.dataset.lkFullName,
-                            this.dataset.lkIsSync === '1',
-                        );
-                    });
-                });
-            });
-        } catch (e) {
-            slots.forEach(slot => { slot.innerHTML = ''; });
-        }
-    }
-
     /** Postgres card base "<Domain>_V<n>" → the "<domain>_<n>" analytics slug. */
     function lkDomainMatchKey(base) {
         const m = /^(.+)_V([^_]+)$/i.exec(base || '');

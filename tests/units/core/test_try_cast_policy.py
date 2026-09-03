@@ -64,11 +64,3 @@ class TestAbstractUnionMapping:
         assert _no_bare_cast(m["sql_query"])
 
 
-class TestLakeflowWrap:
-    def test_object_hash_expression_has_no_bare_cast(self):
-        from back.core.graphdb.lakebase._companion_ddl import (
-            wrap_triple_view_sql_for_lakeflow,
-        )
-
-        wrapped = wrap_triple_view_sql_for_lakeflow("SELECT 1 AS object")
-        assert _no_bare_cast(wrapped)

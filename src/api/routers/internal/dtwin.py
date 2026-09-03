@@ -269,9 +269,8 @@ async def start_triplestore_sync(
 ):
     """Start async knowledge graph build: CREATE VIEW then populate the graph store.
 
-    Always performs a full rebuild. When the graph engine is ``lakebase`` in
-    ``managed_synced`` mode, the Lakeflow pipeline handles the data-plane
-    refresh automatically.
+    Always performs a full rebuild: the app streams every triple from the
+    warehouse VIEW into the graph store.
     """
     import threading
     from back.core.task_manager import get_task_manager
@@ -322,39 +321,9 @@ async def start_triplestore_sync(
     domain_snap = DomainSnapshot(domain)
 
     # Detect managed-synced mode using the same authoritative path as
-    # _build_pipeline._resolve_lakebase_mode so the task step-list always
-    # matches what the pipeline will actually execute.
-    #
-    # Previously this read only the domain.settings["registry"] mirror which
-    # is absent when GlobalConfigService is the sole persistence layer
-    # (common in the deployed App where the mirror write never fires).
-    try:
-        from back.core.graphdb.GraphDBFactory import GraphDBFactory
-        from back.core.graphdb.engine_config import lakebase_section
-
-        _engine = GraphDBFactory._resolve_graph_engine(domain, settings, force=True) or ""
-        _ecfg = lakebase_section(
-            GraphDBFactory._resolve_graph_engine_config(domain, settings, force=True) or {}
-        )
-    except Exception as _exc:  # noqa: BLE001
-        logger.debug("Engine config resolution failed, defaulting to non-synced: %s", _exc)
-        _engine = ""
-        _ecfg = {}
-    _is_synced_mode = _engine == "lakebase" and _ecfg.get("sync_mode") == "managed_synced"
-
-    if _is_synced_mode:
-        _graph_steps = [
-            {"name": "uc_schema",       "description": "Ensuring Unity Catalog schema"},
-            {"name": "sync_register",   "description": "Registering synced table in Unity Catalog"},
-            {"name": "sync_companion",  "description": "Creating companion table"},
-            {"name": "sync_data",       "description": "Syncing data from Delta (Lakeflow)"},
-            {"name": "union_view",      "description": "Creating knowledge graph union view"},
-            {"name": "finalize",        "description": "Finalizing knowledge graph"},
-        ]
-    else:
-        _graph_steps = [
-            {"name": "graph", "description": "Updating the knowledge graph"},
-        ]
+    _graph_steps = [
+        {"name": "graph", "description": "Updating the knowledge graph"},
+    ]
 
     tm = get_task_manager()
     task = tm.create_task(

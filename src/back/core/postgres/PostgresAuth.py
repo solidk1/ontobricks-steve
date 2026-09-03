@@ -109,6 +109,16 @@ class PostgresAuth:
         return user
 
     @property
+    def is_available(self) -> bool:
+        """Whether enough is configured to attempt a connection.
+
+        ``GraphDBFactory`` gates on this before building a store, so it must
+        exist on every auth implementation the factory can receive — otherwise
+        the graph engine silently refuses to start.
+        """
+        return bool(_env("PGHOST") and _env("PGUSER") and _env("PGDATABASE"))
+
+    @property
     def sslmode(self) -> str:
         """TLS mode. Azure requires TLS, so ``require`` is the floor."""
         return _env("PGSSLMODE", DEFAULT_SSLMODE)

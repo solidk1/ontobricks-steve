@@ -242,29 +242,8 @@ class TestGlobalConfigGraphEngineConfig:
         assert saved["neo4j"] == {}
         assert saved["lakehouse"] == {}
 
-    def test_set_graph_engine_config_rejects_bad_sync_mode(self):
-        svc = GlobalConfigService()
-        ok, msg = svc.set_graph_engine_config(
-            "h", "t", REGISTRY_CFG, {"sync_mode": "weird"}
-        )
-        assert not ok
-        assert "sync_mode" in msg
 
-    def test_set_graph_engine_config_rejects_bad_sync_table_mode(self):
-        svc = GlobalConfigService()
-        ok, msg = svc.set_graph_engine_config(
-            "h", "t", REGISTRY_CFG, {"sync_table_mode": "yearly"}
-        )
-        assert not ok
-        assert "sync_table_mode" in msg
 
-    def test_set_graph_engine_config_rejects_negative_timeout(self):
-        svc = GlobalConfigService()
-        ok, msg = svc.set_graph_engine_config(
-            "h", "t", REGISTRY_CFG, {"sync_timeout_s": -10}
-        )
-        assert not ok
-        assert "sync_timeout_s" in msg
 
 
 # ---------------------------------------------------------------

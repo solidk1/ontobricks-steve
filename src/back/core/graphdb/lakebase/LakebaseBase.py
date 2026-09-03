@@ -8,6 +8,9 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from back.core.errors import InfrastructureError
 from back.core.graphdb.GraphDBBackend import GraphDBBackend
+from back.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 DEFAULT_GRAPH_SCHEMA = "ontobricks_graph"
 
@@ -52,31 +55,32 @@ def validate_graph_schema(name: str) -> str:
     return s
 
 
-_ALLOWED_SYNC_MODES = ("app_managed", "managed_synced")
-_ALLOWED_SYNC_TABLE_MODES = ("snapshot", "triggered", "continuous")
+#: Keys that configured the removed Lakeflow managed-synced mode. Existing
+#: stored configs still carry them, so they are accepted and ignored rather than
+#: rejected — rejecting would make a saved config fail validation and block Save.
+_IGNORED_LEGACY_SYNC_KEYS = (
+    "sync_mode",
+    "sync_table_mode",
+    "sync_timeout_s",
+    "sync_uc_catalog",
+    "sync_uc_schema",
+)
 
 
 def validate_engine_config_keys(config: Dict[str, Any]) -> Tuple[bool, str]:
-    """Validate optional Lakebase ``graph_engine_config`` keys.
+    """Validate optional Postgres ``graph_engine_config`` keys.
 
     Recognised keys:
 
-    * ``database``         -- override Postgres database name (str).
-    * ``schema``           -- fallback graph schema name when **Settings → Registry**
-      has no Volume schema; otherwise ``RegistryCfg.schema`` **always** overrides
-      for Lakebase (Postgres ``search_path`` + UC synced-table middle segment).
-    * ``sync_mode``        -- ``app_managed`` (default) or ``managed_synced``.
-    * ``sync_table_mode``  -- Lakeflow scheduling: ``snapshot`` / ``triggered`` /
-      ``continuous`` (only ``snapshot`` is wired in Phase 1).
-    * ``sync_timeout_s``   -- positive integer; how long to wait for a sync run.
-    * ``sync_uc_catalog``  -- UC catalog where the synced table is registered;
-      defaults to the snapshot Delta catalog used by the build pipeline.
-    * ``sync_uc_schema``   -- UC schema within ``sync_uc_catalog`` for synced table
-      registration; defaults to the Registry Volume schema when set, otherwise the
-      graph Postgres schema name.
+    * ``database`` -- override the Postgres database name (str).
+    * ``schema``   -- fallback graph schema name when **Settings → Registry**
+      has no Volume schema; otherwise ``RegistryCfg.schema`` always wins for
+      Postgres (it drives ``search_path``).
 
     Unknown keys pass through silently so admin-only feature flags can be
-    layered on without forcing a schema migration.
+    layered on without forcing a schema migration. That includes
+    :data:`_IGNORED_LEGACY_SYNC_KEYS`, left over from the removed managed-synced
+    mode; they are logged once at debug level and otherwise have no effect.
     """
     db = config.get("database", None)
     if db is not None and not isinstance(db, str):
@@ -89,35 +93,13 @@ def validate_engine_config_keys(config: Dict[str, Any]) -> Tuple[bool, str]:
             validate_graph_schema(sch)
         except ValueError as exc:
             return False, str(exc)
-    sync_mode = config.get("sync_mode", None)
-    if sync_mode is not None:
-        if not isinstance(sync_mode, str) or sync_mode not in _ALLOWED_SYNC_MODES:
-            return (
-                False,
-                "graph_engine_config.sync_mode must be one of "
-                + ", ".join(_ALLOWED_SYNC_MODES),
-            )
-    sync_table_mode = config.get("sync_table_mode", None)
-    if sync_table_mode is not None:
-        if (
-            not isinstance(sync_table_mode, str)
-            or sync_table_mode not in _ALLOWED_SYNC_TABLE_MODES
-        ):
-            return (
-                False,
-                "graph_engine_config.sync_table_mode must be one of "
-                + ", ".join(_ALLOWED_SYNC_TABLE_MODES),
-            )
-    sync_timeout_s = config.get("sync_timeout_s", None)
-    if sync_timeout_s is not None:
-        if not isinstance(sync_timeout_s, int) or sync_timeout_s <= 0:
-            return False, "graph_engine_config.sync_timeout_s must be a positive integer"
-    sync_uc_catalog = config.get("sync_uc_catalog", None)
-    if sync_uc_catalog is not None and not isinstance(sync_uc_catalog, str):
-        return False, "graph_engine_config.sync_uc_catalog must be a string"
-    sync_uc_schema = config.get("sync_uc_schema", None)
-    if sync_uc_schema is not None and not isinstance(sync_uc_schema, str):
-        return False, "graph_engine_config.sync_uc_schema must be a string"
+    stale = [k for k in _IGNORED_LEGACY_SYNC_KEYS if k in config]
+    if stale:
+        logger.debug(
+            "graph_engine_config carries keys from the removed managed-synced "
+            "mode; ignoring: %s",
+            ", ".join(stale),
+        )
     return True, ""
 
 

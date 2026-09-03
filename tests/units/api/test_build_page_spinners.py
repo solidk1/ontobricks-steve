@@ -48,20 +48,6 @@ class TestBuildPageSpinnerHelpers:
         assert "_archSpinnerBadge" in sync_js
 
 
-class TestBuildPageArchMarkup:
-    def test_sync_partial_has_badge_and_name_targets(self):
-        html = open(SYNC_HTML, encoding="utf-8").read()
-        for element_id in (
-            "dtExistView",
-            "dtLakebaseSyncedUcExists",
-            "dtLakebaseSyncedUc",
-            "dtLakebaseTableExists",
-            "dtLakebaseFullName",
-            "dtViewName",
-        ):
-            assert f'id="{element_id}"' in html
-
-
 class TestPendingDtExistenceSkeleton:
     def test_pending_flag_and_null_existence(self):
         domain = MagicMock()
@@ -84,5 +70,4 @@ class TestPendingDtExistenceSkeleton:
         assert result["pending"] is True
         assert result["view_exists"] is None
         assert result["lakebase_table_exists"] is None
-        assert result["lakebase_synced_uc_exists"] is None
         assert result["view_table"] == "c.s.view"

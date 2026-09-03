@@ -1,18 +1,21 @@
-"""Lakebase Postgres flat triple store (single subject/predicate/object table per graph).
+"""Postgres flat triple store (subject/predicate/object rows, one graph per version).
 
-Two operating modes are supported:
+The app owns every write. Inserts and deletes go through the FastAPI process via
+psycopg — small ``executemany`` payloads, or ``COPY FROM STDIN`` for bulk.
 
-* ``app_managed`` (default) -- the app owns one writable PG table per graph
-  version. All inserts / deletes go through the FastAPI process via psycopg
-  (small ``executemany`` payloads) or ``COPY FROM STDIN`` (bulk).
+Each graph version is three Postgres objects:
 
-* ``managed_synced`` -- the bulk R2RML data movement is delegated to a
-  Lakeflow synced-table pipeline (Databricks data plane only). The PG layout
-  becomes a triad: a read-only ``_sync`` table owned by Lakeflow, a writable
-  ``__app`` companion that absorbs reasoning + cohort writes, and a UNION
-  view (named after the legacy single-table) that readers query. Direct
-  writes through this class always target the companion; reads always go
-  through the union view, so callers stay unchanged.
+* ``*_sync``  -- bulk triples, streamed from the warehouse during a Build.
+* ``*__app``  -- writable companion absorbing reasoning and cohort writes.
+* ``*``       -- UNION view over both, which readers query. It carries the
+  legacy single-table name, so callers are unaffected by the split.
+
+The split is what lets a rebuild replace bulk triples without discarding
+inferred ones. The ``_sync`` suffix is historical: it once denoted a table owned
+by a Databricks Lakeflow synced-table pipeline. That ``managed_synced`` mode was
+removed — it was Databricks-data-plane-only and had no equivalent on a generic
+PostgreSQL server — but the physical suffix is retained so existing deployments
+need no migration.
 """
 
 from __future__ import annotations
@@ -24,9 +27,6 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set,
 from back.core.errors import InfrastructureError
 from back.core.graphdb.lakebase import _companion_ddl
 from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
-from back.core.graphdb.lakebase.SyncedTableManager import (
-    DEFAULT_TIMEOUT_S as _SYNC_DEFAULT_TIMEOUT_S,
-)
 from back.core.helpers import validate_table_name
 from back.core.logging import get_logger
 
@@ -40,10 +40,6 @@ _COPY_DELETE_TEMP = "_ob_del_stage"
 
 # Postgres btree version-4 index entry limit (bytes).
 _PG_BTREE_INDEX_MAX_BYTES = 2704
-
-SYNC_MODE_APP = "app_managed"
-SYNC_MODE_MANAGED = "managed_synced"
-
 
 def _is_index_row_size_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
@@ -79,14 +75,10 @@ def _reraise_lakebase_index_limit(
 class LakebaseFlatStore(LakebaseBase):
     """Flat-model triple store on Lakebase Postgres.
 
-    In ``app_managed`` mode, one physical table per logical graph name lives
-    under the configured Postgres *schema* and the app drives every write.
-
-    In ``managed_synced`` mode, that same logical name resolves to a UNION
-    view fronting the Lakeflow-managed ``_sync`` table and the app-owned
-    ``__app`` companion. Direct writes go to the companion; the synced side
-    is populated by the Databricks data plane via
-    :class:`SyncedTableManager`.
+    Each logical graph name resolves to a UNION view over the ``_sync`` bulk
+    table and the ``__app`` companion, both under the configured Postgres
+    *schema*. Direct writes go to the companion; bulk triples are streamed into
+    ``_sync`` during a Build.
 
     ``search_path`` is set on every pooled connection so generated SQL from
     :class:`GraphDBBackend` helpers resolves correctly.
@@ -97,73 +89,28 @@ class LakebaseFlatStore(LakebaseBase):
         auth: Any,
         schema: str,
         database_override: str = "",
-        *,
-        sync_mode: str = SYNC_MODE_APP,
-        sync_table_mode: str = "snapshot",
-        sync_timeout_s: int = _SYNC_DEFAULT_TIMEOUT_S,
-        sync_uc_catalog: str = "",
-        sync_uc_schema: str = "",
-        synced_manager: Optional[Any] = None,
     ) -> None:
         super().__init__(auth, schema, database_override)
-        self._sync_mode = (
-            sync_mode if sync_mode in (SYNC_MODE_APP, SYNC_MODE_MANAGED) else SYNC_MODE_APP
-        )
-        self._sync_table_mode = sync_table_mode or "snapshot"
-        self._sync_timeout_s = int(sync_timeout_s) if sync_timeout_s else _SYNC_DEFAULT_TIMEOUT_S
-        self._sync_uc_catalog = sync_uc_catalog or ""
-        # UC schema segment for the synced-table FQN. Normally set to the
-        # registry Volume schema so the Lakeflow object lives in the same UC
-        # namespace as registry artefacts. Falls back to the Postgres graph
-        # schema when the registry is unreachable.
-        self._sync_uc_schema = sync_uc_schema or ""
-        self._synced_manager = synced_manager
 
-    # -- Mode introspection ------------------------------------------------
 
-    @property
-    def sync_mode(self) -> str:
-        return self._sync_mode
 
-    @property
-    def is_synced(self) -> bool:
-        return self._sync_mode == SYNC_MODE_MANAGED
 
-    @property
-    def sync_table_mode(self) -> str:
-        return self._sync_table_mode
 
-    @property
-    def sync_timeout_s(self) -> int:
-        return self._sync_timeout_s
 
-    @property
-    def sync_uc_catalog(self) -> str:
-        return self._sync_uc_catalog
-
-    def synced_manager(self) -> Any:
-        if self._synced_manager is None:
-            raise InfrastructureError(
-                "managed_synced mode active but no SyncedTableManager was wired — "
-                "check GraphDBFactory configuration"
-            )
-        return self._synced_manager
-
-    # -- Table-name resolution --------------------------------------------
 
     def _writable_table_id(self, name: str) -> str:
         """Return the Postgres table that direct app writes target.
 
-        Both ``app_managed`` and ``managed_synced`` use the companion table
-        (``*__app``) for reasoning and cohort writes so that bulk warehouse
-        data in ``*_sync`` is never modified by the app post-build.
+        Reasoning and cohort writes go to the companion (``*__app``) so bulk
+        warehouse data in ``*_sync`` is never modified after a Build.
         """
         return _companion_ddl.companion_phy(name)
 
     def _readable_table_id(self, name: str) -> str:
-        """Return the table / view that direct reads should query."""
-        # Both modes resolve to the same identifier — in synced mode it is the
-        # union view name (which equals the legacy table name).
+        """Return the view that direct reads should query.
+
+        This is the union view, whose name equals the legacy single-table name.
+        """
         return self.physical_table_id(name)
 
     def synced_table_name(self, table_name: str) -> str:
@@ -184,219 +131,25 @@ class LakebaseFlatStore(LakebaseBase):
             return 0
 
     def synced_phy(self, name: str) -> str:
-        """Postgres table name for the read-only synced side (managed_synced only)."""
+        """Postgres table name for the bulk side (``*_sync``, historical suffix)."""
         return _companion_ddl.synced_phy(name)
 
     def companion_phy(self, name: str) -> str:
-        """Postgres table name for the writable companion (managed_synced only)."""
+        """Postgres table name for the writable companion (``*__app``)."""
         return _companion_ddl.companion_phy(name)
 
-    def synced_uc_name(self, name: str, fallback_catalog: str = "") -> str:
-        """Build the UC fully-qualified name for the synced table.
 
-        ``fallback_catalog`` is consulted when ``sync_uc_catalog`` is not set
-        in ``engine_config``. Prefer passing the result of
-        :func:`resolve_sync_uc_fallback_catalog` so the default UC catalog follows
-        Settings → Registry rather than only ``domain.delta``.
-        """
-        catalog = (self._sync_uc_catalog or fallback_catalog or "").strip()
-        if not catalog:
-            raise InfrastructureError(
-                "Cannot build synced UC name: no catalog configured "
-                "(set graph_engine_config.sync_uc_catalog or pass a Delta catalog)"
-            )
-        uc_schema = (self._sync_uc_schema or self._schema).strip()
-        return f"{catalog}.{uc_schema}.{self.synced_phy(name)}"
 
-    # -- Companion + union view DDL --------------------------------------
 
-    def ensure_synced_companion(self, name: str) -> None:
-        """Create Postgres schema + writable companion before the ``_sync`` table exists.
 
-        Lakeflow creates the read-only ``_sync`` table only after the first snapshot
-        progresses; the union view references both sides and must run **after** sync.
-        """
-        if not self.is_synced:
-            return
-        companion = self.companion_phy(name)
-        with self._cursor() as cur:
-            _companion_ddl.ensure_companion(cur, self._schema, companion)
 
-    def drop_app_owned_sync_artifacts_if_present(self, name: str) -> bool:
-        """Remove a user-owned ``_sync`` table (and union view) before Lakeflow sync.
-
-        A leftover ``_sync`` table from an ``app_managed`` build (or a partial
-        ``managed_synced`` attempt) is owned by the app user. Lakeflow's
-        ``databricks_writer_*`` principal must own the table; otherwise the
-        snapshot pipeline fails with ``must be owner of table …_sync``.
-
-        Returns ``True`` when view and/or sync artifacts were dropped.
-        """
-        if not self.is_synced:
-            return False
-        validate_table_name(name)
-        synced = _companion_ddl.synced_phy(name)
-        view = _companion_ddl.view_phy(name)
-        bare_synced = synced.split(".")[-1].strip('"')
-        dropped = False
-        with self._cursor() as cur:
-            cur.execute(
-                """
-                SELECT pg_get_userbyid(c.relowner) AS owner
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = ANY(current_schemas(false))
-                  AND c.relname = %s
-                  AND c.relkind = 'r'
-                """,
-                (bare_synced,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return False
-            owner = row.get("owner") if isinstance(row, dict) else row[0]
-            if _companion_ddl.is_lakeflow_sync_owner(str(owner)):
-                return False
-            logger.warning(
-                "Dropping app-owned sync artifacts for %s.%s (owner=%s) "
-                "so Lakeflow can recreate the _sync table",
-                self._schema,
-                bare_synced,
-                owner,
-            )
-            _companion_ddl.drop_view(cur, view)
-            _companion_ddl.drop_synced(cur, synced)
-            dropped = True
-        return dropped
-
-    def ensure_synced_union_view(
-        self,
-        name: str,
-        *,
-        wait_s: int = 0,
-        poll_interval_s: float = 5.0,
-        synced_phy_override: str = "",
-    ) -> None:
-        """Create the union view once the ``_sync`` table exists (after Lakeflow snapshot).
-
-        The ``_sync`` table is placed by Lakebase in the Postgres schema that
-        corresponds to the UC schema segment of the synced-table FQN
-        (``_sync_uc_schema``). When that differs from the Postgres graph schema
-        (e.g. registry schema ``ontobricks`` vs graph schema ``ontobricks_graph``),
-        the ``_sync`` reference is schema-qualified so the DDL is independent of
-        the active ``search_path``.
-
-        After the Lakeflow pipeline reaches ONLINE there can be a short lag before
-        the Postgres ``_sync`` table becomes visible.  This method polls for the
-        table's existence up to *wait_s* seconds before giving up with a clear
-        error (rather than silently proceeding and hitting a Postgres
-        "relation does not exist" at view-creation time).
-
-        *wait_s* defaults to the ``ONTOBRICKS_SYNC_VIEW_WAIT_S`` env var
-        (default 300s).  ``poll_interval_s`` can be overridden via
-        ``ONTOBRICKS_SYNC_VIEW_POLL_S`` (default 5s).
-
-        *synced_phy_override* lets callers supply the actual Postgres table name
-        when ``SyncedTableManager.ensure()`` used a ghost-state fallback suffix
-        (e.g. ``cust360auto_v4_sync_b`` instead of ``cust360auto_v4_sync``).
-        """
-        import os
-        import time as _time
-
-        if not self.is_synced:
-            return
-
-        if wait_s == 0:
-            wait_s = int(os.environ.get("ONTOBRICKS_SYNC_VIEW_WAIT_S", "") or 300)
-        if poll_interval_s == 5.0:
-            poll_interval_s = float(
-                os.environ.get("ONTOBRICKS_SYNC_VIEW_POLL_S", "") or 5.0
-            )
-
-        companion = self.companion_phy(name)
-        synced_bare = synced_phy_override or self.synced_phy(name)
-        view = self._readable_table_id(name)
-        sync_pg_schema = (self._sync_uc_schema or self._schema).strip()
-        synced = (
-            f'"{sync_pg_schema}".{synced_bare}'
-            if sync_pg_schema != self._schema
-            else synced_bare
-        )
-
-        # Poll until the _sync table is visible in Postgres (propagation lag after ONLINE).
-        deadline = _time.time() + max(1, int(wait_s))
-        attempt = 0
-        while True:
-            attempt += 1
-            with self._cursor() as cur:
-                exists = self._sync_table_exists(cur, sync_pg_schema, synced_bare)
-            if exists:
-                if attempt > 1:
-                    logger.info(
-                        "ensure_synced_union_view: _sync table %r visible "
-                        "after %d attempt(s)",
-                        synced_bare,
-                        attempt,
-                    )
-                break
-            remaining = deadline - _time.time()
-            if remaining <= 0:
-                raise RuntimeError(
-                    f"_sync table {synced_bare!r} not found in Postgres schema "
-                    f"{sync_pg_schema!r} after {wait_s}s. "
-                    f"The Lakeflow pipeline reported ONLINE but Lakebase has not "
-                    f"yet materialised the Postgres table. "
-                    f"Set ONTOBRICKS_SYNC_VIEW_WAIT_S to a higher value if this "
-                    f"workspace consistently needs more time."
-                )
-            logger.info(
-                "ensure_synced_union_view: _sync table %r not yet visible "
-                "(attempt %d, %.0fs remaining) — retrying in %.1fs",
-                synced_bare,
-                attempt,
-                remaining,
-                min(poll_interval_s, remaining),
-            )
-            _time.sleep(min(poll_interval_s, remaining))
-
-        with self._cursor() as cur:
-            # managed_synced: Lakeflow creates the _sync table. Re-apply index
-            # DDL idempotently so BFS and neighbour traversals stay performant
-            # even if the physical _sync table was recreated upstream.
-            try:
-                _companion_ddl.ensure_graph_indexes(cur, synced)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "ensure_synced_union_view: could not ensure indexes on %s: %s",
-                    synced,
-                    exc,
-                )
-            _companion_ddl.ensure_union_view(cur, view, synced, companion)
-
-    @staticmethod
-    def _sync_table_exists(cur: Any, schema: str, table: str) -> bool:
-        """Return True if *schema.table* is visible to the current Postgres session."""
-        cur.execute(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema = %s AND table_name = %s LIMIT 1",
-            (schema, table),
-        )
-        return cur.fetchone() is not None
-
-    def ensure_synced_layout(self, name: str) -> None:
-        """Create the writable companion and the union view if they do not exist.
-
-        For builds, prefer :meth:`ensure_synced_companion` before Lakeflow sync and
-        :meth:`ensure_synced_union_view` after — the ``_sync`` table does not exist until the
-        snapshot pipeline materializes it.
-        """
-        self.ensure_synced_companion(name)
-        self.ensure_synced_union_view(name)
 
     def truncate_companion(self, name: str) -> None:
-        """Truncate the companion table (used on full rebuild in synced mode)."""
-        if not self.is_synced:
-            return
+        """Empty the companion table, discarding inferred / cohort triples.
+
+        Called on a full rebuild, where bulk triples are replaced wholesale and
+        anything derived from the previous generation is stale.
+        """
         companion = self.companion_phy(name)
         with self._cursor() as cur:
             _companion_ddl.truncate_companion(cur, companion)
@@ -544,17 +297,6 @@ class LakebaseFlatStore(LakebaseBase):
 
     def create_table(self, table_name: str) -> None:
         validate_table_name(table_name)
-        if self.is_synced:
-            # In managed_synced mode the *_sync table is provisioned by Lakebase/
-            # Lakeflow via SyncedTableManager. The companion and union view are
-            # created by ensure_synced_companion / ensure_synced_union_view at
-            # the appropriate points in _apply_via_synced_pipeline.
-            logger.debug(
-                "create_table %s is a no-op in managed_synced mode "
-                "(provisioning deferred to SyncedTableManager)",
-                table_name,
-            )
-            return
         # app_managed: create the full 3-object layout so reasoning / materialise
         # can write to the companion while bulk warehouse data lives in *_sync.
         synced = _companion_ddl.synced_phy(table_name)
@@ -585,28 +327,6 @@ class LakebaseFlatStore(LakebaseBase):
 
     def drop_table(self, table_name: str) -> None:
         validate_table_name(table_name)
-        if self.is_synced:
-            view = self._readable_table_id(table_name)
-            companion = self.companion_phy(table_name)
-            with self._cursor() as cur:
-                _companion_ddl.drop_view(cur, view)
-                _companion_ddl.drop_companion(cur, companion)
-            try:
-                mgr = self.synced_manager()
-                synced_uc = self.synced_uc_name(table_name)
-                mgr.delete(synced_uc, purge_data=True)
-            except InfrastructureError as exc:
-                # No catalog configured / SDK unavailable -- best-effort cleanup
-                # so callers can still drop the PG side without aborting.
-                logger.warning(
-                    "drop_table %s: synced-table delete skipped (%s)",
-                    table_name,
-                    exc,
-                )
-            logger.info(
-                "Dropped Lakebase synced trio for %s.%s", self._schema, table_name
-            )
-            return
         view = self._readable_table_id(table_name)
         companion = _companion_ddl.companion_phy(table_name)
         synced = _companion_ddl.synced_phy(table_name)
@@ -1018,7 +738,6 @@ class LakebaseFlatStore(LakebaseBase):
             "format": "lakebase",
             "schema": self._schema,
             "database": self._effective_database_display(),
-            "sync_mode": self._sync_mode,
         }
 
     def _effective_database_display(self) -> str:
@@ -1031,14 +750,11 @@ class LakebaseFlatStore(LakebaseBase):
 
     def optimize_table(self, table_name: str) -> None:
         validate_table_name(table_name)
-        # managed_synced: vacuum the companion only (*_sync is Lakeflow-managed).
-        # app_managed: vacuum *_sync (just bulk-loaded) and the companion.
-        companion = self.companion_phy(table_name)
+        # Both sides are app-written, so both benefit: *_sync was just
+        # bulk-loaded and the companion accumulated reasoning writes.
         with self._cursor() as cur:
-            if not self.is_synced:
-                synced = self.synced_phy(table_name)
-                cur.execute(f"VACUUM ANALYZE {synced}")
-            cur.execute(f"VACUUM ANALYZE {companion}")
+            cur.execute(f"VACUUM ANALYZE {self.synced_phy(table_name)}")
+            cur.execute(f"VACUUM ANALYZE {self.companion_phy(table_name)}")
 
 
 def resolve_lakebase_graph_schema(
@@ -1100,75 +816,5 @@ def resolve_lakebase_graph_schema(
     return validate_graph_schema(DEFAULT_GRAPH_SCHEMA)
 
 
-def resolve_sync_uc_fallback_catalog(
-    domain: Any,
-    settings: Optional[Any],
-    delta_cfg: Optional[Dict[str, Any]] = None,
-) -> str:
-    """Unity Catalog name for synced-table registration when ``sync_uc_catalog`` is unset.
-
-    Resolution order:
-
-    1. Environment variable ``ONTOBRICKS_SYNC_UC_CATALOG`` — optional deployment-
-       wide pin so every domain falls back to the same UC catalog (e.g. a shared
-       ``main`` catalog) when the JSON config leaves ``sync_uc_catalog`` empty.
-       The legacy spelling ``ONTBRICKS_SYNC_UC_CATALOG`` (without the ``O``) is
-       still honoured for backwards compatibility but is deprecated.
-    2. ``RegistryCfg.from_domain`` — the catalog from **Settings → Registry**
-       (the Volume / registry UC triplet). This matches where operators expect
-       managed assets to live.
-    3. ``domain.delta["catalog"]`` — per-domain Delta triple-store catalog
-       (often a personal or workspace-default catalog).
-
-    ``LakebaseFlatStore.synced_uc_name`` still prefers ``graph_engine_config.sync_uc_catalog``
-    when set; this helper supplies *fallback_catalog* only.
-    """
-    import os
-
-    pin = os.getenv("ONTOBRICKS_SYNC_UC_CATALOG", "").strip()
-    if not pin:
-        # Backwards-compat with the original (typoed) env var name. Warn so
-        # operators migrate away from it.
-        legacy = os.getenv("ONTBRICKS_SYNC_UC_CATALOG", "").strip()
-        if legacy:
-            logger.warning(
-                "Using deprecated env var ONTBRICKS_SYNC_UC_CATALOG=%r — "
-                "rename to ONTOBRICKS_SYNC_UC_CATALOG (added 'O').",
-                legacy,
-            )
-            pin = legacy
-    if pin:
-        logger.info(
-            "resolve_sync_uc_fallback_catalog: using ONTOBRICKS_SYNC_UC_CATALOG=%r",
-            pin,
-        )
-        return pin
-
-    try:
-        from back.objects.registry import RegistryCfg
-
-        rc = RegistryCfg.from_domain(domain, settings)
-        cat = (rc.catalog or "").strip()
-        if cat:
-            logger.info(
-                "resolve_sync_uc_fallback_catalog: using registry catalog %r "
-                "(no ONTOBRICKS_SYNC_UC_CATALOG set)",
-                cat,
-            )
-            return cat
-    except Exception as exc:  # noqa: BLE001
-        logger.debug(
-            "resolve_sync_uc_fallback_catalog: registry catalog unavailable: %s",
-            exc,
-        )
-    dc = delta_cfg or {}
-    fallback = str(dc.get("catalog") or "").strip()
-    if fallback:
-        logger.info(
-            "resolve_sync_uc_fallback_catalog: using domain.delta catalog %r "
-            "(no env var or registry catalog available)",
-            fallback,
-        )
-    return fallback
 
 

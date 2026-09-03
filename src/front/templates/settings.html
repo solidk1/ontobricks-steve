@@ -260,13 +260,6 @@
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="lktab-bulk" data-bs-toggle="tab"
-                                        data-bs-target="#lkpane-bulk" type="button" role="tab"
-                                        aria-controls="lkpane-bulk" aria-selected="false">
-                                    <i class="bi bi-lightning-charge me-1"></i> Bulk loading
-                                </button>
-                            </li>
-                            <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="lktab-health" data-bs-toggle="tab"
                                         data-bs-target="#lkpane-health" type="button" role="tab"
                                         aria-controls="lkpane-health" aria-selected="false">
@@ -353,77 +346,6 @@
                                         </div>
                                         <div id="lakebaseGraphSchemaHelp" class="form-text small mt-2 mb-0 text-muted">
                                             Postgres schema for graph triple tables. Click <i class="bi bi-pencil"></i> to type manually.
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ── TAB 2 · Bulk loading ── -->
-                            <div class="tab-pane fade" id="lkpane-bulk" role="tabpanel" aria-labelledby="lktab-bulk">
-                                <p class="small text-muted mb-3">
-                                    Choose how R2RML triples reach Postgres. Most workspaces start with <strong>App-managed</strong>.
-                                    <strong>Managed sync</strong> delegates bulk copy to Databricks Lakeflow (needs UC registration).
-                                </p>
-                                <div class="row g-3 align-items-start mb-0">
-                                    <div class="col-12">
-                                        <label for="lakebaseSyncMode" class="form-label small fw-semibold mb-1">Mode</label>
-                                        <select class="form-select form-select-sm" id="lakebaseSyncMode" aria-describedby="lakebaseSyncModeHelp">
-                                            <option value="app_managed">App-managed — stream from SQL warehouse into Postgres (default)</option>
-                                            <option value="managed_synced">Managed sync — Lakeflow syncs the Delta view to Postgres (data plane)</option>
-                                        </select>
-                                        <div id="lakebaseSyncModeHelp" class="form-text small mt-2 mb-0">
-                                            <span data-lk-mode="app_managed">The app runs the warehouse query and COPYs rows; no Unity Catalog object is required for the load.</span>
-                                            <span data-lk-mode="managed_synced" class="d-none">Lakeflow keeps a synced table; the app only orchestrates. Requires a valid <code>catalog.schema</code> in Unity Catalog for registration.</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div id="lakebaseManagedSyncPanel" class="border rounded p-3 mt-3 bg-body-tertiary d-none">
-                                    <div class="fw-semibold small mb-2">Managed sync options</div>
-                                    <div class="row g-3">
-                                        <div class="col-12 col-lg-6">
-                                            <label for="lakebaseSyncTableMode" class="form-label small fw-semibold mb-1">Lakeflow schedule</label>
-                                            <select class="form-select form-select-sm" id="lakebaseSyncTableMode">
-                                                <option value="snapshot">Snapshot — full refresh on trigger (good default)</option>
-                                                <option value="triggered">Triggered — refresh when you trigger</option>
-                                                <option value="continuous">Continuous — keep near real-time</option>
-                                            </select>
-                                            <div class="form-text small mt-1 mb-0 text-muted">How often Lakeflow updates the Postgres mirror.</div>
-                                        </div>
-                                        <div class="col-12 col-lg-6">
-                                            <label for="lakebaseSyncTimeout" class="form-label small fw-semibold mb-1">Sync wait (seconds)</label>
-                                            <input type="number" class="form-control form-control-sm" id="lakebaseSyncTimeout"
-                                                   min="1" max="86400" step="1" value="600" autocomplete="off">
-                                            <div class="form-text small mt-1 mb-0 text-muted">How long a build waits for a sync run to finish.</div>
-                                        </div>
-                                        <!-- UC Catalog -->
-                                        <div class="col-12 col-lg-6">
-                                            <label for="lakebaseUcCatalog" class="form-label small fw-semibold mb-1">UC catalog (sync registration)</label>
-                                            <div class="input-group input-group-sm">
-                                                <select class="form-select form-select-sm" id="lakebaseUcCatalog" aria-describedby="lakebaseUcCatalogHelp">
-                                                    <option value="">(click Load to discover)</option>
-                                                </select>
-                                                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnLoadUcCatalogs" title="Load UC catalogs">
-                                                    <i class="bi bi-arrow-down-circle"></i>
-                                                </button>
-                                            </div>
-                                            <div id="lakebaseUcCatalogHelp" class="form-text small mt-1 mb-0 text-muted">
-                                                UC catalog for synced table registration. If empty: Registry catalog, then domain Delta.
-                                            </div>
-                                            <div id="lakebaseUcCatalogLoadMsg" class="form-text small mt-1 d-none text-warning"></div>
-                                        </div>
-                                        <!-- UC Schema (read-only) -->
-                                        <div class="col-12 col-lg-6">
-                                            <label class="form-label small fw-semibold mb-1">UC schema (sync registration)</label>
-                                            <div class="input-group input-group-sm">
-                                                <span class="input-group-text bg-light"><i class="bi bi-diagram-3"></i></span>
-                                                <input type="text" class="form-control form-control-sm font-monospace ob-form-readonly-muted"
-                                                       id="lakebaseUcSchemaDisplay" readonly
-                                                       placeholder="(same as Postgres schema)">
-                                            </div>
-                                            <div class="form-text small mt-1 mb-0 text-muted">
-                                                Always equals the Postgres graph schema — Lakebase places the <code>_sync</code> foreign table in the matching Postgres schema.
-                                            </div>
                                         </div>
                                     </div>
                                 </div>

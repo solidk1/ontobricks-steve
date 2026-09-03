@@ -1163,34 +1163,16 @@ async def get_graph_engine_lakebase_objects(
         )
 
 
-@router.get("/graph-engine/lakebase-sync-objects")
-async def get_graph_engine_lakebase_sync_objects(
-    database: str = "",
-    branch_path: str = "",
-    session_mgr: SessionManager = Depends(get_session_manager),
-    settings: Settings = Depends(get_settings),
-):
-    """List Unity Catalog / Lakeflow synced-table registrations for the Lakebase graph.
-
-    Only meaningful when ``sync_mode == managed_synced``.  Probes each ``_sync``
-    Postgres table against the Databricks synced-tables API in parallel and returns
-    state + pipeline_id for each entry.
-    """
-    with map_route_errors("graph engine Lakebase sync objects", logger):
-        return config_service.graph_engine_lakebase_sync_objects_result(
-            database, branch_path, session_mgr, settings
-        )
-
-
 @router.post("/graph-engine/drop-uc-object")
 async def post_graph_engine_drop_uc_object(
     request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
-    """Drop a Unity Catalog table or Lakeflow synced-table registration.
+    """Drop a Unity Catalog table or view.
 
     Body: ``{ "full_name": "catalog.schema.table", "is_sync": true|false }``
+    ``is_sync`` is accepted for compatibility and no longer changes behaviour.
     """
     with map_route_errors("drop UC object", logger):
         data = await request.json()

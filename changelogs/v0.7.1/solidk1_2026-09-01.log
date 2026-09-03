@@ -406,3 +406,100 @@ on the new package.
 Not yet done: `BranchLakebaseAuth` and the Lakebase project/branch settings still exist —
 retiring them is blocked behind P5b (managed-synced removal), which is 28 files and ~340
 occurrences concentrated in the build pipeline.
+
+## P5b — remove Lakeflow managed-synced mode
+
+Context: `managed_synced` delegated bulk R2RML data movement to a Databricks Lakeflow
+synced-table pipeline. It is Databricks-data-plane-only and has no equivalent on a generic
+PostgreSQL server, so it cannot survive the decoupling. `app_managed` — the app streaming
+warehouse rows into Postgres — is now the only path.
+
+**Design decision: the three-object layout stays.** Each graph version remains
+`*_sync` (bulk) + `*__app` (companion) + `*` (union view), even though both tables are now
+app-written. The bulk/derived split is what lets a rebuild replace bulk triples without
+discarding inferred ones, and collapsing it would force a schema migration on every
+existing deployment. The `_sync` suffix is now historical; that is documented where it
+matters rather than renamed, since renaming physical tables would need the same migration.
+
+**Design decision: legacy `sync_*` config keys are tolerated, not rejected.** Existing
+stored `graph_engine_config` blobs carry `sync_mode`, `sync_table_mode`, `sync_timeout_s`,
+`sync_uc_catalog`, `sync_uc_schema`. Rejecting them in `validate_engine_config_keys` would
+make a saved config fail validation and block Save in the Settings UI, so they are accepted
+and logged at debug. The Settings JS *deletes* them on save, so configs clean themselves up
+as admins touch them.
+
+**Design decision: `build_runs.sync_mode` column is kept.** It records what mode a
+historical build used. Dropping it needs a migration, and it is harmless; new rows write
+`""`.
+
+Changes:
+
+1. src/back/core/graphdb/lakebase/SyncedTableManager.py — deleted (1104 LOC)
+2. src/back/core/graphdb/lakebase/_sync_uc_schema.py — deleted (59 LOC)
+3. src/back/core/graphdb/lakebase/LakebaseFlatStore.py
+   Removed `synced_manager`, `synced_uc_name`, `ensure_synced_companion`,
+   `drop_app_owned_sync_artifacts_if_present`, `ensure_synced_union_view`,
+   `ensure_synced_layout`, `_sync_table_exists`, `resolve_sync_uc_fallback_catalog`, the
+   `sync_mode` / `is_synced` / `sync_table_mode` / `sync_timeout_s` / `sync_uc_catalog`
+   properties, and all six sync constructor parameters. `create_table`, `drop_table`,
+   `truncate_companion` and `optimize_table` lost their mode branches — `optimize_table`
+   now vacuums both sides, since both are app-written.
+4. src/back/core/graphdb/GraphDBFactory.py
+   Removed sync-mode resolution and `_build_synced_manager`.
+5. src/back/core/graphdb/lakebase/LakebaseBase.py
+   `validate_engine_config_keys` rewritten (see the tolerance decision above).
+6. src/back/core/graphdb/lakebase/_companion_ddl.py
+   Removed `LAKEFLOW_SYNC_PRIMARY_KEY`, `wrap_triple_view_sql_for_lakeflow` and
+   `is_lakeflow_sync_owner` — all orphaned once the pipeline went. `drop_view` /
+   `drop_companion` are retained: the surviving `drop_table` path uses them.
+7. src/back/objects/registry/scheduler_tasks/build.py
+   Removed `_is_managed_synced`, `_view_sql_for_graph_store`, `_apply_synced_pipeline`.
+8. src/back/objects/digitaltwin/_build_pipeline.py
+   Removed `_apply_via_synced_pipeline` (354 LOC), `_ensure_lakeflow_source_view`,
+   `_lakebase_managed_synced`, `_sync_flags_from_store`, `_store_is_synced`,
+   `_wrap_view_sql_for_lakeflow`, `_uses_synced_pipeline` and the `_is_lakebase_synced`
+   flag.
+9. src/back/objects/digitaltwin/DigitalTwin.py
+   Dropped `lakebase_sync_mode`, `lakebase_synced_uc`, `lakebase_synced_uc_exists` from
+   the existence payload and removed the UC-sync probe.
+10. src/back/objects/domain/SettingsService.py, src/api/routers/internal/settings.py
+    Removed `graph_engine_lakebase_sync_objects_result` and its route. `drop_uc_object`
+    keeps its `is_sync` parameter for call-shape compatibility but no longer branches.
+11. src/shared/fastapi/health.py
+    Removed `_check_graphdb_uc_catalog` and its registration; the Graph DB group
+    description now describes the actual three-object layout and the co-tenancy guarantee.
+12. src/api/routers/internal/dtwin.py
+    The build task always uses the single-step graph step-list.
+13. src/back/objects/domain/HomeService.py, src/back/core/errors/OperationCancelledError.py,
+    src/back/core/graphdb/engine_config.py — field and docstring cleanups.
+14. Frontend
+    `settings.html`: removed the whole **Bulk loading** tab (pane + nav item) — with only
+    one mode left there is nothing to choose. `settings.js`: removed the mode selector,
+    the managed-sync panel wiring, `loadUcCatalogsForGraphEngine`,
+    `loadLakebaseSyncObjects` and the sync slots. `_query_sync.html` /
+    `_domain_validation.html`: removed the "Sync" architecture cards.
+    `query-sync.js` / `domain-validation.js`: removed the synced-UC population and badges.
+    `runs-render.js`: removed the "Sync Mode" row.
+    Verified with `node --check` on every JS file, balanced `<div>` (158/158) and `<li>`
+    (10/10) counts, and a Jinja parse of each template.
+15. Tests
+    Deleted `test_synced_table_manager.py`, `test_sync_uc_schema.py`,
+    `TestManagedSyncedRouting`, `TestResolveSyncUcFallbackCatalog`, `TestLakeflowWrap`,
+    `TestApplyViaSyncedPipeline`, `TestLakeflowViewWrap`,
+    `TestSyncedTableManagerHeaders`, the three `sync_uc_schema` factory tests, the three
+    "rejects bad sync_*" config tests (now tolerated by design), and two UI-markup tests.
+    Stale assertions on `_is_lakebase_synced` and `lakebase_synced_uc_exists` removed.
+
+**Regression caught during verification:** excising the nested `_uc_probe` helper from
+`DigitalTwin.fetch_digital_twin_existence` over-reached and consumed the function's tail —
+the `asyncio.gather`, every `result[...]` assignment and the `return`. The function silently
+returned `None`, which surfaced as `AttributeError: 'NoneType' object has no attribute
+'get'` on `GET /validate/detailed`. Reconstructed the tail from HEAD. This is why the
+suite runs after each step rather than only at the end.
+
+Modified files: 36 changed, **160 insertions, 4224 deletions**.
+
+Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integration"
+-p no:randomly` → **4772 passed, 21 skipped, 283 deselected in 23.84s**. The 7 co-tenancy
+`db` tests still pass against the live Azure server (19.09s). No new ruff violations
+(1 before, 1 after).

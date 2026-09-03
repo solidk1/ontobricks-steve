@@ -1,14 +1,16 @@
-"""DDL helpers for the synced table, writable companion table, and union view.
+"""DDL helpers for the bulk table, writable companion table, and union view.
 
-Both ``managed_synced`` and ``app_managed`` modes use the same three-object
-Postgres layout per graph version:
+Three Postgres objects per graph version:
 
-- ``g_<dom>_v<n>_sync`` -- bulk-data table.
-  In ``managed_synced`` it is read-only, populated by Lakeflow.
-  In ``app_managed`` it is populated by the app during build (streaming from
-  the Delta warehouse view) and is otherwise read-only post-build.
+- ``g_<dom>_v<n>_sync`` -- bulk data, streamed from the Delta warehouse view
+  during a Build and read-only afterwards. The ``_sync`` suffix is historical
+  (it once denoted a Lakeflow-owned synced table) and is kept so existing
+  deployments need no migration.
 - ``g_<dom>_v<n>__app``  -- writable companion (reasoning + cohort writes).
 - ``g_<dom>_v<n>``       -- union view that readers query (back-compat name).
+
+Splitting bulk from derived is what lets a rebuild replace the former without
+discarding the latter.
 
 The synced table mirrors the source Delta view's columns
 (``subject``, ``predicate``, ``object``); the companion carries the full
@@ -22,13 +24,6 @@ from __future__ import annotations
 from typing import Any
 
 from back.core.helpers import safe_identifier, sql_cast
-
-# Lakeflow synced-table PK (object_hash comes from the Delta warehouse view).
-LAKEFLOW_SYNC_PRIMARY_KEY: tuple[str, ...] = (
-    "subject",
-    "predicate",
-    "object_hash",
-)
 
 HASH_FUNCTION_NAME = "sha256_utf8"
 
@@ -127,14 +122,6 @@ def ensure_hash_function(cur: Any, schema: str = "") -> None:
     )
 
 
-def wrap_triple_view_sql_for_lakeflow(spark_sql: str) -> str:
-    """Wrap translated Spark SQL so the view exposes ``object_hash`` for Lakeflow."""
-    inner = spark_sql.strip().rstrip(";")
-    return (
-        "SELECT subject, predicate, object, "
-        f"sha2({sql_cast('object', 'STRING')}, 256) AS object_hash "
-        f"FROM ({inner}) AS _ob_triples"
-    )
 
 
 def _table_bare_name(table_ref: str) -> str:
@@ -179,7 +166,7 @@ def upgrade_legacy_triple_table_to_object_hash(
 
     ``CREATE TABLE IF NOT EXISTS`` leaves legacy companions in place; without
     this step ``ensure_graph_indexes`` fails with ``column "object_hash" does
-    not exist`` when (re)building managed_synced graphs.
+    not exist`` when rebuilding a graph created before 0.6.2.
     """
     bare = _table_bare_name(table_ref)
     if not _table_exists(cur, bare) or _has_object_hash_column(cur, bare):
@@ -248,8 +235,7 @@ def ensure_synced(cur: Any, schema: str, synced: str) -> None:
     """Create the ``_sync`` bulk-data table + standard B-tree indexes if absent.
 
     Used by the ``app_managed`` build path to provision the table that receives
-    warehouse-streamed triples.  In ``managed_synced`` mode this table is
-    created by Lakebase/Lakeflow instead.
+    warehouse-streamed triples.
     """
     _create_triple_table(cur, schema, synced)
 
@@ -257,20 +243,15 @@ def ensure_synced(cur: Any, schema: str, synced: str) -> None:
 _LAKEFLOW_SYNC_OWNER_PREFIX = "databricks_writer"
 
 
-def is_lakeflow_sync_owner(owner: str) -> bool:
-    """Return True when *owner* looks like a Lakeflow synced-table writer role."""
-    return str(owner or "").startswith(_LAKEFLOW_SYNC_OWNER_PREFIX)
 
 
 def drop_synced(cur: Any, synced: str) -> None:
     """Drop the ``_sync`` bulk-data table (``app_managed`` cleanup path).
 
     Uses a DO block to skip the DROP when the current session does not own the
-    table.  This prevents ``PSQLException: must be owner of table`` when a
-    previous ``managed_synced`` build left behind a ``_sync`` table created by
-    Lakeflow under a different service principal, and the next build runs in
-    ``app_managed`` mode (e.g. after a config change or a transient mode-
-    resolution fallback).
+    table, which prevents ``must be owner of table`` on a ``_sync`` table left
+    behind by a different database role — for example one created by the
+    since-removed Lakeflow managed-synced path.
     """
     bare = synced.split(".")[-1].strip('"')
     cur.execute(

@@ -1,6 +1,6 @@
 """Cooperative cancellation marker.
 
-Raised by long-running worker code (e.g. ``SyncedTableManager.wait_for_completion``)
+Raised by long-running worker code
 when an external cancel signal has been observed. Callers in the build
 pipeline catch this to exit cleanly **without** flipping the task status
 to ``failed`` — the task has already transitioned to ``cancelled`` by the

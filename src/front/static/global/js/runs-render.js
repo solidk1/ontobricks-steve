@@ -205,7 +205,6 @@ window.RunsRender = (function () {
         html += kv('Entities', esc(run.entity_count || 0));
         html += kv('Relationships', esc(run.relationship_count || 0));
         html += kv('SQL Size', esc((run.sql_chars || 0).toLocaleString()) + ' chars');
-        html += kv('Sync Mode', esc(run.sync_mode || '—'));
         html += kv('Graph Name', esc(run.graph_name || '—'));
         html += kv('View / Table', esc(run.view_table || '—'));
         html += kv('Task ID', '<span class="font-monospace small">' + esc(run.task_id || '—') + '</span>');

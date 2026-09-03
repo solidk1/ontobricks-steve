@@ -821,7 +821,6 @@ class DigitalTwin:
             "graph_engine": graph_engine,
             "graph_has_data": None,
             "lakebase_table_exists": None,
-            "lakebase_synced_uc_exists": None,
             "lakebase_check_error": None,
             "view_table": view_table,
             "graph_name": graph_name or effective_graph_name(domain),
@@ -834,7 +833,6 @@ class DigitalTwin:
             "lakebase_database": "",
             "lakebase_schema": "",
             "lakebase_table": "",
-            "lakebase_synced_uc": "",
         }
 
         # Resolve Lakebase artefact names from engine config only — no probes.
@@ -845,16 +843,10 @@ class DigitalTwin:
                 from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
                 from back.core.graphdb.lakebase.LakebaseFlatStore import (
                     resolve_lakebase_graph_schema,
-                    resolve_sync_uc_fallback_catalog,
                 )
-                from back.core.graphdb.lakebase._companion_ddl import synced_phy
 
                 engine_config = lakebase_section(
                     GraphDBFactory._resolve_graph_engine_config(domain, settings) or {}
-                )
-                sync_mode = (
-                    str(engine_config.get("sync_mode") or "app_managed").strip()
-                    or "app_managed"
                 )
                 schema_raw = str(engine_config.get("schema") or "").strip()
                 lk_schema = resolve_lakebase_graph_schema(domain, settings, schema_raw)
@@ -864,14 +856,6 @@ class DigitalTwin:
                 result["lakebase_schema"] = lk_schema
                 result["lakebase_table"] = lk_table
                 # Database display needs a live connection; leave blank while pending.
-                if sync_mode == "managed_synced" and lk_schema and graph_name:
-                    catalog = str(engine_config.get("sync_uc_catalog") or "").strip()
-                    if not catalog:
-                        catalog = resolve_sync_uc_fallback_catalog(domain, settings)
-                    if catalog:
-                        result["lakebase_synced_uc"] = (
-                            f"{catalog}.{lk_schema}.{synced_phy(graph_name)}"
-                        )
             except Exception as exc:  # noqa: BLE001 — keep skeleton best-effort
                 logger.debug(
                     "pending_dt_existence: lakebase name resolution failed: %s", exc
@@ -1042,7 +1026,6 @@ class DigitalTwin:
             "graph_engine": graph_engine,
             "graph_has_data": None,
             "lakebase_table_exists": None,
-            "lakebase_synced_uc_exists": None,
             "lakebase_check_error": None,
             "view_table": view_table,
             "graph_name": graph_name,
@@ -1064,23 +1047,18 @@ class DigitalTwin:
             )
 
         # --- Resolve config without needing a Postgres connection (sync) ---
-        lk_sync_mode = "app_managed"
         lk_schema = ""
         lk_table = ""
-        lk_synced_uc_cfg = ""
         try:
             from back.core.graphdb import GraphDBFactory
             from back.core.graphdb.engine_config import lakebase_section
             from back.core.graphdb.lakebase.LakebaseFlatStore import (
-                resolve_sync_uc_fallback_catalog,
                 resolve_lakebase_graph_schema,
             )
-            from back.core.graphdb.lakebase._companion_ddl import synced_phy
 
             engine_config = lakebase_section(
                 GraphDBFactory._resolve_graph_engine_config(domain, settings) or {}
             )
-            lk_sync_mode = str(engine_config.get("sync_mode") or "app_managed").strip() or "app_managed"
 
             # Populate schema/table from config so the card shows values even without Postgres
             schema_raw = str(engine_config.get("schema") or "").strip()
@@ -1088,15 +1066,6 @@ class DigitalTwin:
             if graph_name:
                 from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
                 lk_table = LakebaseBase.physical_table_id(graph_name)
-
-            # Compute UC sync FQN (managed_synced only)
-            if lk_sync_mode == "managed_synced":
-                catalog = str(engine_config.get("sync_uc_catalog") or "").strip()
-                if not catalog:
-                    catalog = resolve_sync_uc_fallback_catalog(domain, settings)
-                uc_schema = lk_schema  # always equals the graph schema
-                if catalog and uc_schema:
-                    lk_synced_uc_cfg = f"{catalog}.{uc_schema}.{synced_phy(graph_name)}"
         except Exception as e:
             logger.warning("DT existence: lakebase config resolution failed: %s", e)
 
@@ -1129,14 +1098,9 @@ class DigitalTwin:
                 "lk_database": "",
                 "lk_schema": lk_schema,
                 "lk_table": lk_table,
-                "lk_synced_uc": "",
                 "lk_check_error": None,
             }
             try:
-                from back.core.graphdb.lakebase.LakebaseFlatStore import (
-                    resolve_sync_uc_fallback_catalog,
-                )
-
                 graph_store = get_graphdb(domain, settings)
                 if graph_store:
                     lk_schema_live = getattr(graph_store, "graph_schema", "") or ""
@@ -1149,14 +1113,6 @@ class DigitalTwin:
                         data["lk_table"] = lk_table_live
                     if callable(db_fn):
                         data["lk_database"] = db_fn() or ""
-                    if getattr(graph_store, "is_synced", False) and not lk_synced_uc_cfg:
-                        try:
-                            fallback_cat = resolve_sync_uc_fallback_catalog(domain, settings)
-                            data["lk_synced_uc"] = graph_store.synced_uc_name(
-                                graph_name, fallback_catalog=fallback_cat
-                            )
-                        except Exception:
-                            pass
                     exists_tbl = await run_blocking(graph_store.table_exists, graph_name)
                     data["exists_tbl"] = exists_tbl
                     if exists_tbl:
@@ -1175,29 +1131,7 @@ class DigitalTwin:
                 data["lk_check_error"] = str(e)
             return data
 
-        # --- Probe 3: UC synced-table existence (SQL warehouse) ---
-        async def _uc_probe(uc_fqn):
-            if not uc_fqn:
-                return None
-            try:
-                view_store_uc = get_graphdb(domain, settings, engine="view")
-                if view_store_uc:
-                    exists = await run_blocking(view_store_uc.table_exists, uc_fqn)
-                    logger.info(
-                        "DT existence: synced UC table %s -> exists=%s", uc_fqn, exists
-                    )
-                    return exists
-            except Exception as e:
-                logger.warning(
-                    "DT existence: synced UC table %s check failed: %s", uc_fqn, e
-                )
-            return None
-
-        view_res, pg, uc_cfg_exists = await asyncio.gather(
-            _view_probe(),
-            _postgres_probe(),
-            _uc_probe(lk_synced_uc_cfg),
-        )
+        view_res, pg = await asyncio.gather(_view_probe(), _postgres_probe())
 
         view_ok, view_err = view_res
         result["view_exists"] = view_ok
@@ -1216,18 +1150,6 @@ class DigitalTwin:
         result["lakebase_database"] = pg["lk_database"]
         result["lakebase_schema"] = pg["lk_schema"]
         result["lakebase_table"] = pg["lk_table"]
-        result["lakebase_sync_mode"] = lk_sync_mode
-
-        lk_synced_uc = lk_synced_uc_cfg or pg["lk_synced_uc"] or ""
-        result["lakebase_synced_uc"] = lk_synced_uc
-
-        if lk_synced_uc_cfg:
-            # FQN known from config — its probe already ran in the gather above.
-            result["lakebase_synced_uc_exists"] = uc_cfg_exists
-        elif lk_synced_uc:
-            # FQN discovered live via Postgres — confirm with a follow-up probe.
-            result["lakebase_synced_uc_exists"] = await _uc_probe(lk_synced_uc)
-
         return result
 
     async def _fetch_neo4j_existence(
@@ -2157,9 +2079,8 @@ class DigitalTwin:
             session cache, volume archive, phase timings).
           * ``"api"`` — external REST build (matches legacy ``digitaltwin.dt_build``).
 
-        All builds are full rebuilds. When the graph engine is ``lakebase`` in
-        ``managed_synced`` mode, the Lakeflow pipeline handles the data-plane
-        refresh and triples never enter this process.
+        All builds are full rebuilds: the app streams every triple from the
+        warehouse VIEW into the graph store.
 
         Implementation lives in :class:`_BuildPipeline` (Replace Method with
         Method Object); this static method preserves the call shape for both

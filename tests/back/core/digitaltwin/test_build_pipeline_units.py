@@ -111,7 +111,6 @@ class TestInit:
         assert pipe.triple_count == 0
         assert pipe._lakebase_engine_config == {}
         assert pipe._graph_engine == ""
-        assert pipe._is_lakebase_synced is False
 
     def test_start_time_is_set_to_now(self) -> None:
         # The exact value isn't critical -- just that it's a recent epoch.

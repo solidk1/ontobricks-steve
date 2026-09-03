@@ -193,8 +193,7 @@ class GraphDBFactory:
         template (``_empty()``) from a cold-start race where Lakebase was
         briefly unavailable, while the Settings UI correctly shows the saved
         value because it always uses ``force=True``.  Without bypassing the
-        cache the build would silently fall back to ``app_managed`` even though
-        ``managed_synced`` is configured.
+        cache a build could silently resolve against an empty engine config.
         """
         try:
             from back.objects.session.GlobalConfigService import global_config_service
@@ -336,12 +335,7 @@ class GraphDBFactory:
             )
             from back.core.graphdb.lakebase.LakebaseFlatStore import (
                 LakebaseFlatStore,
-                SYNC_MODE_APP,
-                SYNC_MODE_MANAGED,
                 resolve_lakebase_graph_schema,
-            )
-            from back.core.graphdb.lakebase.SyncedTableManager import (
-                DEFAULT_TIMEOUT_S as _SYNC_DEFAULT_TIMEOUT_S,
             )
             from back.core.databricks import get_lakebase_auth
         except ImportError as e:
@@ -355,32 +349,12 @@ class GraphDBFactory:
         cfg = engine_config or {}
         schema_raw = (cfg.get("schema") or "").strip()
         database_override = resolve_postgres_database_override(cfg)
-        sync_mode = str(cfg.get("sync_mode") or SYNC_MODE_APP).strip() or SYNC_MODE_APP
-        if sync_mode not in (SYNC_MODE_APP, SYNC_MODE_MANAGED):
-            logger.warning(
-                "Unknown sync_mode %r in graph_engine_config — falling back to %s",
-                sync_mode,
-                SYNC_MODE_APP,
-            )
-            sync_mode = SYNC_MODE_APP
-        sync_table_mode = str(cfg.get("sync_table_mode") or "snapshot").strip() or "snapshot"
-        sync_timeout_s = int(cfg.get("sync_timeout_s") or _SYNC_DEFAULT_TIMEOUT_S)
-        sync_uc_catalog = str(cfg.get("sync_uc_catalog") or "").strip()
-        sync_uc_schema_override = str(cfg.get("sync_uc_schema") or "").strip()
 
         try:
             schema = resolve_lakebase_graph_schema(domain, settings, str(schema_raw))
         except ValueError as exc:
             logger.warning("Invalid lakebase graph schema: %s", exc)
             return None
-
-        # UC schema segment for the synced-table FQN.
-        # Priority:
-        #   1. Explicit graph_engine_config.sync_uc_schema (user override via Settings UI)
-        #   2. Postgres graph schema — Lakebase places the _sync foreign table in the
-        #      Postgres schema that matches this UC segment, so it must equal the graph
-        #      schema where all other graph tables live.
-        sync_uc_schema = sync_uc_schema_override or schema
 
         branch_path = str(cfg.get("lakebase_branch") or "").strip()
         try:
@@ -407,29 +381,11 @@ class GraphDBFactory:
             )
             return None
 
-        synced_manager = None
-        if sync_mode == SYNC_MODE_MANAGED:
-            synced_manager = self._build_synced_manager(
-                auth, database_override
-            )
-            if synced_manager is None:
-                logger.warning(
-                    "managed_synced requested but SyncedTableManager could not be built — "
-                    "falling back to app_managed for this store"
-                )
-                sync_mode = SYNC_MODE_APP
-
         try:
             return LakebaseFlatStore(
                 auth,
                 schema=schema,
                 database_override=database_override,
-                sync_mode=sync_mode,
-                sync_table_mode=sync_table_mode,
-                sync_timeout_s=sync_timeout_s,
-                sync_uc_catalog=sync_uc_catalog,
-                sync_uc_schema=sync_uc_schema,
-                synced_manager=synced_manager,
             )
         except Exception as e:
             logger.exception("Failed to create Lakebase graph store: %s", e)
@@ -457,41 +413,6 @@ class GraphDBFactory:
             logger.exception("Failed to create DeltaFlatStore: %s", exc)
             return None
 
-    @staticmethod
-    def _build_synced_manager(auth: Any, database_override: str) -> Optional[Any]:
-        """Build a SyncedTableManager with Autoscaling project + branch targeting.
-
-        Passes ``database_project`` + ``database_branch`` (not
-        ``database_instance_name``) so the Lakebase control-plane creates the
-        synced table in the exact branch the catalog is connected to (e.g.
-        ``demo``) rather than the project's default/production branch.
-        """
-        try:
-            from back.core.graphdb.lakebase.SyncedTableManager import (
-                SyncedTableManager,
-            )
-
-            project_name = auth.instance_name  # e.g. "ontobricks-app"
-            branch_name = auth.branch_name      # e.g. "demo"
-            logical_db = (database_override or auth.database or "").strip()
-            logger.info(
-                "Building SyncedTableManager for project=%r branch=%r logical_db=%r",
-                project_name,
-                branch_name,
-                logical_db,
-            )
-            return SyncedTableManager(
-                project_name=project_name,
-                branch_name=branch_name,
-                logical_db=logical_db,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not build SyncedTableManager (%s) — managed_synced disabled "
-                "for this store",
-                exc,
-            )
-            return None
 
     @classmethod
     def get_graphdb(
