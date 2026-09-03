@@ -413,15 +413,15 @@ until P7.
 | Phase | Work | Rationale |
 |---|---|---|
 | ~~P0~~ | **Done** (§6.1). Found that `convert_to` is `STABLE`, so the generated column needs an `IMMUTABLE` in-schema wrapper; everything else confirmed on PG 16.15 | Gated the no-extensions design |
-| P1 | `RuntimeEnv` split: 37 `is_databricks_app()` + 17 `DATABRICKS_APP_PORT` sites → `PORT` / `ONTOBRICKS_AUTH_ENABLED` / `DatabricksConnector.is_configured()`. No behaviour change on Apps | Riskiest and least visible; do it while old behaviour is still runnable as a reference |
-| P2a | **Done.** No-extension schema DDL (in-schema `sha256_utf8` wrapper), `search_path` without `public`, superuser remediation reworded, co-tenancy gate tests | Azure-compatible storage |
-| P2b | **Done.** `back/core/postgres/` — `EntraCredential` (token-as-password, per-connection minting) + `PostgresAuth`, selected by `resolve_pg_auth_mode()`. Reuses the existing pool rather than rewriting it | The app can now reach Azure Postgres |
-| P2c | Retire `BranchLakebaseAuth` and the Lakebase branch/project config once P5b lands | Deferred behind P5b |
-| P3 | Rename `lakebase` → `postgres` with `AliasChoices` back-compat | Mechanical; own commit so review is trivial |
-| P4 | OIDC login, `IdentitySession`, remove 25 header reads, `app_roles` + `AppRoleService` + admin screen | Depends on P1's auth predicate |
-| P5 | Delete `SyncedTableManager`, `provisioner`, `_sync_uc_schema`, `grants.py` and the Settings UI driving them. Neo4j and `SecretsService` are **kept** | Pure subtraction; shrinks P2's surface |
-| P6 | `engine_base.py` base-URL LLM client + Databricks preset | Independent, small |
-| P7 | `src/mcp_server` rename + `/mcp` mount; Dockerfile; compose; Makefile; delete `app.yaml.template`, `databricks.yml`, `scripts/deploy*`; rewrite README and docs | Last, because it removes the reference deploy |
+| ~~P1~~ | **Done.** `RuntimeEnv` split; `_legacy_apps_mode()` later retired with the Apps deploy. A test asserts `DATABRICKS_APP_PORT` stays gone | Riskiest and least visible |
+| ~~P2a~~ | **Done.** No-extension schema DDL (in-schema `sha256_utf8` wrapper), `search_path` without `public`, superuser remediation reworded, co-tenancy gate tests | Azure-compatible storage |
+| ~~P2b~~ | **Done.** `back/core/postgres/` — `EntraCredential` (token-as-password, per-connection minting) + `PostgresAuth`, selected by `resolve_pg_auth_mode()`. Reuses the existing pool rather than rewriting it | The app can now reach Azure Postgres |
+| ~~P2c~~ | **Done.** `BranchLakebaseAuth` removed, `resolve_pg_auth_mode()` selects the mode, all `LAKEBASE_*` variables retired — Lakebase is a Postgres endpoint like any other | Was deferred behind P5b |
+| ~~P3~~ | **Done.** `lakebase` → `postgres` incl. the persisted `graph_engine_config` bucket key (read-both / write-new), proven against a real `jsonb` column. A frontend guard now catches JS left comparing the retired value | Mechanical, but the JS half shipped broken once |
+| ~~P4~~ | **Done.** OIDC auth-code + PKCE, `IdentityResolver`, `app_roles` + `AppRoleService` + `/settings/app-roles` routes. `ONTOBRICKS_AUTH_ENABLED` defaults on | Depended on P1's auth predicate |
+| ~~P5~~ | **Done.** `SyncedTableManager` (1104) + `provisioner` (906) + `_sync_uc_schema` deleted. `grants.py` was deleted in error and restored — it is still used by `PostgresRegistryStore.grant_app_permissions`. Neo4j and `SecretsService` kept | Pure subtraction |
+| ~~P6~~ | **Done.** `shared/config/LLMTarget.py`; any OpenAI-compatible `/chat/completions` provider, Databricks FMAPI as the preset. Also de-duplicated a second hardcoded invocations URL in `SQLWizardService` and three copies of the credential guard in `dtwin.py`. 24-row contract dataset; `live_smoke` still unrun for want of an endpoint | Independent, small — but the gate could not see the file |
+| ~~P7~~ | **Done, scoped down.** Investigation found only `run.py` was a real blocker (bound loopback, ignored `PORT`). The Apps deploy, DABs and `scripts/deploy*` are deleted; no Dockerfile, per instruction. `src/mcp_server` rename and compose were dropped as unnecessary | Removed the reference deploy |
 
 ## 11. Testing strategy
 
