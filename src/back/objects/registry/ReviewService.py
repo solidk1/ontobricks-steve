@@ -53,6 +53,7 @@ from back.objects.registry.version_lifecycle import (
     STATUS_PUBLISHED,
 )
 from back.objects.session import SessionManager, get_domain
+from back.objects.identity import identity_of as _identity
 
 logger = get_logger(__name__)
 
@@ -632,7 +633,7 @@ class ReviewService:
     def _email(request) -> str:
         return (
             getattr(request.state, "user_email", "")
-            or request.headers.get("x-forwarded-email", "")
+            or _identity(request).email
             or ""
         )
 
@@ -772,7 +773,7 @@ class ReviewService:
             from back.core.helpers import get_databricks_host_and_token
 
             host, token = get_databricks_host_and_token(domain, settings)
-            user_token = request.headers.get("x-forwarded-access-token", "") or ""
+            user_token = _identity(request).access_token
             registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
         except Exception as exc:  # noqa: BLE001
             logger.debug("_resolve_roles setup failed: %s", exc)

@@ -56,6 +56,7 @@ from back.objects.registry.version_lifecycle import (
     STATUS_IN_REVIEW,
 )
 from back.objects.session import SessionManager, get_domain
+from back.objects.identity import identity_of as _identity
 
 logger = get_logger(__name__)
 
@@ -483,6 +484,6 @@ class CommentService:
     def _email(request) -> str:
         return (
             getattr(request.state, "user_email", "")
-            or request.headers.get("x-forwarded-email", "")
+            or _identity(request).email
             or ""
         )

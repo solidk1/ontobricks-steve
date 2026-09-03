@@ -53,6 +53,7 @@ from back.core.logging import get_logger
 from back.objects.registry import RegistryCfg, ROLE_ADMIN
 from back.objects.registry.version_lifecycle import STATUS_DRAFT
 from back.objects.session import SessionManager, get_domain
+from back.objects.identity import identity_of as _identity
 
 logger = get_logger(__name__)
 
@@ -488,11 +489,11 @@ class EditLockService:
         """Return ``(email, display_name, session_id)`` for the request."""
         email = (
             getattr(request.state, "user_email", "")
-            or request.headers.get("x-forwarded-email", "")
+            or _identity(request).email
             or ""
         )
         name = (
-            request.headers.get("x-forwarded-preferred-username", "")
+            _identity(request).display_name
             or email
             or "Someone"
         )

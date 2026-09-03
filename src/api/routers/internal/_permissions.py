@@ -12,6 +12,7 @@ from fastapi import Request
 from shared.config.settings import Settings
 from back.objects.session import SessionManager, get_domain
 from back.objects.registry import RegistryCfg, ROLE_ADMIN, permission_service
+from back.objects.identity import identity_of as _identity
 
 
 def filter_visible_domains(
@@ -36,7 +37,7 @@ def filter_visible_domains(
 
     email = (
         getattr(request.state, "user_email", "")
-        or request.headers.get("x-forwarded-email", "")
+        or _identity(request).email
     )
     if not email:
         return list(entries)
@@ -45,7 +46,7 @@ def filter_visible_domains(
 
     domain = get_domain(session_mgr)
     host, token = get_databricks_host_and_token(domain, settings)
-    user_token = request.headers.get("x-forwarded-access-token", "") or ""
+    user_token = _identity(request).access_token
     registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
 
     return permission_service.filter_accessible_domains(

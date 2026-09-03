@@ -42,6 +42,7 @@ from back.objects.registry.version_lifecycle import (
     STATUS_PUBLISHED,
 )
 from back.objects.domain.version_status import clear_version_status_cache
+from back.objects.identity import identity_of as _identity
 from back.objects.session import (
     SessionManager,
     get_domain,
@@ -1113,12 +1114,10 @@ class SettingsService:
         try:
             from back.core.helpers import get_databricks_host_and_token
 
-            email = getattr(request.state, "user_email", "") or request.headers.get(
-                "x-forwarded-email", ""
-            )
+            email = getattr(request.state, "user_email", "") or _identity(request).email
             domain = get_domain(SessionManager(request))
             host, token = get_databricks_host_and_token(domain, settings)
-            user_token = request.headers.get("x-forwarded-access-token", "")
+            user_token = _identity(request).access_token
             registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
             return permission_service.get_domain_role(
                 email,

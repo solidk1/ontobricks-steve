@@ -552,3 +552,56 @@ Also fixed: the fixture in the new test file needed `importlib.import_module` ra
 a *class* of the same name that shadows the submodule attribute.
 
 Tests: **4777 passed, 21 skipped, 283 deselected**. ruff clean.
+
+## P4a — centralise caller identity behind IdentityResolver
+
+Context: identity came straight from Databricks Apps proxy headers at 25 call sites
+(`x-forwarded-email`, `x-forwarded-preferred-username`, `x-forwarded-access-token`). That
+works only behind the Apps proxy, so a container deployment had no identity at all — and
+each site had its own ad-hoc fallback. This is the seam the OIDC flow (P4b) plugs into;
+building it first means the login flow changes one function rather than 25.
+
+**Design decision: resolution order is session → proxy headers → SCIM `/Me`.** Session
+first so a real login always wins and a proxy header cannot spoof past it. Proxy headers
+second so existing Databricks Apps deployments keep working untouched. SCIM last so local
+development still attributes audit records (review sign-offs, status changes) to a real
+developer rather than an empty actor.
+
+**Design decision: the SCIM fallback is suppressed when auth is enforced.** With
+`allow_local=True` under enforcement, an anonymous request would resolve to the deploying
+principal's own identity and be authenticated as that user. `PermissionMiddleware` passes
+`allow_local=not auth_enabled()`, and a test pins it.
+
+Changes:
+
+1. src/back/objects/identity/IdentityResolver.py (new)
+   `Identity` (frozen dataclass: email, display_name, access_token, groups, source) and
+   `IdentityResolver` with one source per mechanism. `access_token` is documented as
+   possibly empty — not every auth path yields a Databricks user token, and callers must
+   cope rather than assume. `identity_of(request)` prefers what the middleware already
+   resolved so call sites never re-hit SCIM.
+2. src/shared/fastapi/main.py
+   `PermissionMiddleware` resolves identity once and stores it on `request.state.identity`
+   / `.user_email` / `.user_token`. `_resolve_roles` reads the token from state instead of
+   the header.
+3. src/api/routers/internal/_permissions.py, domain.py;
+   src/back/objects/registry/{ReviewService,CommentService,lockmgt/EditLockService}.py;
+   src/back/objects/domain/SettingsService.py
+   Twelve header reads replaced with `identity_of(request)`.
+4. tests/units/auth/test_identity_resolver.py (new, 15 tests)
+
+**Bug caught by the suite — 440 failures in one run.** `getattr(request, "session", None)`
+does not protect against a *raising* property, and Starlette's `request.session` asserts
+`SessionMiddleware must be installed`. Since OntoBricks uses its own
+`FileSessionMiddleware` (which attaches to `request.state.session`), every single request
+through `PermissionMiddleware` raised. Fixed by reading `request.state.session` first and
+wrapping the Starlette property access in try/except; a test now mimics a request whose
+`session` property raises.
+
+Also of note: `import back.objects.identity.IdentityResolver as mod` returns the
+re-exported **class**, not the module, because this repo's one-class-per-PascalCase-file
+convention makes them collide. That cost two debugging rounds today (here and in P2c) —
+`importlib.import_module`, or patching the imported symbol directly, is the way.
+
+Tests: **4792 passed, 21 skipped, 283 deselected**. ruff + black + mypy clean on the new
+package.

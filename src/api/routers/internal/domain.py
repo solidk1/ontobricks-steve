@@ -34,6 +34,7 @@ from back.objects.session import (
 )
 from back.objects.domain import Domain, SettingsService
 from api.routers.internal._permissions import filter_visible_domains
+from back.objects.identity import identity_of as _identity
 
 logger = get_logger(__name__)
 
@@ -79,8 +80,8 @@ async def get_current_user(
     Falls back to the SCIM /Me endpoint for local / PAT mode.
     """
     if RuntimeEnv.auth_enabled():
-        name = request.headers.get("x-forwarded-preferred-username", "")
-        email = request.headers.get("x-forwarded-email", "")
+        ident = _identity(request)
+        name, email = ident.display_name, ident.email
         if name or email:
             return {"success": True, "email": name or email}
 

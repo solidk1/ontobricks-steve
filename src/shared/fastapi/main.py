@@ -331,18 +331,19 @@ class PermissionMiddleware(BaseHTTPMiddleware):
             permission_service,
         )
 
-        email = request.headers.get("x-forwarded-email", "")
-        request.state.user_email = email
+        from back.objects.identity import IdentityResolver
 
-        if not RuntimeEnv.auth_enabled():
-            # Local / PAT dev has no proxy identity header, so resolve the
-            # developer's e-mail once via SCIM /Me. Without this, audit
-            # attribution (review sign-offs, status changes) records an
-            # empty actor and sign-off counts stay stuck at 0/N.
-            if not email:
-                from back.core.databricks import get_local_user_email
+        auth_on = RuntimeEnv.auth_enabled()
+        # allow_local only when auth is off: with it enforced, falling back to
+        # the deploying principal's own SCIM identity would authenticate every
+        # anonymous request as that user.
+        identity = IdentityResolver.resolve(request, allow_local=not auth_on)
+        request.state.identity = identity
+        request.state.user_email = identity.email
+        request.state.user_token = identity.access_token
+        email = identity.email
 
-                request.state.user_email = get_local_user_email()
+        if not auth_on:
             request.state.user_role = "admin"
             request.state.user_domain_role = "admin"
             return await call_next(request)
@@ -534,7 +535,7 @@ class PermissionMiddleware(BaseHTTPMiddleware):
         session_mgr = SessionManager(request)
         domain = get_domain(session_mgr)
         host, token = get_databricks_host_and_token(domain, settings)
-        user_token = request.headers.get("x-forwarded-access-token", "")
+        user_token = getattr(request.state, "user_token", "") or ""
 
         from back.objects.registry import RegistryCfg
 
