@@ -362,12 +362,12 @@ def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
     """Probe the configured Graph DB Lakebase database and graph schema.
 
     Uses the same auth selection as :class:`GraphDBFactory._create_lakebase`:
-    ``BranchLakebaseAuth`` when ``graph_engine_config.lakebase_branch`` is set,
+    A branch override from ``graph_engine_config.lakebase_branch`` when set,
     otherwise the bound Lakebase auth.  This ensures the health probe always
     targets the same host as the actual build engine — the graph DB may be
     on a completely different Lakebase project than the registry.
     """
-    from back.core.databricks.lakebase import BranchLakebaseAuth, get_lakebase_auth
+    from back.core.databricks.lakebase import get_graph_auth
 
     cfg = _resolve_registry_cfg(settings)
     try:
@@ -388,11 +388,7 @@ def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
     if not schema:
         return _WARNING, "Graph DB schema not configured — set it in Settings → Graph DB"
 
-    # Select auth: explicit branch → BranchLakebaseAuth; else bound auth.
-    if branch_path:
-        auth = BranchLakebaseAuth(branch_path, database)
-    else:
-        auth = get_lakebase_auth()
+    auth = get_graph_auth(branch_path, database)
 
     if not auth.is_available:
         return (
@@ -1027,7 +1023,7 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
 
 def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
     """Report how many tables / views are in the configured graph DB schema."""
-    from back.core.databricks.lakebase import BranchLakebaseAuth, get_lakebase_auth
+    from back.core.databricks.lakebase import get_graph_auth
 
     cfg = _resolve_registry_cfg(settings)
     try:
@@ -1047,7 +1043,7 @@ def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
     ).strip()
     branch_path = (engine_cfg.get("lakebase_branch") or "").strip()
 
-    auth = BranchLakebaseAuth(branch_path, database) if branch_path else get_lakebase_auth()
+    auth = get_graph_auth(branch_path, database)
     if not auth.is_available:
         return _WARNING, "Lakebase not bound — Graph DB not probed"
 
@@ -1089,7 +1085,7 @@ def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
 
 def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
     """Verify SELECT / INSERT / UPDATE / DELETE on the graph DB schema tables."""
-    from back.core.databricks.lakebase import BranchLakebaseAuth, get_lakebase_auth
+    from back.core.databricks.lakebase import get_graph_auth
 
     cfg = _resolve_registry_cfg(settings)
     try:
@@ -1109,7 +1105,7 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
     ).strip()
     branch_path = (engine_cfg.get("lakebase_branch") or "").strip()
 
-    auth = BranchLakebaseAuth(branch_path, database) if branch_path else get_lakebase_auth()
+    auth = get_graph_auth(branch_path, database)
     if not auth.is_available:
         return _WARNING, "Lakebase not bound — Graph DB permissions not probed"
 

@@ -558,7 +558,7 @@ class TestGraphEngineLakebaseHealth:
         session_mgr, settings = _mock_context()
         auth = MagicMock()
         auth.is_available = False
-        with patch("back.core.databricks.get_lakebase_auth", return_value=auth):
+        with patch("back.core.databricks.get_graph_auth", return_value=auth):
             with pytest.raises(ValidationError, match="Lakebase not available"):
                 SettingsService.graph_engine_lakebase_health_result(session_mgr, settings)
 
@@ -599,6 +599,9 @@ class TestGraphEngineLakebaseHealth:
         psycopg_mod.connect = MagicMock(return_value=conn_cm)
 
         with (
+            patch("back.core.databricks.get_graph_auth", return_value=auth),
+            # The registry database comes from the *bound* auth, not the graph
+            # auth, which a branch override could point at another database.
             patch("back.core.databricks.get_lakebase_auth", return_value=auth),
             patch.dict("os.environ", {"PGHOST": "lh", "PGUSER": "u", "PGPORT": "5432"}, clear=False),
             patch.object(
@@ -641,6 +644,9 @@ class TestGraphEngineLakebaseHealth:
         )
 
         with (
+            patch("back.core.databricks.get_graph_auth", return_value=auth),
+            # The registry database comes from the *bound* auth, not the graph
+            # auth, which a branch override could point at another database.
             patch("back.core.databricks.get_lakebase_auth", return_value=auth),
             patch.dict("os.environ", {"PGHOST": "lh", "PGUSER": "u", "PGPORT": "5432"}, clear=False),
             patch.object(
@@ -670,6 +676,9 @@ class TestGraphEngineLakebaseHealth:
         auth = MagicMock()
         auth.is_available = True
         with (
+            patch("back.core.databricks.get_graph_auth", return_value=auth),
+            # The registry database comes from the *bound* auth, not the graph
+            # auth, which a branch override could point at another database.
             patch("back.core.databricks.get_lakebase_auth", return_value=auth),
             patch.object(
                 SettingsService,

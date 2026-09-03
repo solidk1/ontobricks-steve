@@ -6,6 +6,7 @@ from back.core.databricks.DatabricksAuth import DatabricksAuth  # noqa: F401
 from back.core.databricks.lakebase import (  # noqa: F401
     BranchLakebaseAuth,
     LakebaseAuth,
+    get_graph_auth,
     get_lakebase_auth,
 )
 from back.core.databricks.SQLWarehouse import SQLWarehouse  # noqa: F401
@@ -60,6 +61,7 @@ __all__ = [
     "LakebaseAuth",
     "BranchLakebaseAuth",
     "get_lakebase_auth",
+    "get_graph_auth",
     "DatabricksClient",
     "SQLWarehouse",
     "UnityCatalog",

@@ -16,6 +16,7 @@ from back.core.databricks.lakebase.grants import (  # noqa: F401
 from back.core.databricks.lakebase.LakebaseAuth import (  # noqa: F401
     BranchLakebaseAuth,
     LakebaseAuth,
+    get_graph_auth,
     get_lakebase_auth,
 )
 from back.core.databricks.lakebase.LakebaseConnectionPool import (  # noqa: F401
@@ -43,4 +44,5 @@ __all__ = [
     "LakebaseAuth",
     "BranchLakebaseAuth",
     "get_lakebase_auth",
+    "get_graph_auth",
 ]

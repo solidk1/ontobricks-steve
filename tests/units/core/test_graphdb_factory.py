@@ -121,7 +121,7 @@ class TestGraphDBFactory:
         mock_auth = MagicMock(is_available=True, instance_name="inst", database="ldb")
         with (
             patch("back.core.graphdb.lakebase.LAKEBASE_AVAILABLE", True),
-            patch("back.core.databricks.get_lakebase_auth", return_value=mock_auth),
+            patch("back.core.databricks.get_graph_auth", return_value=mock_auth),
             patch(
                 "back.objects.registry.RegistryCfg.from_domain",
                 return_value=MagicMock(
@@ -160,7 +160,7 @@ class TestGraphDBFactory:
         mock_auth = MagicMock(is_available=True, instance_name="inst", database="ldb")
         with (
             patch("back.core.graphdb.lakebase.LAKEBASE_AVAILABLE", True),
-            patch("back.core.databricks.get_lakebase_auth", return_value=mock_auth),
+            patch("back.core.databricks.get_graph_auth", return_value=mock_auth),
             patch(
                 "back.objects.registry.RegistryCfg.from_domain",
                 return_value=MagicMock(

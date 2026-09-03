@@ -337,7 +337,7 @@ class GraphDBFactory:
                 LakebaseFlatStore,
                 resolve_lakebase_graph_schema,
             )
-            from back.core.databricks import get_lakebase_auth
+            from back.core.databricks import get_graph_auth
         except ImportError as e:
             logger.warning("Lakebase graph engine requires psycopg: %s", e)
             return None
@@ -358,17 +358,7 @@ class GraphDBFactory:
 
         branch_path = str(cfg.get("lakebase_branch") or "").strip()
         try:
-            if branch_path:
-                from back.core.databricks.lakebase import BranchLakebaseAuth
-
-                auth = BranchLakebaseAuth(branch_path, database_override)
-                logger.info(
-                    "Graph engine using explicit branch %r (database=%r)",
-                    branch_path,
-                    database_override,
-                )
-            else:
-                auth = get_lakebase_auth()
+            auth = get_graph_auth(branch_path, database_override)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Lakebase auth unavailable for graph engine: %s", exc)
             return None

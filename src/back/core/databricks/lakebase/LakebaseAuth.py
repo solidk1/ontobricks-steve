@@ -726,6 +726,32 @@ def resolve_pg_auth_mode() -> str:
     return "lakebase"
 
 
+def get_graph_auth(branch_path: str = "", database_override: str = ""):
+    """Return the auth object for a Postgres connection, honouring a branch.
+
+    ``branch_path`` is a Lakebase concept (``projects/<p>/branches/<b>``) that
+    lets the graph store live on a different branch from the registry. It only
+    means anything in ``lakebase`` mode: an Azure Database for PostgreSQL server
+    has no branches, and :class:`BranchLakebaseAuth` would fail against one.
+
+    Six call sites previously repeated this selection inline — ``GraphDBFactory``,
+    three in ``SettingsService`` and three in ``health`` — each with its own
+    subtly different fallback. Centralising it is what makes the branch override
+    correctly inert on Azure rather than a crash.
+    """
+    mode = resolve_pg_auth_mode()
+    if mode == "lakebase" and branch_path:
+        return BranchLakebaseAuth(branch_path, database_override)
+    if mode != "lakebase" and branch_path:
+        logger.debug(
+            "Ignoring graph branch override %r: auth mode is %s, which has no "
+            "concept of branches",
+            branch_path,
+            mode,
+        )
+    return get_lakebase_auth()
+
+
 def get_lakebase_auth():
     """Return the process-wide Postgres auth object for the resolved mode.
 

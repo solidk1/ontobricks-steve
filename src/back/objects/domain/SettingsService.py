@@ -1966,8 +1966,7 @@ class SettingsService:
         """
         import os
 
-        from back.core.databricks import get_lakebase_auth
-        from back.core.databricks.lakebase import BranchLakebaseAuth
+        from back.core.databricks import get_graph_auth
         from back.core.graphdb.engine_config import lakebase_section
         from back.core.graphdb.lakebase.LakebaseBase import (
             default_schema,
@@ -2000,12 +1999,7 @@ class SettingsService:
             schema_raw = (gcfg.get("schema") or "").strip()
             branch_path = (gcfg.get("lakebase_branch") or "").strip()
 
-        # Use the same auth selection as GraphDBFactory: BranchLakebaseAuth
-        # when lakebase_branch is configured, else the bound auth.
-        if branch_path:
-            auth = BranchLakebaseAuth(branch_path, db_override)
-        else:
-            auth = get_lakebase_auth()
+        auth = get_graph_auth(branch_path, db_override)
 
         port = int(os.environ.get("PGPORT", "5432") or "5432")
         bound_db = os.environ.get("PGDATABASE", "").strip()
@@ -2024,6 +2018,10 @@ class SettingsService:
             schema = validate_graph_schema(schema_raw or default_schema())
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+
+        # The registry database, not the graph one: `auth` above may point at a
+        # different branch/database, so ask for the bound registry auth directly.
+        from back.core.databricks import get_lakebase_auth
 
         registry_db = bound_db or get_lakebase_auth().database  # PGDATABASE → registry store
         graph_db = db_override or registry_db                    # graph_engine_config.database
@@ -2638,7 +2636,7 @@ class SettingsService:
         """List Postgres schemas in the graph Lakebase database.
 
         Uses :meth:`_graph_engine_auth` so it always connects to the correct
-        graph project (BranchLakebaseAuth when configured, bound auth otherwise).
+        graph project (branch override when configured, bound auth otherwise).
         ``branch_path`` / ``database`` from the form take priority over saved config.
         """
         try:
@@ -2724,8 +2722,7 @@ class SettingsService:
         Also returns the effective database name (form_database → saved config → "").
         Returns ``(auth, database)``; raises on irrecoverable failures.
         """
-        from back.core.databricks import get_lakebase_auth
-        from back.core.databricks.lakebase import BranchLakebaseAuth
+        from back.core.databricks import get_graph_auth
 
         branch_path = form_branch_path.strip()
         database = form_database.strip()
@@ -2747,9 +2744,7 @@ class SettingsService:
         except Exception:  # noqa: BLE001
             pass  # fall through to bound auth
 
-        if branch_path:
-            return BranchLakebaseAuth(branch_path, database), database
-        return get_lakebase_auth(), database
+        return get_graph_auth(branch_path, database), database
 
     @staticmethod
     def _lakebase_kwargs_for_branch(
@@ -2830,7 +2825,7 @@ class SettingsService:
         """List all user schemas, tables and views in the graph Lakebase database.
 
         Uses :meth:`_graph_engine_auth` to resolve the correct Lakebase host:
-        saved ``graph_engine_config.lakebase_branch`` (BranchLakebaseAuth) when
+        saved ``graph_engine_config.lakebase_branch`` when
         configured, otherwise the bound Lakebase (registry host).
         The ``branch_path`` / ``database`` form params take priority over saved
         config when provided.

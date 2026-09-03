@@ -503,3 +503,52 @@ Tests: `uv run --frozen pytest -m "not scenario and not e2e and not live_integra
 -p no:randomly` → **4772 passed, 21 skipped, 283 deselected in 23.84s**. The 7 co-tenancy
 `db` tests still pass against the live Azure server (19.09s). No new ruff violations
 (1 before, 1 after).
+
+## P2c — centralise graph auth selection so branch overrides are inert off Lakebase
+
+Context: `lakebase_branch` (`projects/<p>/branches/<b>`) lets the graph store sit on a
+different Lakebase branch from the registry. **Six** call sites decided this inline —
+`GraphDBFactory`, three in `SettingsService`, three in `health` — each with its own subtly
+different fallback. On Azure Database for PostgreSQL there are no branches, so a stored
+branch value left over from a Lakebase deployment would build a `BranchLakebaseAuth` and
+fail against the Azure server.
+
+**Design decision: keep `BranchLakebaseAuth`, make the override conditional.** Lakebase is
+still a supported backend via `ONTOBRICKS_PG_AUTH=lakebase`, so deleting the class would
+break those deployments. Instead one helper honours the override *only* in lakebase mode
+and logs that it is ignoring it otherwise. This is Extract Function against a real
+Duplicated Code smell, and the fix for Azure falls out of it.
+
+Changes:
+
+1. src/back/core/databricks/lakebase/LakebaseAuth.py
+   New `get_graph_auth(branch_path, database_override)`: returns
+   `BranchLakebaseAuth` only when the resolved mode is `lakebase` and a branch is set,
+   otherwise the bound auth. Exported from both `lakebase` and `databricks` packages.
+2. src/back/core/graphdb/GraphDBFactory.py, src/back/objects/domain/SettingsService.py
+   (3 sites), src/shared/fastapi/health.py (3 sites)
+   All six now call `get_graph_auth`.
+3. src/back/core/postgres/PostgresAuth.py
+   Added the `is_available` property. `GraphDBFactory` gates on
+   `getattr(auth, "is_available", False)` before building a store, so without it the graph
+   engine would have silently refused to start on Azure — found by reading the factory
+   rather than by a test, since no test covered that gate with a non-Lakebase auth.
+4. tests/units/postgres/test_graph_auth_selection.py (new, 5 tests)
+   Branch override builds branch auth in lakebase mode; is ignored in entra mode; and is
+   ignored on hostname inference alone — the migration case where an operator repoints
+   `PGHOST` at Azure and leaves `lakebase_branch` behind in the stored config.
+5. tests/units/core/test_graphdb_factory.py, tests/units/settings/test_graph_engine_config.py
+   Patch targets repointed to `get_graph_auth`. Three sites now stub **both** getters,
+   documenting that `registry_db` deliberately comes from the *bound* auth rather than the
+   graph auth, which a branch override could point at a different database.
+
+**Bug caught by the suite:** removing the `get_lakebase_auth` import from
+`SettingsService` left one surviving call to it (`registry_db = bound_db or
+get_lakebase_auth().database`), raising `NameError` on the Lakebase health probe. Restored
+as a local import with a comment on why that line wants the bound auth specifically.
+
+Also fixed: the fixture in the new test file needed `importlib.import_module` rather than
+`import back.core.databricks.lakebase.LakebaseAuth as mod`, because the package re-exports
+a *class* of the same name that shadows the submodule attribute.
+
+Tests: **4777 passed, 21 skipped, 283 deselected**. ruff clean.
