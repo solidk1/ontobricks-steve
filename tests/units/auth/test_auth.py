@@ -1,17 +1,18 @@
 """Tests for Databricks auth utilities and DatabricksAuth."""
 
 import time
-import pytest
 from unittest.mock import MagicMock, patch
 
-from back.core.errors import ValidationError
-from shared.config.constants import HTTP_USER_AGENT
+import pytest
+
 from back.core.databricks import (
     DatabricksAuth,
     get_workspace_host,
     has_implicit_credentials,
     normalize_host,
 )
+from back.core.errors import ValidationError
+from shared.config.constants import HTTP_USER_AGENT
 
 
 def _clear_databricks_env(monkeypatch):

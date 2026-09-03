@@ -1,7 +1,8 @@
 """Tests for shared.fastapi.csrf – CSRF middleware."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient

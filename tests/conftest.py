@@ -32,6 +32,10 @@ def setup_test_env(monkeypatch):
     monkeypatch.setenv("DATABRICKS_SQL_WAREHOUSE_ID", "test-warehouse")
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+    # auth_enabled() now defaults to True (fail closed). The suite was
+    # written against the previous "off unless in Apps" behaviour, so pin it
+    # off here; the tests that care about enforcement set it themselves.
+    monkeypatch.setenv("ONTOBRICKS_AUTH_ENABLED", "false")
     monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
     monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
     # Force CloudFetch off in tests so probes that build SQL connection

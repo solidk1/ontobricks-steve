@@ -94,15 +94,39 @@ class PermissionService:
     # Role resolution
     # ------------------------------------------------------------------
 
+    def _app_role_from_registry(
+        self,
+        email: str,
+        host: str,
+        token: str,
+        registry_cfg: Dict[str, str],
+        *,
+        groups: Optional[List[str]] = None,
+    ) -> str:
+        """Resolve app-level access from the registry ``app_roles`` table.
+
+        Returns ``ROLE_NONE`` when the table is empty, unreachable, or holds no
+        match — the caller decides whether to fall back to the App ACL.
+        """
+        try:
+            from back.objects.registry.AppRoleService import AppRoleService
+
+            store = self._store_for(host, token, registry_cfg)
+            return AppRoleService.resolve_role(store, email, groups or [])
+        except Exception as exc:  # noqa: BLE001 — registry may be unconfigured
+            logger.debug("app_roles lookup failed for %s: %s", email, exc)
+            return ROLE_NONE
+
     def get_user_role(
         self,
         email: str,
         host: str,
         token: str,
-        registry_cfg: Dict[str, str],  # kept for signature compat
+        registry_cfg: Dict[str, str],
         app_name: str,
         *,
         user_token: str = "",
+        groups: Optional[List[str]] = None,
     ) -> str:
         """Resolve the app-level access for *email*.
 
@@ -114,19 +138,30 @@ class PermissionService:
               in the App's ACL.
             - ``ROLE_NONE`` -- otherwise.
 
-        ``registry_cfg`` is accepted for backward compatibility with the
-        previous signature but is no longer used.
-        """
-        _ = registry_cfg  # unused; kept for signature compatibility
+        Resolution order:
 
+        1. The registry ``app_roles`` table — the portable source, and the only
+           one that exists outside Databricks Apps.
+        2. The Databricks App ACL, consulted only when the table yields nothing
+           *and* ``app_name`` is set. That keeps an existing Apps deployment
+           working unchanged until an admin populates the table, so the
+           migration needs no flag day.
+        """
         if not email:
+            return ROLE_NONE
+
+        registry_role = self._app_role_from_registry(
+            email, host, token, registry_cfg, groups=groups
+        )
+        if registry_role != ROLE_NONE:
+            return registry_role
+
+        if not app_name:
+            # Off-Apps there is no ACL to fall back to.
             return ROLE_NONE
 
         if self.is_admin(email, host, token, app_name, user_token=user_token):
             return ROLE_ADMIN
-
-        if not app_name:
-            return ROLE_NONE
 
         principals = self.list_app_principals(host, token, app_name)
         users = principals.get("users", [])

@@ -1,5 +1,6 @@
 """Registry — domain registry, permissions, and scheduled builds."""
 
+from back.objects.registry.AppRoleService import AppRoleService  # noqa: F401
 from back.objects.registry.RegistryService import (
     RegistryCfg,
     RegistryService,
@@ -28,6 +29,7 @@ from back.objects.registry import obx_format
 from back.objects.registry.obx_format import CURRENT_OBX_FORMAT_VERSION
 
 __all__ = [
+    "AppRoleService",
     "RegistryCfg",
     "RegistryService",
     "ReviewService",

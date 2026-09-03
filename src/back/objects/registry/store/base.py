@@ -377,6 +377,32 @@ class RegistryStore(ABC):
     # Domain-level permissions
     # ------------------------------------------------------------------
 
+    def list_app_roles(self) -> List[Dict[str, Any]]:
+        """Return every app-level role grant (admin / app_user).
+
+        Concrete, not abstract: this ABC exists partly so tests can fake a
+        store cheaply, and three new abstract methods would break every
+        existing fake. A store without app-role support reports no grants,
+        which ``AppRoleService`` reads as "nobody is granted" rather than an
+        error — so access is denied, never accidentally allowed.
+        """
+        return []
+
+    def grant_app_role(
+        self,
+        principal: str,
+        role: str,
+        *,
+        principal_type: str = "user",
+        display_name: str = "",
+    ) -> Tuple[bool, str]:
+        """Upsert one app-level role grant."""
+        return False, "This registry store does not support app-level roles"
+
+    def revoke_app_role(self, principal: str) -> Tuple[bool, str]:
+        """Remove one app-level role grant."""
+        return False, "This registry store does not support app-level roles"
+
     @abstractmethod
     def load_domain_permissions(self, folder: str) -> Dict[str, Any]:
         """Return ``{"version": 1, "permissions": [...]}`` (empty when

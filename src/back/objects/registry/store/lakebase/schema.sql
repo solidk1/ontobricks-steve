@@ -106,6 +106,31 @@ CREATE INDEX IF NOT EXISTS idx_domain_permissions_principal
     ON domain_permissions(lower(principal));
 
 -- ----------------------------------------------------------------
+-- App-level access (admin / app_user per principal)
+--
+-- Replaces the Databricks App ACL (``list_app_principals``), which does not
+-- exist outside Databricks Apps. Domain-level roles stay in
+-- ``domain_permissions`` above; this table answers "may this principal use
+-- OntoBricks at all, and are they an admin".
+--
+-- The first admin is seeded from ONTOBRICKS_BOOTSTRAP_ADMIN on initialize(),
+-- otherwise a fresh deployment would lock everyone out.
+-- ----------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS app_roles (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    principal       text NOT NULL,
+    principal_type  text NOT NULL DEFAULT 'user',   -- 'user' | 'group'
+    display_name    text NOT NULL DEFAULT '',
+    role            text NOT NULL,                  -- 'admin' | 'app_user'
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (principal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_roles_principal
+    ON app_roles(lower(principal));
+
+-- ----------------------------------------------------------------
 -- Recurring scheduled tasks (Knowledge Graph builds, cohort
 -- materialisations, graph analytics, inference/reasoning).
 --

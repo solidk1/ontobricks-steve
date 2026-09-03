@@ -1184,6 +1184,76 @@ class LakebaseRegistryStore(RegistryStore):
     # Permissions
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # App-level roles (replaces the Databricks App ACL)
+    # ------------------------------------------------------------------
+
+    def list_app_roles(self) -> List[Dict[str, Any]]:
+        """Return every app-level role grant, ordered by principal."""
+        try:
+            _psycopg, dict_row = _require_psycopg()
+            with self._connect() as conn, conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    f"""
+                    SELECT principal, principal_type, display_name, role
+                    FROM {self._q(self._schema)}.app_roles
+                    ORDER BY lower(principal)
+                    """
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("list_app_roles failed: %s", exc)
+            return []
+
+    def grant_app_role(
+        self,
+        principal: str,
+        role: str,
+        *,
+        principal_type: str = "user",
+        display_name: str = "",
+    ) -> Tuple[bool, str]:
+        """Upsert one app-level role grant."""
+        principal = (principal or "").strip()
+        if not principal:
+            return False, "principal is required"
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    INSERT INTO {self._q(self._schema)}.app_roles
+                        (principal, principal_type, display_name, role)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (principal) DO UPDATE SET
+                        principal_type = EXCLUDED.principal_type,
+                        display_name   = EXCLUDED.display_name,
+                        role           = EXCLUDED.role,
+                        updated_at     = now()
+                    """,
+                    (principal, principal_type, display_name, role),
+                )
+            return True, f"Granted {role} to {principal}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("grant_app_role(%s) failed: %s", principal, exc)
+            return False, str(exc)
+
+    def revoke_app_role(self, principal: str) -> Tuple[bool, str]:
+        """Remove one app-level role grant."""
+        principal = (principal or "").strip()
+        if not principal:
+            return False, "principal is required"
+        try:
+            with self._connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    f"DELETE FROM {self._q(self._schema)}.app_roles "
+                    "WHERE lower(principal) = lower(%s)",
+                    (principal,),
+                )
+            return True, f"Revoked app access for {principal}"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("revoke_app_role(%s) failed: %s", principal, exc)
+            return False, str(exc)
+
     def load_domain_permissions(self, folder: str) -> Dict[str, Any]:
         try:
             psycopg, dict_row = _require_psycopg()

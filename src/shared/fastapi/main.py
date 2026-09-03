@@ -136,6 +136,8 @@ async def lifespan(app: FastAPI):
 
 _PERM_BYPASS_PREFIXES = (
     "/static/",
+    # You cannot require a login in order to log in.
+    "/auth/",
     "/health",
     "/docs",
     "/redoc",
@@ -541,6 +543,7 @@ class PermissionMiddleware(BaseHTTPMiddleware):
 
         registry_cfg = RegistryCfg.from_domain(domain, settings).as_dict()
 
+        identity = getattr(request.state, "identity", None)
         app_role = permission_service.get_user_role(
             email,
             host,
@@ -548,6 +551,9 @@ class PermissionMiddleware(BaseHTTPMiddleware):
             registry_cfg,
             settings.ontobricks_app_name,
             user_token=user_token,
+            # OIDC supplies the caller's groups, which lets app_roles carry
+            # group grants instead of one row per user.
+            groups=list(getattr(identity, "groups", []) or []),
         )
 
         domain_folder = getattr(domain, "domain_folder", "") or ""

@@ -605,3 +605,62 @@ convention makes them collide. That cost two debugging rounds today (here and in
 
 Tests: **4792 passed, 21 skipped, 283 deselected**. ruff + black + mypy clean on the new
 package.
+
+## P4b — OIDC login, registry-backed app roles, fail-closed default
+
+Context: with P4a's identity seam in place, this adds the login flow itself. Databricks is
+the identity provider via a **custom OAuth app integration** registered in the account
+console; the app runs authorization-code + PKCE against it. One login yields email, groups,
+and a Databricks user access token — the last enabling per-user Unity Catalog enforcement.
+
+Changes:
+
+1. src/back/objects/identity/OIDCClient.py (new)
+   PKCE (S256) is mandatory and `state` is verified on callback, so an intercepted
+   authorization code is useless and a forged callback is rejected. Endpoints derive from
+   `DATABRICKS_HOST`. Default scopes include `offline_access` so a session can outlive one
+   access token. `fetch_identity` reads SCIM `/Me`; a group-read failure degrades to an
+   empty list rather than aborting the login, since a user with a direct grant can still
+   get in.
+2. src/api/routers/internal/auth.py (new)
+   `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`. `/auth/` is added to
+   `_PERM_BYPASS_PREFIXES` — you cannot require a login in order to log in.
+   `_safe_return_to` restricts `?return_to=` to same-origin relative paths; without it the
+   login route is an open redirect.
+3. src/back/objects/registry/AppRoleService.py (new) + `app_roles` table
+   Replaces the Databricks App ACL. Grants are per-principal, `user` or `group`, role
+   `admin` or `app_user`; group grants match against the OIDC group list.
+4. src/back/objects/registry/PermissionService.py
+   `get_user_role` resolves from the registry first and falls back to the App ACL only when
+   the table yields nothing *and* `app_name` is set. That keeps an existing Apps deployment
+   working unchanged until an admin populates the table — no flag day.
+5. src/shared/config/RuntimeEnv.py — **`auth_enabled()` now defaults to `True`.**
+6. src/shared/fastapi/main.py — threads the OIDC group list into `get_user_role`.
+7. tests: 4 new files, 42 tests. `.env.example` documents every new setting.
+
+**Design decision: bootstrap admin is conditional on there being no admin.**
+`ONTOBRICKS_BOOTSTRAP_ADMIN` seeds the first admin, because otherwise a fresh deployment
+has no admin and nobody who can grant one. It is applied *only* while the table holds no
+admin, so an operator who deliberately revokes an admin does not have it silently restored
+by a stale environment variable.
+
+**Design decision: revoke refuses to remove the last admin.** Otherwise an admin could
+revoke themselves and leave the deployment unadministerable, recoverable only by editing
+the database by hand.
+
+**Design decision: store app-role methods are concrete defaults, not abstract.** Making
+them abstract broke every in-memory test fake (58 errors) — and the `RegistryStore`
+docstring says the ABC exists partly "to make tests easy to fake". The defaults report *no
+grants*, which `AppRoleService` reads as "nobody is granted", so an unsupported store
+denies access rather than accidentally allowing it.
+
+**Design decision: `conftest.py` pins `ONTOBRICKS_AUTH_ENABLED=false`.** The suite was
+written against the old "off unless in Apps" default; pinning it keeps 4835 tests meaningful
+while the new `test_fail_closed.py` asserts the enforcement behaviour deliberately rather
+than by accident.
+
+Verified on the live Azure server: the `app_roles` table, its unique constraint, the
+`lower(principal)` index and the `gen_random_uuid()` default all apply on PG 16.15, and
+`DROP SCHEMA … CASCADE` leaves no residue.
+
+Tests: **4835 passed, 21 skipped, 283 deselected**. ruff + black + mypy clean on new code.

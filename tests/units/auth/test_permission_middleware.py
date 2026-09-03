@@ -6,21 +6,21 @@ the digital-twin build endpoint authorization guard.
 """
 
 import asyncio
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from starlette.datastructures import State
 
+from back.core.errors import AuthorizationError
 from back.objects.registry.PermissionService import (
     ROLE_ADMIN,
     ROLE_APP_USER,
     ROLE_BUILDER,
     ROLE_EDITOR,
-    ROLE_VIEWER,
     ROLE_NONE,
+    ROLE_VIEWER,
     role_level,
 )
-from back.core.errors import AuthorizationError
-
 
 # ------------------------------------------------------------------
 # Helpers

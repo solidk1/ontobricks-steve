@@ -135,15 +135,18 @@ class RuntimeEnv:
 
     @staticmethod
     def auth_enabled() -> bool:
-        """Whether identity and RBAC are enforced.
+        """Whether identity and RBAC are enforced. **Defaults to on.**
 
-        When false, ``PermissionMiddleware`` passes every request through
-        as admin — correct for local development, catastrophic in a
-        deployment. The default therefore follows the legacy Apps probe
-        for now and becomes ``True`` (fail closed) in P4, once an OIDC
-        login flow exists that a locked-down deployment can satisfy.
+        When false, ``PermissionMiddleware`` passes every request through as
+        admin. That is right for local development and catastrophic in a
+        deployment, so the default fails *closed*: a deployment that forgets to
+        configure anything is locked rather than wide open. Set
+        ``ONTOBRICKS_AUTH_ENABLED=false`` explicitly for local development.
+
+        This became the default once OIDC login existed for a locked-down
+        deployment to satisfy (see ``api/routers/internal/auth.py``).
         """
-        return _env_flag("ONTOBRICKS_AUTH_ENABLED", _legacy_apps_mode())
+        return _env_flag("ONTOBRICKS_AUTH_ENABLED", True)
 
 
 def default_session_dir() -> str:

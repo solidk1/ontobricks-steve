@@ -123,21 +123,27 @@ class TestAuthEnabled:
         monkeypatch.setenv("DATABRICKS_APP_PORT", "8501")
         assert RuntimeEnv.auth_enabled() is False
 
-    def test_unset_preserves_legacy_behaviour(self, monkeypatch):
-        """P1 is behaviour-preserving: unset == the old is_databricks_app().
+    def test_unset_fails_closed(self, monkeypatch):
+        """A deployment that configures nothing must be locked, not open.
 
-        P4 flips this default to True (fail closed) once OIDC login exists.
-        When that lands, this test is the one that must change.
+        This flipped in P4b: before OIDC login existed, defaulting to on would
+        have locked out local development with no way back in.
         """
         from shared.config.RuntimeEnv import RuntimeEnv
 
         monkeypatch.delenv("ONTOBRICKS_AUTH_ENABLED", raising=False)
 
         monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
-        assert RuntimeEnv.auth_enabled() is False
+        assert RuntimeEnv.auth_enabled() is True
 
         monkeypatch.setenv("DATABRICKS_APP_PORT", "8501")
         assert RuntimeEnv.auth_enabled() is True
+
+    def test_explicitly_disabled_for_local_dev(self, monkeypatch):
+        from shared.config.RuntimeEnv import RuntimeEnv
+
+        monkeypatch.setenv("ONTOBRICKS_AUTH_ENABLED", "false")
+        assert RuntimeEnv.auth_enabled() is False
 
 
 class TestBooleanParsing:
