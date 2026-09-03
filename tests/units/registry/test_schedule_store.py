@@ -79,15 +79,15 @@ class _Conn:
 
 
 def _store(monkeypatch, cursor, *, migrated=True, cohorts_imported=True):
-    """A LakebaseRegistryStore wired to *cursor* instead of Postgres."""
+    """A PostgresRegistryStore wired to *cursor* instead of Postgres."""
     monkeypatch.setenv("PGHOST", "test-host")
     monkeypatch.setenv("PGPORT", "5432")
     monkeypatch.setenv("PGDATABASE", "ontobricks_registry")
     monkeypatch.setenv("PGUSER", "sp-test")
 
-    from back.objects.registry.store.lakebase import LakebaseRegistryStore
+    from back.objects.registry.store.postgres import PostgresRegistryStore
 
-    store = LakebaseRegistryStore(registry_cfg=CFG, schema="reg")
+    store = PostgresRegistryStore(registry_cfg=CFG, schema="reg")
     store._registry_id = "rid-1"
     store._schedule_columns_ready = migrated
     store._cohort_schedules_imported = cohorts_imported

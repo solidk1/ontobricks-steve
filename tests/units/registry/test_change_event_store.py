@@ -1,8 +1,8 @@
 """Unit tests for the Lakebase change-audit store methods (mocked cursor).
 
 Exercises the SQL-orchestration branches of
-:meth:`LakebaseRegistryStore.record_change_events` and
-:meth:`~LakebaseRegistryStore.list_change_events` without a real Postgres:
+:meth:`PostgresRegistryStore.record_change_events` and
+:meth:`~PostgresRegistryStore.list_change_events` without a real Postgres:
 the connection / cursor are mocked, so these assert the call shape and the
 row mapping, not the actual persistence semantics (those live in the gated
 integration suite).
@@ -19,7 +19,7 @@ import pytest
 pytest.importorskip("psycopg")
 
 from back.objects.registry import RegistryCfg
-from back.objects.registry.store.lakebase.store import LakebaseRegistryStore
+from back.objects.registry.store.postgres.store import PostgresRegistryStore
 
 CFG = RegistryCfg(catalog="cat", schema="sch", volume="vol")
 _NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -67,10 +67,10 @@ class _FakeConn:
 
 def _store():
     with patch(
-        "back.objects.registry.store.lakebase.store.get_lakebase_auth",
+        "back.objects.registry.store.postgres.store.get_lakebase_auth",
         MagicMock(return_value=MagicMock()),
     ):
-        st = LakebaseRegistryStore(registry_cfg=CFG, schema="ontobricks_registry")
+        st = PostgresRegistryStore(registry_cfg=CFG, schema="ontobricks_registry")
     st._change_events_ready = True  # skip lazy-heal DDL round-trip
     st._registry_id = "reg-1"
     return st

@@ -17,14 +17,14 @@ from __future__ import annotations
 from typing import Any, Tuple
 
 from back.core.databricks.lakebase.constants import APPLICATION_NAME_GRAPH
-from back.core.databricks.lakebase.LakebaseConnectionPool import (
-    LakebaseConnectionPool,
-    get_lakebase_pool,
+from back.core.postgres.PostgresConnectionPool import (
+    PostgresConnectionPool,
+    get_postgres_pool,
 )
-from back.core.databricks.lakebase.psycopg_gate import require_psycopg
+from back.core.postgres.psycopg_gate import require_psycopg
 
 
-class LakebaseGraphPoolError(RuntimeError):
+class PostgresGraphPoolError(RuntimeError):
     """Raised when the graph-db pool cannot serve a connection."""
 
 
@@ -38,21 +38,21 @@ def _require_psycopg() -> Tuple[Any, Any]:
     return require_psycopg()
 
 
-def get_lakebase_graph_pool(
+def get_postgres_graph_pool(
     auth: Any, schema: str, database: str = ""
-) -> LakebaseConnectionPool:
+) -> PostgresConnectionPool:
     """Return the shared Lakebase pool bound to the graph workload.
 
-    Wraps :func:`back.core.databricks.lakebase.get_lakebase_pool` with the
-    ``ontobricks-graphdb`` application label and :class:`LakebaseGraphPoolError`
+    Wraps :func:`back.core.postgres.get_postgres_pool` with the
+    ``ontobricks-graphdb`` application label and :class:`PostgresGraphPoolError`
     so graph connection failures surface as a graph-specific error. The pool
     key is the full connection identity, so the graph engine never shares a
     pool with the registry even when both point at the same Lakebase instance.
     """
-    return get_lakebase_pool(
+    return get_postgres_pool(
         auth,
         schema,
         database,
         application_name=APPLICATION_NAME_GRAPH,
-        error_factory=LakebaseGraphPoolError,
+        error_factory=PostgresGraphPoolError,
     )

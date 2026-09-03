@@ -611,7 +611,7 @@ class TestGraphEngineLakebaseHealth:
             ),
             patch.object(_svc_module, "global_config_service") as gcs,
             patch(
-                "back.core.graphdb.lakebase.pool._require_psycopg",
+                "back.core.graphdb.postgres.pool._require_psycopg",
                 return_value=(psycopg_mod, MagicMock()),
             ),
         ):
@@ -656,7 +656,7 @@ class TestGraphEngineLakebaseHealth:
             ),
             patch.object(_svc_module, "global_config_service") as gcs,
             patch(
-                "back.core.graphdb.lakebase.pool._require_psycopg",
+                "back.core.graphdb.postgres.pool._require_psycopg",
                 return_value=(psycopg_mod, MagicMock()),
             ),
         ):

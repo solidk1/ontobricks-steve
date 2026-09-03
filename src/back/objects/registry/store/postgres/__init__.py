@@ -7,8 +7,8 @@ installed.
 
 Submodules
 ----------
-- :mod:`back.objects.registry.store.lakebase.store` — the
-  :class:`LakebaseRegistryStore` class.
+- :mod:`back.objects.registry.store.postgres.store` — the
+  :class:`PostgresRegistryStore` class.
 - ``schema.sql`` — idempotent DDL applied on first
   ``initialize()``; the schema name is parameterised via the
   ``__SCHEMA__`` token at runtime.
@@ -20,6 +20,6 @@ and mints short-lived Lakebase JWTs via the workspace SDK).
 
 from __future__ import annotations
 
-from .store import LakebaseRegistryStore
+from .store import PostgresRegistryStore
 
-__all__ = ["LakebaseRegistryStore"]
+__all__ = ["PostgresRegistryStore"]

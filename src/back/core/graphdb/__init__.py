@@ -13,7 +13,7 @@ from back.core.graphdb.GraphDBFactory import GraphDBFactory  # noqa: F401
 from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL  # noqa: F401
 
 get_graphdb = GraphDBFactory.get_graphdb
-GRAPHDB_AVAILABLE = GraphDBFactory.LAKEBASE_AVAILABLE
+GRAPHDB_AVAILABLE = GraphDBFactory.POSTGRES_AVAILABLE
 
 __all__ = [
     "GraphDBBackend",

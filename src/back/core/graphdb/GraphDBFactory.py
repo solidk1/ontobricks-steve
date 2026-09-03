@@ -42,7 +42,7 @@ def normalize_graph_backend(value: Optional[str]) -> str:
 class GraphDBFactory:
     """Construct graph DB backend instances from domain session configuration."""
 
-    LAKEBASE_AVAILABLE = False
+    POSTGRES_AVAILABLE = False
     NEO4J_AVAILABLE = False
 
     def create(
@@ -327,22 +327,22 @@ class GraphDBFactory:
         *,
         engine_config: Optional[Dict[str, Any]] = None,
     ) -> Optional[Any]:
-        """Instantiate :class:`LakebaseFlatStore` on the bound Lakebase instance."""
+        """Instantiate :class:`PostgresFlatStore` on the bound Lakebase instance."""
         try:
-            from back.core.graphdb.lakebase import LAKEBASE_AVAILABLE
-            from back.core.graphdb.lakebase.LakebaseBase import (
+            from back.core.graphdb.postgres import POSTGRES_AVAILABLE
+            from back.core.graphdb.postgres.PostgresBase import (
                 resolve_postgres_database_override,
             )
-            from back.core.graphdb.lakebase.LakebaseFlatStore import (
-                LakebaseFlatStore,
-                resolve_lakebase_graph_schema,
+            from back.core.graphdb.postgres.PostgresFlatStore import (
+                PostgresFlatStore,
+                resolve_postgres_graph_schema,
             )
             from back.core.databricks import get_graph_auth
         except ImportError as e:
             logger.warning("Lakebase graph engine requires psycopg: %s", e)
             return None
 
-        if not LAKEBASE_AVAILABLE:
+        if not POSTGRES_AVAILABLE:
             logger.warning("Lakebase graph backend unavailable (psycopg not installed)")
             return None
 
@@ -351,7 +351,7 @@ class GraphDBFactory:
         database_override = resolve_postgres_database_override(cfg)
 
         try:
-            schema = resolve_lakebase_graph_schema(domain, settings, str(schema_raw))
+            schema = resolve_postgres_graph_schema(domain, settings, str(schema_raw))
         except ValueError as exc:
             logger.warning("Invalid lakebase graph schema: %s", exc)
             return None
@@ -372,7 +372,7 @@ class GraphDBFactory:
             return None
 
         try:
-            return LakebaseFlatStore(
+            return PostgresFlatStore(
                 auth,
                 schema=schema,
                 database_override=database_override,
@@ -432,9 +432,9 @@ def _get_factory_singleton() -> GraphDBFactory:
 
 
 try:
-    from back.core.graphdb.lakebase import LAKEBASE_AVAILABLE as _LB_AVAIL  # noqa: F401
+    from back.core.graphdb.postgres import POSTGRES_AVAILABLE as _LB_AVAIL  # noqa: F401
 
-    GraphDBFactory.LAKEBASE_AVAILABLE = bool(_LB_AVAIL)
+    GraphDBFactory.POSTGRES_AVAILABLE = bool(_LB_AVAIL)
 except ImportError:
     logger.debug("Lakebase graph backends not available (optional dependency)")
 

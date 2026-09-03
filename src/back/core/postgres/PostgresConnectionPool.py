@@ -18,9 +18,9 @@ the bespoke behaviour the two duplicated pools used to have:
 - Connections recycled before the ~1 h JWT expiry so token rotation stays
   invisible to callers.
 
-Consumers wrap the raised :class:`LakebaseConnectionError` into their own
+Consumers wrap the raised :class:`PostgresConnectionError` into their own
 domain error by passing an ``error_factory`` (the registry uses ``StoreError``,
-the graph engine uses ``LakebaseGraphPoolError``).
+the graph engine uses ``PostgresGraphPoolError``).
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from back.core.databricks.lakebase.constants import (
     POOL_MAX_LIFETIME_S,
     POOL_MAX_SIZE,
 )
-from back.core.databricks.lakebase.psycopg_gate import require_psycopg
+from back.core.postgres.psycopg_gate import require_psycopg
 from back.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,16 +48,16 @@ logger = get_logger(__name__)
 ErrorFactory = Callable[[str], Exception]
 
 
-class LakebaseConnectionError(RuntimeError):
+class PostgresConnectionError(RuntimeError):
     """Raised when the pool cannot serve a Lakebase connection."""
 
 
-class LakebaseConnectionPool:
+class PostgresConnectionPool:
     """Tiny thread-safe LIFO connection pool for a single Lakebase target.
 
     A single instance is shared by every consumer pointing at the same
     ``host/db/user/schema`` and ``application_name`` (see
-    :func:`get_lakebase_pool`).
+    :func:`get_postgres_pool`).
     """
 
     def __init__(
@@ -67,7 +67,7 @@ class LakebaseConnectionPool:
         schema: str,
         database: str = "",
         application_name: str,
-        error_factory: ErrorFactory = LakebaseConnectionError,
+        error_factory: ErrorFactory = PostgresConnectionError,
         max_size: int = POOL_MAX_SIZE,
         max_lifetime: float = POOL_MAX_LIFETIME_S,
     ) -> None:
@@ -250,7 +250,7 @@ class LakebaseConnectionPool:
 # (through their factories), so the pool itself must outlive any single store
 # instance.
 _pools_lock = threading.Lock()
-_pools: Dict[Tuple[str, str, str, str, str, str, str, str], LakebaseConnectionPool] = {}
+_pools: Dict[Tuple[str, str, str, str, str, str, str, str], PostgresConnectionPool] = {}
 
 
 def _safe_attr(obj: Any, name: str) -> str:
@@ -261,14 +261,14 @@ def _safe_attr(obj: Any, name: str) -> str:
         return ""
 
 
-def get_lakebase_pool(
+def get_postgres_pool(
     auth: Any,
     schema: str,
     database: str = "",
     *,
     application_name: str,
-    error_factory: ErrorFactory = LakebaseConnectionError,
-) -> LakebaseConnectionPool:
+    error_factory: ErrorFactory = PostgresConnectionError,
+) -> PostgresConnectionPool:
     """Return (and lazily create) the shared pool for a Lakebase target.
 
     The pool identity is the full connection tuple plus ``application_name``,
@@ -296,7 +296,7 @@ def get_lakebase_pool(
     with _pools_lock:
         pool = _pools.get(key)
         if pool is None:
-            pool = LakebaseConnectionPool(
+            pool = PostgresConnectionPool(
                 auth=auth,
                 schema=schema,
                 database=database,
@@ -316,22 +316,22 @@ def get_lakebase_pool(
 
 
 @contextmanager
-def lakebase_cursor(
+def postgres_cursor(
     auth: Any,
     schema: str,
     database: str = "",
     *,
     application_name: str,
-    error_factory: ErrorFactory = LakebaseConnectionError,
+    error_factory: ErrorFactory = PostgresConnectionError,
     row_factory: Optional[Any] = None,
 ) -> Iterator[Any]:
     """Yield a cursor from the shared pool with ``search_path`` already set.
 
-    A convenience wrapper over :func:`get_lakebase_pool` for the common
+    A convenience wrapper over :func:`get_postgres_pool` for the common
     "run one query on the right schema" pattern. Pass ``row_factory`` (e.g.
     ``psycopg.rows.dict_row``) to control row mapping.
     """
-    pool = get_lakebase_pool(
+    pool = get_postgres_pool(
         auth,
         schema,
         database,

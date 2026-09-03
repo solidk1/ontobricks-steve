@@ -521,7 +521,7 @@ class SettingsService:
     ) -> Dict[str, Any]:
         """Run a comprehensive Lakebase permission check for the registry schema.
 
-        Delegates to :meth:`LakebaseRegistryStore.check_permissions` which
+        Delegates to :meth:`PostgresRegistryStore.check_permissions` which
         probes connection, schema existence/privileges, and per-table CRUD
         rights in a single round-trip. Raises ``ValidationError`` /
         ``InfrastructureError`` when the registry is unbound or Lakebase is unavailable.
@@ -839,7 +839,7 @@ class SettingsService:
             # ``registries`` row instead of returning the stale triplet
             # captured before this Initialize.
             try:
-                from back.objects.registry.store.lakebase.store import (
+                from back.objects.registry.store.postgres.store import (
                     reset_lakebase_triplet_cache,
                 )
 
@@ -1967,7 +1967,7 @@ class SettingsService:
 
         from back.core.databricks import get_graph_auth
         from back.core.graphdb.engine_config import lakebase_section
-        from back.core.graphdb.lakebase.LakebaseBase import (
+        from back.core.graphdb.postgres.PostgresBase import (
             default_schema,
             resolve_postgres_database_override,
             validate_graph_schema,
@@ -2026,7 +2026,7 @@ class SettingsService:
         graph_db = db_override or registry_db                    # graph_engine_config.database
 
         try:
-            from back.core.graphdb.lakebase.pool import _require_psycopg
+            from back.core.graphdb.postgres.pool import _require_psycopg
 
             psycopg, _ = _require_psycopg()
         except ImportError as exc:
@@ -2639,7 +2639,7 @@ class SettingsService:
         ``branch_path`` / ``database`` from the form take priority over saved config.
         """
         try:
-            from back.core.graphdb.lakebase.pool import _require_psycopg
+            from back.core.graphdb.postgres.pool import _require_psycopg
 
             auth, effective_db = SettingsService._graph_engine_auth(
                 _session_mgr, _settings,
@@ -2830,7 +2830,7 @@ class SettingsService:
         config when provided.
         """
         try:
-            from back.core.graphdb.lakebase.pool import _require_psycopg
+            from back.core.graphdb.postgres.pool import _require_psycopg
 
             psycopg, _ = _require_psycopg()
 
@@ -2981,7 +2981,7 @@ class SettingsService:
             ddl = f"DROP VIEW IF EXISTS {_q(schema)}.{_q(name)} CASCADE"
 
         try:
-            from back.core.graphdb.lakebase.pool import _require_psycopg
+            from back.core.graphdb.postgres.pool import _require_psycopg
 
             psycopg, _ = _require_psycopg()
 

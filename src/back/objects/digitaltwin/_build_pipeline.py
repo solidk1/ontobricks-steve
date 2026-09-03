@@ -1076,7 +1076,7 @@ class _BuildPipeline:
 
     def _sync_failure_message(self, exc: Exception) -> str:
         from back.core.errors import InfrastructureError
-        from back.core.graphdb.lakebase.LakebaseFlatStore import (
+        from back.core.graphdb.postgres.PostgresFlatStore import (
             _is_index_row_size_error,
         )
 

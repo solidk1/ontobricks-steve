@@ -199,7 +199,7 @@ class RegistryCfg:
         # Initialize propagates the new triplet into the row.
         if not prefer_volume_binding:
             try:
-                from back.objects.registry.store.lakebase.store import (
+                from back.objects.registry.store.postgres.store import (
                     fetch_lakebase_registry_triplet,
                 )
 

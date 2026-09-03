@@ -337,7 +337,7 @@ class TestCheckLakebase:
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth), \
              patch.object(health, "_resolve_registry_cfg", return_value=_fake_cfg()), \
              patch(
-                 "back.objects.registry.store.lakebase.store.LakebaseRegistryStore",
+                 "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
             status, detail = health._check_lakebase(MagicMock())
@@ -354,7 +354,7 @@ class TestCheckLakebase:
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth), \
              patch.object(health, "_resolve_registry_cfg", return_value=_fake_cfg()), \
              patch(
-                 "back.objects.registry.store.lakebase.store.LakebaseRegistryStore",
+                 "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
             status, detail = health._check_lakebase(MagicMock())
@@ -372,7 +372,7 @@ class TestCheckLakebase:
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth), \
              patch.object(health, "_resolve_registry_cfg", return_value=_fake_cfg()), \
              patch(
-                 "back.objects.registry.store.lakebase.store.LakebaseRegistryStore",
+                 "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
             status, _ = health._check_lakebase(MagicMock())
@@ -398,7 +398,7 @@ class TestCheckLakebasePermissions:
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth), \
              patch.object(health, "_resolve_registry_cfg", return_value=_fake_cfg()), \
              patch(
-                 "back.objects.registry.store.lakebase.store.LakebaseRegistryStore",
+                 "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
             status, detail = health._check_lakebase_permissions(MagicMock())
@@ -445,7 +445,7 @@ class TestCheckLakebasePermissions:
         with patch.object(_LBA_MOD, "get_lakebase_auth", return_value=auth), \
              patch.object(health, "_resolve_registry_cfg", return_value=_fake_cfg()), \
              patch(
-                 "back.objects.registry.store.lakebase.store.LakebaseRegistryStore",
+                 "back.objects.registry.store.postgres.store.PostgresRegistryStore",
                  return_value=store,
              ):
             status, detail = health._check_lakebase_permissions(MagicMock())

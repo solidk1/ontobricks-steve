@@ -397,7 +397,7 @@ def _check_graphdb_lakebase(settings: Settings) -> Tuple[str, str]:
         )
 
     try:
-        from back.core.graphdb.lakebase.pool import _require_psycopg
+        from back.core.graphdb.postgres.pool import _require_psycopg
 
         psycopg, _ = _require_psycopg()
         kwargs = auth.kwargs(application_name="ontobricks-graphdb-health")
@@ -442,9 +442,9 @@ def _check_lakebase(settings: Settings) -> Tuple[str, str]:
         )
 
     cfg = _resolve_registry_cfg(settings)
-    from back.objects.registry.store.lakebase.store import LakebaseRegistryStore
+    from back.objects.registry.store.postgres.store import PostgresRegistryStore
 
-    store = LakebaseRegistryStore(
+    store = PostgresRegistryStore(
         registry_cfg=cfg,
         schema=cfg.lakebase_schema or "ontobricks_registry",
         database=cfg.lakebase_database or "",
@@ -474,9 +474,9 @@ def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
         )
 
     cfg = _resolve_registry_cfg(settings)
-    from back.objects.registry.store.lakebase.store import LakebaseRegistryStore
+    from back.objects.registry.store.postgres.store import PostgresRegistryStore
 
-    store = LakebaseRegistryStore(
+    store = PostgresRegistryStore(
         registry_cfg=cfg,
         schema=cfg.lakebase_schema or "ontobricks_registry",
         database=cfg.lakebase_database or "",
@@ -854,9 +854,9 @@ def _check_lakebase_registry_initialized(settings: Settings) -> Tuple[str, str]:
         return _WARNING, "Lakebase not bound — skipped"
 
     cfg = _resolve_registry_cfg(settings)
-    from back.objects.registry.store.lakebase.store import LakebaseRegistryStore
+    from back.objects.registry.store.postgres.store import PostgresRegistryStore
 
-    store = LakebaseRegistryStore(
+    store = PostgresRegistryStore(
         registry_cfg=cfg,
         schema=cfg.lakebase_schema or "ontobricks_registry",
         database=cfg.lakebase_database or "",
@@ -928,12 +928,12 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
         return _WARNING, "Lakebase not bound (PG* env vars unset) — skipped"
 
     cfg = _resolve_registry_cfg(settings)
-    from back.objects.registry.store.lakebase.store import (
-        LakebaseRegistryStore,
+    from back.objects.registry.store.postgres.store import (
+        PostgresRegistryStore,
         _KNOWN_TABLES,
     )
 
-    store = LakebaseRegistryStore(
+    store = PostgresRegistryStore(
         registry_cfg=cfg,
         schema=cfg.lakebase_schema or "ontobricks_registry",
         database=cfg.lakebase_database or "",
@@ -1048,7 +1048,7 @@ def _check_graphdb_tables(settings: Settings) -> Tuple[str, str]:
         return _WARNING, "Lakebase not bound — Graph DB not probed"
 
     try:
-        from back.core.graphdb.lakebase.pool import _require_psycopg
+        from back.core.graphdb.postgres.pool import _require_psycopg
 
         psycopg, _ = _require_psycopg()
         kwargs = auth.kwargs(application_name="ontobricks-graphdb-diag")
@@ -1110,7 +1110,7 @@ def _check_graphdb_permissions(settings: Settings) -> Tuple[str, str]:
         return _WARNING, "Lakebase not bound — Graph DB permissions not probed"
 
     try:
-        from back.core.graphdb.lakebase.pool import _require_psycopg
+        from back.core.graphdb.postgres.pool import _require_psycopg
 
         psycopg, _ = _require_psycopg()
         kwargs = auth.kwargs(application_name="ontobricks-graphdb-diag")

@@ -43,22 +43,36 @@ class Settings(BaseSettings):
     registry_schema: str = ""
     registry_volume: str = "OntoBricksRegistry"
 
-    # Lakebase: Postgres schema where the registry tables live.
-    # Connection parameters (PGHOST/PGPORT/PGDATABASE/PGUSER) come from
-    # the Databricks App database resource binding at runtime; the OAuth
-    # token used as password is minted by ``LakebaseAuth`` via the
-    # workspace SDK.
-    lakebase_schema: str = "ontobricks_registry"
+    # Postgres schema holding the registry tables. OntoBricks installs into an
+    # existing database as this one schema and touches nothing outside it, so
+    # ``DROP SCHEMA <this> CASCADE`` uninstalls it completely.
+    #
+    # The field keeps its ``lakebase_`` name because it is surfaced as a key in
+    # ``RegistryCfg.as_dict()``, which is consumed widely; renaming it would be
+    # churn with no benefit. ``ONTOBRICKS_PG_SCHEMA`` is the forward-looking
+    # env name and wins, with ``LAKEBASE_SCHEMA`` still honoured so existing
+    # deployments keep working.
+    lakebase_schema: str = Field(
+        default="ontobricks_registry",
+        validation_alias=AliasChoices(
+            "ONTOBRICKS_PG_SCHEMA",
+            "LAKEBASE_SCHEMA",
+            "lakebase_schema",
+        ),
+    )
 
-    # Lakebase: optional override of the Postgres database name. When
-    # empty (the default), the Lakebase backend uses ``PGDATABASE`` as
-    # auto-injected by the Apps runtime. Setting this picks a different
-    # database on the *same* bound Lakebase instance — useful when the
-    # admin wants to change the registry database without redeploying
-    # the bundle. The service principal must have ``CONNECT`` on the
-    # target database. The JWT scope is per-instance so no token
-    # re-mint is needed.
-    lakebase_database: str = ""
+    # Optional override of the Postgres database name. Empty (the default)
+    # means "use PGDATABASE". Setting it points the registry at a different
+    # database on the same server; the connecting principal needs ``CONNECT``
+    # on it. Naming rationale as for ``lakebase_schema`` above.
+    lakebase_database: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ONTOBRICKS_PG_DATABASE",
+            "LAKEBASE_DATABASE",
+            "lakebase_database",
+        ),
+    )
 
     # Lakebase: branch within the project to connect to.
     # In production the Apps runtime resolves the branch implicitly via

@@ -58,7 +58,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from back.core.databricks import get_lakebase_auth
-from back.core.databricks.lakebase import get_lakebase_pool
+from back.core.databricks.lakebase import get_postgres_pool
 from back.core.databricks.lakebase import require_psycopg as _shared_require_psycopg
 from back.core.databricks.lakebase.constants import APPLICATION_NAME_REGISTRY
 from back.core.errors import InfrastructureError
@@ -146,16 +146,16 @@ def _require_psycopg():
 def _get_pool(auth: Any, schema: str, database: str = ""):
     """Return the shared Lakebase pool for *auth* + *schema* + *database*.
 
-    Thin wrapper over :func:`back.core.databricks.lakebase.get_lakebase_pool`
+    Thin wrapper over :func:`back.core.postgres.get_postgres_pool`
     with the registry workload label and error type. Kept as a module-level
     function because ``fetch_lakebase_registry_triplet`` and
-    :meth:`LakebaseRegistryStore._connect` call it (and tests monkeypatch it).
+    :meth:`PostgresRegistryStore._connect` call it (and tests monkeypatch it).
 
     The ``database`` arg is the optional override that points the store at a
     different Postgres database on the same Lakebase instance. The empty
     string means "use the bound PGDATABASE".
     """
-    return get_lakebase_pool(
+    return get_postgres_pool(
         auth,
         schema,
         database,
@@ -166,7 +166,7 @@ def _get_pool(auth: Any, schema: str, database: str = ""):
 
 # ---------------------------------------------------------------------------
 # Public helper: fetch the (catalog, schema, volume) of the Lakebase row
-# without instantiating a full ``LakebaseRegistryStore``. Used by
+# without instantiating a full ``PostgresRegistryStore``. Used by
 # ``RegistryCfg.from_domain`` so the active registry triplet matches what
 # is stored *in Lakebase* (where binary artifacts were originally archived)
 # rather than whatever Volume the Apps runtime happens to bind. Without
@@ -255,7 +255,7 @@ def reset_lakebase_triplet_cache() -> None:
         _TRIPLET_NEG_TS.clear()
 
 
-class LakebaseRegistryStore(RegistryStore):
+class PostgresRegistryStore(RegistryStore):
     """Postgres-backed registry store. Optional backend.
 
     Parameters
@@ -3930,7 +3930,7 @@ class LakebaseRegistryStore(RegistryStore):
 
         The pool itself owns cold-start retry and OAuth token
         rotation — see
-        :class:`back.core.databricks.lakebase.LakebaseConnectionPool`.
+        :class:`back.core.postgres.PostgresConnectionPool`.
         """
         return _get_pool(
             self._auth, self._schema, self._database

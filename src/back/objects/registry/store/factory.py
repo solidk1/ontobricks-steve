@@ -2,7 +2,7 @@
 
 Every call site that needs a registry store should go through
 :class:`RegistryFactory`. The concrete store class
-(:class:`LakebaseRegistryStore`) lives in its own subpackage and is
+(:class:`PostgresRegistryStore`) lives in its own subpackage and is
 imported lazily so import failures (missing ``psycopg`` extra, etc.)
 surface only when a Lakebase store is actually requested.
 
@@ -11,7 +11,7 @@ Why a class instead of a free function?
 - Discoverability: one symbol (``RegistryFactory``) groups the
   store-construction primitives.
 - Encapsulation: the factory hides which import path the store class
-  lives at, so call sites never reach into ``store.lakebase``
+  lives at, so call sites never reach into ``store.postgres``
   directly.
 - Symmetry with the rest of the codebase
   (``RegistryService.from_context``, ``RegistryCfg.from_domain``…).
@@ -65,9 +65,9 @@ class RegistryFactory:
         ``database`` (optional) overrides the bound ``PGDATABASE``;
         empty falls back to the runtime-injected database.
         """
-        from .lakebase import LakebaseRegistryStore
+        from .postgres import PostgresRegistryStore
 
-        return LakebaseRegistryStore(
+        return PostgresRegistryStore(
             registry_cfg=registry_cfg,
             schema=schema or _DEFAULT_LAKEBASE_SCHEMA,
             database=database,

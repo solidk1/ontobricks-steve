@@ -1,8 +1,8 @@
 """Shared tuning constants for Lakebase (Postgres) technical access.
 
 These values were previously duplicated between the registry store
-(``back.objects.registry.store.lakebase.store``) and the graph-db pool
-(``back.core.graphdb.lakebase.pool``). They now live in one place so both
+(``back.objects.registry.store.postgres.store``) and the graph-db pool
+(``back.core.graphdb.postgres.pool``). They now live in one place so both
 consumers share identical cold-start, retry and pool-lifetime behaviour.
 """
 

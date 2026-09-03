@@ -9,7 +9,7 @@ Lakebase Postgres storage.
 
 A single concrete backend is supported:
 
-- :mod:`back.objects.registry.store.lakebase` — Postgres tables on
+- :mod:`back.objects.registry.store.postgres` — Postgres tables on
   Databricks Lakebase. Requires the ``lakebase`` extra (psycopg3 +
   psycopg-pool) and is imported lazily so that import failures surface
   only when a store is actually instantiated.
@@ -39,7 +39,7 @@ from .factory import RegistryFactory
 
 __all__ = [
     "DomainSummary",
-    "LakebaseRegistryStore",
+    "PostgresRegistryStore",
     "RegistryFactory",
     "RegistryStore",
     "ScheduleHistoryEntry",
@@ -48,17 +48,17 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Lazy-import :class:`LakebaseRegistryStore`.
+    """Lazy-import :class:`PostgresRegistryStore`.
 
     Pulling :mod:`psycopg` at package-load time would force callers
     that never touch the store (e.g. read-only path builders) to
     install the optional extra. Importing the class via attribute
-    access (``store.LakebaseRegistryStore``) defers the import until
+    access (``store.PostgresRegistryStore``) defers the import until
     it is actually needed.
     """
-    if name == "LakebaseRegistryStore":
-        from .lakebase import LakebaseRegistryStore as _LakebaseRegistryStore
+    if name == "PostgresRegistryStore":
+        from .postgres import PostgresRegistryStore as _PostgresRegistryStore
 
-        globals()["LakebaseRegistryStore"] = _LakebaseRegistryStore
-        return _LakebaseRegistryStore
+        globals()["PostgresRegistryStore"] = _PostgresRegistryStore
+        return _PostgresRegistryStore
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

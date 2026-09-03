@@ -840,18 +840,18 @@ class DigitalTwin:
             try:
                 from back.core.graphdb import GraphDBFactory
                 from back.core.graphdb.engine_config import lakebase_section
-                from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
-                from back.core.graphdb.lakebase.LakebaseFlatStore import (
-                    resolve_lakebase_graph_schema,
+                from back.core.graphdb.postgres.PostgresBase import PostgresBase
+                from back.core.graphdb.postgres.PostgresFlatStore import (
+                    resolve_postgres_graph_schema,
                 )
 
                 engine_config = lakebase_section(
                     GraphDBFactory._resolve_graph_engine_config(domain, settings) or {}
                 )
                 schema_raw = str(engine_config.get("schema") or "").strip()
-                lk_schema = resolve_lakebase_graph_schema(domain, settings, schema_raw)
+                lk_schema = resolve_postgres_graph_schema(domain, settings, schema_raw)
                 lk_table = (
-                    LakebaseBase.physical_table_id(graph_name) if graph_name else ""
+                    PostgresBase.physical_table_id(graph_name) if graph_name else ""
                 )
                 result["lakebase_schema"] = lk_schema
                 result["lakebase_table"] = lk_table
@@ -1052,8 +1052,8 @@ class DigitalTwin:
         try:
             from back.core.graphdb import GraphDBFactory
             from back.core.graphdb.engine_config import lakebase_section
-            from back.core.graphdb.lakebase.LakebaseFlatStore import (
-                resolve_lakebase_graph_schema,
+            from back.core.graphdb.postgres.PostgresFlatStore import (
+                resolve_postgres_graph_schema,
             )
 
             engine_config = lakebase_section(
@@ -1062,10 +1062,10 @@ class DigitalTwin:
 
             # Populate schema/table from config so the card shows values even without Postgres
             schema_raw = str(engine_config.get("schema") or "").strip()
-            lk_schema = resolve_lakebase_graph_schema(domain, settings, schema_raw)
+            lk_schema = resolve_postgres_graph_schema(domain, settings, schema_raw)
             if graph_name:
-                from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
-                lk_table = LakebaseBase.physical_table_id(graph_name)
+                from back.core.graphdb.postgres.PostgresBase import PostgresBase
+                lk_table = PostgresBase.physical_table_id(graph_name)
         except Exception as e:
             logger.warning("DT existence: lakebase config resolution failed: %s", e)
 

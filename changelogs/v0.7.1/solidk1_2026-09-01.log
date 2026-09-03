@@ -664,3 +664,72 @@ Verified on the live Azure server: the `app_roles` table, its unique constraint,
 `DROP SCHEMA … CASCADE` leaves no residue.
 
 Tests: **4835 passed, 21 skipped, 283 deselected**. ruff + black + mypy clean on new code.
+
+## P3 — rename Lakebase code identifiers to Postgres
+
+Context: the store, pool and graph engine are all plain PostgreSQL and work against Azure
+Database for PostgreSQL, Lakebase, or any other server. Their `Lakebase*` names now
+misdescribe them.
+
+**Design decision: rename code identifiers, not persisted or wire values.** Three
+categories deliberately keep their names:
+
+* **Persisted values** — `graph_backend: "lakebase"` on every domain session, and the
+  `graph_engine_config.lakebase` bucket. Renaming them needs a data migration for zero
+  functional gain.
+* **Environment variables** — `LAKEBASE_SCHEMA`, `LAKEBASE_DATABASE`, `LAKEBASE_PROJECT`,
+  `LAKEBASE_BRANCH`. Renaming breaks every existing deployment. Instead the two that matter
+  gained forward-looking aliases: `ONTOBRICKS_PG_SCHEMA` and `ONTOBRICKS_PG_DATABASE` now
+  win when set, with the `LAKEBASE_*` names still honoured. New deployments get the clear
+  name, existing ones keep working.
+* **REST route paths and frontend element IDs** (`/graph-engine/lakebase-*`,
+  `lakebaseGraphDb`, …) — an API/UI contract, high churn, no benefit.
+
+**Design decision: `back/core/databricks/lakebase/` keeps its name.** It now holds only
+`LakebaseAuth`, `BranchLakebaseAuth`, `grants` and `constants` — all genuinely
+Lakebase-specific, and Lakebase is still a supported backend via
+`ONTOBRICKS_PG_AUTH=lakebase`. But the **connection pool moved out** of it, because pooling
+is generic Postgres machinery, not Lakebase auth. That gives a clean split:
+`back/core/postgres/` for anything generic, `back/core/databricks/lakebase/` for the
+Lakebase-only auth path.
+
+**Design decision: `lakebase_section()` and `Settings.lakebase_schema` keep their names.**
+Both name the persisted key they read; renaming the reader while the key stays would be
+worse than leaving them aligned. The rationale is recorded in the settings comments so the
+next reader does not "fix" it.
+
+Moved / renamed:
+
+| From | To |
+|---|---|
+| `back/core/databricks/lakebase/LakebaseConnectionPool.py` | `back/core/postgres/PostgresConnectionPool.py` |
+| `back/core/databricks/lakebase/psycopg_gate.py` | `back/core/postgres/psycopg_gate.py` |
+| `back/core/graphdb/lakebase/` | `back/core/graphdb/postgres/` |
+| `…/LakebaseFlatStore.py` | `…/PostgresFlatStore.py` |
+| `…/LakebaseBase.py` | `…/PostgresBase.py` |
+| `back/objects/registry/store/lakebase/` | `…/store/postgres/` |
+| `tests/units/core/test_lakebase_flat_store.py` | `test_postgres_flat_store.py` |
+
+Classes: `LakebaseFlatStore`→`PostgresFlatStore`, `LakebaseBase`→`PostgresBase`,
+`LakebaseRegistryStore`→`PostgresRegistryStore`,
+`LakebaseConnectionPool`→`PostgresConnectionPool`,
+`LakebaseConnectionError`→`PostgresConnectionError`,
+`LakebaseGraphPoolError`→`PostgresGraphPoolError`.
+Functions: `get_lakebase_pool`→`get_postgres_pool`, `lakebase_cursor`→`postgres_cursor`,
+`get_lakebase_graph_pool`→`get_postgres_graph_pool`,
+`resolve_lakebase_graph_schema`→`resolve_postgres_graph_schema`.
+Constant: `LAKEBASE_AVAILABLE`→`POSTGRES_AVAILABLE`.
+
+The rename was applied with a whole-token regex (`(?<![A-Za-z0-9_.])…(?![A-Za-z0-9_])`) so
+`LakebaseAuth` and `lakebase_section` could not be caught by a substring match. Two classes
+of fallout the token pass could not see, both found by the suite: **relative** imports
+(`from .lakebase import …`, which the dotted-path patterns missed) and old names embedded in
+`mock.patch` target strings.
+
+Verified: 45 files changed, 284 insertions, 270 deletions. `GRAPH_BACKENDS` still reads
+`("lakebase", "databricks", "neo4j")`; 38 `LAKEBASE_*` env references intact;
+`class LakebaseAuth` intact. Both `LAKEBASE_SCHEMA` and `ONTOBRICKS_PG_SCHEMA` resolve, with
+the new name winning.
+
+Tests: **4835 passed, 21 skipped, 283 deselected**. The 7 co-tenancy `db` tests still pass
+against the live Azure server (19.58s). No new ruff violations (1 before, 1 after).

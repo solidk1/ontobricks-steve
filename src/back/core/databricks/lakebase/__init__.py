@@ -19,13 +19,13 @@ from back.core.databricks.lakebase.LakebaseAuth import (  # noqa: F401
     get_graph_auth,
     get_lakebase_auth,
 )
-from back.core.databricks.lakebase.LakebaseConnectionPool import (  # noqa: F401
-    LakebaseConnectionError,
-    LakebaseConnectionPool,
-    get_lakebase_pool,
-    lakebase_cursor,
+from back.core.postgres.PostgresConnectionPool import (  # noqa: F401
+    PostgresConnectionError,
+    PostgresConnectionPool,
+    get_postgres_pool,
+    postgres_cursor,
 )
-from back.core.databricks.lakebase.psycopg_gate import require_psycopg  # noqa: F401
+from back.core.postgres.psycopg_gate import require_psycopg  # noqa: F401
 
 __all__ = [
     # grants
@@ -35,10 +35,10 @@ __all__ = [
     "grant_schema_privileges",
     "grant_uc_catalog",
     # connection
-    "LakebaseConnectionError",
-    "LakebaseConnectionPool",
-    "get_lakebase_pool",
-    "lakebase_cursor",
+    "PostgresConnectionError",
+    "PostgresConnectionPool",
+    "get_postgres_pool",
+    "postgres_cursor",
     "require_psycopg",
     # auth
     "LakebaseAuth",

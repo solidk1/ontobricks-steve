@@ -104,12 +104,12 @@ def validate_engine_config_keys(config: Dict[str, Any]) -> Tuple[bool, str]:
 
 
 def _require_psycopg():
-    from back.core.graphdb.lakebase.pool import _require_psycopg as _rq
+    from back.core.graphdb.postgres.pool import _require_psycopg as _rq
 
     return _rq()
 
 
-class LakebaseBase(GraphDBBackend):
+class PostgresBase(GraphDBBackend):
     """Connection flags + naming shared by Lakebase graph stores."""
 
     def __init__(
@@ -186,9 +186,9 @@ class LakebaseBase(GraphDBBackend):
         return self._schema
 
     def _pool(self) -> Any:
-        from back.core.graphdb.lakebase.pool import get_lakebase_graph_pool
+        from back.core.graphdb.postgres.pool import get_postgres_graph_pool
 
-        return get_lakebase_graph_pool(self._auth, self._schema, self._database_override)
+        return get_postgres_graph_pool(self._auth, self._schema, self._database_override)
 
     @contextmanager
     def _cursor(self) -> Iterator[Any]:

@@ -174,7 +174,7 @@ class TestDomainSessionDelta:
         fake_settings.lakebase_schema = "ontobricks_registry"
         fake_settings.lakebase_database = ""
 
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         with patch("shared.config.settings.get_settings", return_value=fake_settings), \
              patch.object(

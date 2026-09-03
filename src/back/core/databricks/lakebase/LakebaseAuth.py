@@ -759,7 +759,7 @@ def get_lakebase_auth():
     :class:`~back.core.postgres.PostgresAuth`; both expose the same
     ``host`` / ``port`` / ``database`` / ``user`` / ``password()`` /
     ``invalidate()`` / ``kwargs()`` / ``conninfo()`` surface that
-    :class:`LakebaseConnectionPool` consumes, so callers do not care which.
+    :class:`PostgresConnectionPool` consumes, so callers do not care which.
     """
     mode = resolve_pg_auth_mode()
     cached = _defaults.get(mode)

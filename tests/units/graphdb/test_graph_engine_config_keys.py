@@ -12,7 +12,7 @@ from back.core.graphdb.engine_config import (
     resolve_lakehouse_warehouse_id,
     resolve_neo4j_connection,
 )
-from back.core.graphdb.lakebase.LakebaseBase import resolve_postgres_database_override
+from back.core.graphdb.postgres.PostgresBase import resolve_postgres_database_override
 from back.core.graphdb.neo4j.Neo4jConnection import resolve_neo4j_database
 
 

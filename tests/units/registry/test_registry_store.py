@@ -7,7 +7,7 @@ dependencies) to validate:
   importing :mod:`psycopg`.
 - Every concrete :class:`RegistryStore` agrees on the public interface
   (method names + return shapes).
-- :class:`LakebaseRegistryStore` honours the registry-identity model
+- :class:`PostgresRegistryStore` honours the registry-identity model
   (one schema = one registry, with legacy adoption) and surfaces
   initialisation problems explicitly via :meth:`init_status`.
 
@@ -498,9 +498,9 @@ class TestRegistryFactory:
         store = RegistryFactory.lakebase(
             registry_cfg=CFG, schema="ontobricks_registry"
         )
-        from back.objects.registry.store.lakebase import LakebaseRegistryStore
+        from back.objects.registry.store.postgres import PostgresRegistryStore
 
-        assert isinstance(store, LakebaseRegistryStore)
+        assert isinstance(store, PostgresRegistryStore)
         assert store.backend == "lakebase"
         assert store.cache_key.startswith("lakebase:")
 
@@ -548,10 +548,10 @@ class TestRegistryFactory:
             lakebase_database="ontobricks_other",
         )
 
-        from back.objects.registry.store.lakebase import LakebaseRegistryStore
+        from back.objects.registry.store.postgres import PostgresRegistryStore
 
         store = RegistryFactory.from_cfg(cfg)
-        assert isinstance(store, LakebaseRegistryStore)
+        assert isinstance(store, PostgresRegistryStore)
         assert store.describe()["effective_database"] == "ontobricks_other"
 
 
@@ -1067,7 +1067,7 @@ class _ScriptedConn:
 
 
 def _make_lakebase_store(monkeypatch, schema="ontobricks_registry"):
-    """Build a real :class:`LakebaseRegistryStore` whose ``_connect``
+    """Build a real :class:`PostgresRegistryStore` whose ``_connect``
     is patched to yield a scripted cursor — so the registry-name and
     legacy-adoption logic can be tested without a real Postgres.
     """
@@ -1076,9 +1076,9 @@ def _make_lakebase_store(monkeypatch, schema="ontobricks_registry"):
     monkeypatch.setenv("PGDATABASE", "ontobricks_registry")
     monkeypatch.setenv("PGUSER", "sp-test")
 
-    from back.objects.registry.store.lakebase import LakebaseRegistryStore
+    from back.objects.registry.store.postgres import PostgresRegistryStore
 
-    return LakebaseRegistryStore(registry_cfg=CFG, schema=schema)
+    return PostgresRegistryStore(registry_cfg=CFG, schema=schema)
 
 
 class TestLakebaseRegistryIdentity:
@@ -1182,7 +1182,7 @@ class TestLakebaseRegistryIdentity:
         store's logger directly (caplog occasionally misses records
         when other tests alter root-logger configuration).
         """
-        from back.objects.registry.store.lakebase import store as lb_store
+        from back.objects.registry.store.postgres import store as lb_store
 
         store = _make_lakebase_store(monkeypatch)
         cur = _ScriptedCursor(
@@ -1454,7 +1454,7 @@ class TestFetchLakebaseRegistryTriplet:
     def setup_method(self):
         # Each test starts from a clean cache so positive results from
         # one case don't leak into the next (the cache is process-wide).
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres.store import (
             reset_lakebase_triplet_cache,
         )
 
@@ -1465,7 +1465,7 @@ class TestFetchLakebaseRegistryTriplet:
         ``connection()``. Avoids any real Lakebase / psycopg call.
         """
         from contextlib import contextmanager
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         @contextmanager
         def fake_connection():
@@ -1481,7 +1481,7 @@ class TestFetchLakebaseRegistryTriplet:
         )
 
     def test_returns_row_triplet(self, monkeypatch):
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1503,7 +1503,7 @@ class TestFetchLakebaseRegistryTriplet:
         assert out == ("benoit_cayla", "ontobricks", "OntoBricksRegistry")
 
     def test_caches_positive_result(self, monkeypatch):
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1521,7 +1521,7 @@ class TestFetchLakebaseRegistryTriplet:
         assert len(cur.executed) == 1
 
     def test_returns_none_when_row_missing(self, monkeypatch):
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1532,8 +1532,8 @@ class TestFetchLakebaseRegistryTriplet:
         assert out is None
 
     def test_returns_none_on_pool_failure(self, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres import store as _lb_store
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1548,8 +1548,8 @@ class TestFetchLakebaseRegistryTriplet:
         assert fetch_lakebase_registry_triplet("schema_c") is None
 
     def test_returns_none_on_auth_failure(self, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres import store as _lb_store
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1560,7 +1560,7 @@ class TestFetchLakebaseRegistryTriplet:
         assert fetch_lakebase_registry_triplet("schema_d") is None
 
     def test_distinct_databases_have_distinct_cache_entries(self, monkeypatch):
-        from back.objects.registry.store.lakebase.store import (
+        from back.objects.registry.store.postgres.store import (
             fetch_lakebase_registry_triplet,
         )
 
@@ -1604,7 +1604,7 @@ def _collab_store(monkeypatch, cur):
     ``row_factory`` kwarg, so (None, None) is a safe stub.
     """
     from contextlib import contextmanager
-    import back.objects.registry.store.lakebase.store as _store_mod
+    import back.objects.registry.store.postgres.store as _store_mod
 
     store = _make_lakebase_store(monkeypatch)
     store._registry_id = "rid-1"          # skip registry-id resolution
@@ -1802,7 +1802,7 @@ def _graph_analytics_runs_store(monkeypatch, cur):
     lazy DDL probe). Mirrors ``_collab_store``.
     """
     from contextlib import contextmanager
-    import back.objects.registry.store.lakebase.store as _store_mod
+    import back.objects.registry.store.postgres.store as _store_mod
 
     store = _make_lakebase_store(monkeypatch)
     store._registry_id = "rid-1"          # skip registry-id resolution
@@ -1904,7 +1904,7 @@ def _paged(cur):
 def _build_runs_store(monkeypatch, cur):
     """Like ``_graph_analytics_runs_store`` but for ``build_runs``."""
     from contextlib import contextmanager
-    import back.objects.registry.store.lakebase.store as _store_mod
+    import back.objects.registry.store.postgres.store as _store_mod
 
     store = _make_lakebase_store(monkeypatch)
     store._registry_id = "rid-1"

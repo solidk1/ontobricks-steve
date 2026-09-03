@@ -25,8 +25,8 @@ from contextlib import contextmanager
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 from back.core.errors import InfrastructureError
-from back.core.graphdb.lakebase import _companion_ddl
-from back.core.graphdb.lakebase.LakebaseBase import LakebaseBase
+from back.core.graphdb.postgres import _companion_ddl
+from back.core.graphdb.postgres.PostgresBase import PostgresBase
 from back.core.helpers import validate_table_name
 from back.core.logging import get_logger
 
@@ -72,7 +72,7 @@ def _reraise_lakebase_index_limit(
     ) from exc
 
 
-class LakebaseFlatStore(LakebaseBase):
+class PostgresFlatStore(PostgresBase):
     """Flat-model triple store on Lakebase Postgres.
 
     Each logical graph name resolves to a UNION view over the ``_sync`` bulk
@@ -220,7 +220,7 @@ class LakebaseFlatStore(LakebaseBase):
 
     @staticmethod
     def _require_pg():
-        from back.core.graphdb.lakebase.pool import _require_psycopg
+        from back.core.graphdb.postgres.pool import _require_psycopg
 
         return _require_psycopg()
 
@@ -353,7 +353,7 @@ class LakebaseFlatStore(LakebaseBase):
         the COPY → INSERT/DELETE steps and ensure it is released when the
         block exits.
         """
-        from back.core.graphdb.lakebase.pool import _require_psycopg
+        from back.core.graphdb.postgres.pool import _require_psycopg
 
         _, dict_row = _require_psycopg()
         pool = self._pool()
@@ -757,7 +757,7 @@ class LakebaseFlatStore(LakebaseBase):
             cur.execute(f"VACUUM ANALYZE {self.companion_phy(table_name)}")
 
 
-def resolve_lakebase_graph_schema(
+def resolve_postgres_graph_schema(
     domain: Any,
     settings: Optional[Any],
     config_schema: str,
@@ -774,7 +774,7 @@ def resolve_lakebase_graph_schema(
     Falls back to *config_schema* (validated) when the registry triplet has no
     schema or resolution fails.
     """
-    from back.core.graphdb.lakebase.LakebaseBase import (
+    from back.core.graphdb.postgres.PostgresBase import (
         DEFAULT_GRAPH_SCHEMA,
         validate_graph_schema,
     )
@@ -810,7 +810,7 @@ def resolve_lakebase_graph_schema(
                 return validated
     except Exception as exc:  # noqa: BLE001
         logger.debug(
-            "resolve_lakebase_graph_schema: registry unavailable: %s",
+            "resolve_postgres_graph_schema: registry unavailable: %s",
             exc,
         )
     return validate_graph_schema(DEFAULT_GRAPH_SCHEMA)

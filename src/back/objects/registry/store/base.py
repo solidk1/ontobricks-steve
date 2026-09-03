@@ -2,7 +2,7 @@
 
 The :class:`RegistryStore` ABC sits in front of the Lakebase registry
 implementation. A single concrete subclass
-(:class:`LakebaseRegistryStore`) exists today — the ABC is retained to
+(:class:`PostgresRegistryStore`) exists today — the ABC is retained to
 keep the seam in place for future stores (Neo4j, Cosmos, …) and to
 make tests easy to fake.
 
@@ -290,7 +290,7 @@ class RegistryStore(ABC):
     def initialize(self, *, client: Any = None) -> Tuple[bool, str]:
         """Bring the backend up to a usable state (idempotent).
 
-        For :class:`LakebaseRegistryStore` this applies the DDL in
+        For :class:`PostgresRegistryStore` this applies the DDL in
         ``store/lakebase_schema.sql`` and verifies connectivity with a
         ``SELECT 1`` wake probe.
         """

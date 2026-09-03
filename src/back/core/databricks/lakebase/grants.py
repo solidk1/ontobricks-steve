@@ -3,7 +3,7 @@
 In-app equivalents of the ``GRANT`` statements in
 ``scripts/bootstrap-lakebase-perms.sh``, used by:
 
-- :meth:`~back.objects.registry.store.lakebase.store.LakebaseRegistryStore.grant_app_permissions`
+- :meth:`~back.objects.registry.store.postgres.store.PostgresRegistryStore.grant_app_permissions`
   — the *Initialize* / *Repair permissions* flow (registry schema).
 - :func:`resolve_mcp_app_name`, consumed by ``SettingsService`` for MCP
   companion-app name derivation (unrelated to grants, but it lives here

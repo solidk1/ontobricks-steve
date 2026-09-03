@@ -51,7 +51,7 @@ def _catalog_snapshot(conn) -> dict:
 
 def _install(conn, schema: str) -> None:
     """Apply the graph DDL exactly as ``_companion_ddl`` does."""
-    from back.core.graphdb.lakebase import _companion_ddl
+    from back.core.graphdb.postgres import _companion_ddl
 
     with conn.cursor() as cur:
         _companion_ddl.ensure_hash_function(cur, schema)

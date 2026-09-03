@@ -4,7 +4,7 @@ Implements the same surface the connection pool already expects of
 :class:`~back.core.databricks.lakebase.LakebaseAuth` — ``host`` / ``port`` /
 ``database`` / ``user`` / ``password()`` / ``invalidate()`` / ``kwargs()`` /
 ``conninfo()`` — so it drops into
-:class:`~back.core.databricks.lakebase.LakebaseConnectionPool` unchanged,
+:class:`~back.core.postgres.PostgresConnectionPool` unchanged,
 including the pool's retry-once-on-auth-failure loop. That loop is precisely
 what Entra token rotation needs, which is why the pool is reused rather than
 rewritten.

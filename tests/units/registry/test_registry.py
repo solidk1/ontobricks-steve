@@ -110,7 +110,7 @@ class TestRegistryCfgFromDomain:
 
     @staticmethod
     def _patch_no_lakebase_row(monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         monkeypatch.setattr(
             _lb_store,
@@ -187,7 +187,7 @@ class TestRegistryCfgFromDomainLakebaseRow:
     """
 
     def test_volume_binding_overrides_lakebase_row_triplet(self, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         monkeypatch.setattr(
             _lb_store,
@@ -204,7 +204,7 @@ class TestRegistryCfgFromDomainLakebaseRow:
         assert c.volume == "registry"
 
     def test_lakebase_unreachable_falls_back_to_volume_binding(self, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         monkeypatch.setattr(
             _lb_store,
@@ -225,7 +225,7 @@ class TestRegistryCfgFromDomainLakebaseRow:
         the cached ``registries`` row so a re-bind + re-init cycle
         propagates the new triplet into Lakebase.
         """
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         called = {"yes": False}
 
@@ -249,7 +249,7 @@ class TestRegistryCfgFromDomainLakebaseRow:
         assert c.volume == "registry_test"
 
     def test_lakebase_database_override_passed_to_triplet_probe(self, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         captured = {}
 
@@ -699,7 +699,7 @@ class TestRecursiveDelete:
 class TestFromContext:
     @patch("back.core.helpers.get_databricks_host_and_token")
     def test_factory(self, mock_creds, monkeypatch):
-        from back.objects.registry.store.lakebase import store as _lb_store
+        from back.objects.registry.store.postgres import store as _lb_store
 
         monkeypatch.setattr(
             _lb_store,

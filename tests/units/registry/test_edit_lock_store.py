@@ -1,7 +1,7 @@
 """Unit tests for the Lakebase edit-lock store methods (mocked cursor).
 
 Exercises the SQL-orchestration branches of
-:class:`LakebaseRegistryStore` edit-lock methods without a real Postgres:
+:class:`PostgresRegistryStore` edit-lock methods without a real Postgres:
 the connection / cursor are mocked, so these assert the call shape and the
 result mapping (free / self / stale / force / heartbeat-lost), not the
 actual ON CONFLICT semantics (those live in the gated integration suite).
@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("psycopg")
 
 from back.objects.registry import RegistryCfg
-from back.objects.registry.store.lakebase.store import LakebaseRegistryStore
+from back.objects.registry.store.postgres.store import PostgresRegistryStore
 
 CFG = RegistryCfg(catalog="cat", schema="sch", volume="vol")
 _NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -63,10 +63,10 @@ class _FakeConn:
 
 def _store():
     with patch(
-        "back.objects.registry.store.lakebase.store.get_lakebase_auth",
+        "back.objects.registry.store.postgres.store.get_lakebase_auth",
         MagicMock(return_value=MagicMock()),
     ):
-        st = LakebaseRegistryStore(registry_cfg=CFG, schema="ontobricks_registry")
+        st = PostgresRegistryStore(registry_cfg=CFG, schema="ontobricks_registry")
     # Skip the lazy-heal + registry-id DB round-trips.
     st._edit_locks_ready = True
     st._registry_id = "reg-1"

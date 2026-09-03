@@ -1,4 +1,4 @@
-"""Unit tests for LakebaseFlatStore (mocked DB cursor)."""
+"""Unit tests for PostgresFlatStore (mocked DB cursor)."""
 
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("psycopg")
 
 from back.core.errors import InfrastructureError
-from back.core.graphdb.lakebase.LakebaseFlatStore import LakebaseFlatStore
+from back.core.graphdb.postgres.PostgresFlatStore import PostgresFlatStore
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def _cursor_ctx(mock_cur):
 
 
 def _txn_cursor_ctx(mock_cur, mock_conn=None):
-    """Mimic ``LakebaseFlatStore._txn_cursor`` yielding ``(conn, cur)``."""
+    """Mimic ``PostgresFlatStore._txn_cursor`` yielding ``(conn, cur)``."""
     conn = mock_conn or MagicMock()
 
     @contextmanager
@@ -65,7 +65,7 @@ class _CopyRecorder:
 def test_create_table_issues_schema_ddl_and_indexes(auth):
     """app_managed create_table now produces the 3-object layout (*_sync + *__app + view)."""
     cur = MagicMock()
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         store.create_table("MyDomain_V1")
     executed = [str(c[0][0]) for c in cur.execute.call_args_list]
@@ -93,14 +93,14 @@ def test_create_table_issues_schema_ddl_and_indexes(auth):
 
 def test_writable_table_id_is_companion_for_app_managed(auth):
     """app_managed _writable_table_id resolves to the *__app companion table."""
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     assert store._writable_table_id("G_V1") == "g_v1__app"
 
 
 def test_drop_table_app_managed_drops_view_companion_and_sync(auth):
     """app_managed drop_table removes all 3 Postgres objects without Lakeflow API calls."""
     cur = MagicMock()
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         store.drop_table("G_V1")
     executed = [str(c[0][0]) for c in cur.execute.call_args_list]
@@ -112,7 +112,7 @@ def test_drop_table_app_managed_drops_view_companion_and_sync(auth):
 def test_optimize_table_vacuums_sync_and_companion_for_app_managed(auth):
     """app_managed optimize_table vacuums both *_sync and *__app."""
     cur = MagicMock()
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         store.optimize_table("G_V1")
     executed = [str(c[0][0]) for c in cur.execute.call_args_list]
@@ -122,7 +122,7 @@ def test_optimize_table_vacuums_sync_and_companion_for_app_managed(auth):
 
 def test_bulk_load_into_sync_writes_to_sync_table(auth):
     """bulk_load_into_sync targets *_sync (not the companion) via _copy_insert_batch_phy."""
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
 
     written_to: list = []
 
@@ -144,7 +144,7 @@ def test_bulk_load_into_sync_writes_to_sync_table(auth):
 
 def test_insert_triples_executemany(auth):
     cur = MagicMock()
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         triples = [
             {"subject": "http://ex/a", "predicate": "http://ex/p", "object": "http://ex/o"},
@@ -162,7 +162,7 @@ def test_query_triples_maps_rows(auth):
     cur.fetchall.return_value = [
         {"subject": "s", "predicate": "p", "object": "o", "datatype": None, "lang": None},
     ]
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         rows = store.query_triples("G_V1")
     assert rows == [{"subject": "s", "predicate": "p", "object": "o"}]
@@ -179,7 +179,7 @@ def test_query_triples_includes_literal_meta_when_present(auth):
             "lang": "en",
         },
     ]
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         rows = store.query_triples("G_V1")
     assert rows == [
@@ -196,14 +196,14 @@ def test_query_triples_includes_literal_meta_when_present(auth):
 def test_count_triples(auth):
     cur = MagicMock()
     cur.fetchone.return_value = {"cnt": 42}
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         assert store.count_triples("G_V1") == 42
 
 
 def test_bulk_insert_iter_batches_without_recursion(auth):
     """``bulk_insert_iter`` must batch the iterator and route each batch through COPY."""
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
 
     calls: list = []
 
@@ -227,7 +227,7 @@ def test_copy_insert_batch_streams_via_temp_table(auth):
     cur = MagicMock()
     recorder = _CopyRecorder()
     cur.copy = recorder
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     batch = [
         {
             "subject": "http://ex/s",
@@ -261,7 +261,7 @@ def test_bulk_delete_iter_uses_copy_temp_table_join(auth):
     cur.rowcount = 3
     recorder = _CopyRecorder()
     cur.copy = recorder
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     triples = [
         {"subject": f"http://ex/{i}", "predicate": "http://ex/p", "object": "http://ex/o"}
         for i in range(3)
@@ -280,7 +280,7 @@ def test_bulk_delete_iter_uses_copy_temp_table_join(auth):
 
 def test_delete_triples_routes_large_payload_to_bulk(auth):
     """``delete_triples`` must delegate to the bulk COPY path for large payloads."""
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     triples = [
         {"subject": f"http://ex/{i}", "predicate": "http://ex/p", "object": "http://ex/o"}
         for i in range(60)
@@ -297,20 +297,20 @@ def test_iter_triples_pages_through_limits(auth):
     row = {"subject": "s", "predicate": "p", "object": "o", "datatype": None, "lang": None}
     cur = MagicMock()
     cur.fetchall.side_effect = [[row] * 10, [row]]
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "_cursor", _cursor_ctx(cur)):
         out = list(store.iter_triples("G_V1", batch_size=10))
     assert len(out) == 11
 
 
 def test_default_schema_constant():
-    from back.core.graphdb.lakebase import default_schema
+    from back.core.graphdb.postgres import default_schema
 
     assert default_schema() == "ontobricks_graph"
 
 
 def test_find_subjects_by_type_delegates(auth):
-    store = LakebaseFlatStore(auth, schema="g")
+    store = PostgresFlatStore(auth, schema="g")
     with patch.object(
         store,
         "execute_query",
@@ -326,7 +326,7 @@ def test_find_subjects_by_type_delegates(auth):
 
 
 def test_bfs_traversal_sql_path(auth):
-    store = LakebaseFlatStore(auth, schema="g")
+    store = PostgresFlatStore(auth, schema="g")
     with patch.object(
         store,
         "execute_query",
@@ -343,9 +343,9 @@ def test_bfs_traversal_sql_path(auth):
 
 @pytest.fixture
 def synced_store(auth):
-    """LakebaseFlatStore in managed_synced mode with a mocked SyncedTableManager."""
+    """PostgresFlatStore in managed_synced mode with a mocked SyncedTableManager."""
     mgr = MagicMock()
-    return LakebaseFlatStore(
+    return PostgresFlatStore(
         auth,
         schema="ontobricks_graph",
         sync_mode="managed_synced",
@@ -361,8 +361,8 @@ class TestResolveLakebaseGraphSchema:
         """Explicit graph_engine_config.schema always overrides the registry volume schema."""
         from types import SimpleNamespace
 
-        from back.core.graphdb.lakebase.LakebaseFlatStore import (
-            resolve_lakebase_graph_schema,
+        from back.core.graphdb.postgres.PostgresFlatStore import (
+            resolve_postgres_graph_schema,
         )
 
         domain = SimpleNamespace(settings={"registry": {}})
@@ -371,7 +371,7 @@ class TestResolveLakebaseGraphSchema:
             "back.objects.registry.RegistryCfg.from_domain",
             return_value=MagicMock(catalog="c", schema="volume_sch", volume="v"),
         ):
-            out = resolve_lakebase_graph_schema(
+            out = resolve_postgres_graph_schema(
                 domain,
                 settings,
                 "ontobricks_graph",  # explicit
@@ -382,8 +382,8 @@ class TestResolveLakebaseGraphSchema:
         """When config schema is empty, the registry volume schema is used."""
         from types import SimpleNamespace
 
-        from back.core.graphdb.lakebase.LakebaseFlatStore import (
-            resolve_lakebase_graph_schema,
+        from back.core.graphdb.postgres.PostgresFlatStore import (
+            resolve_postgres_graph_schema,
         )
 
         domain = SimpleNamespace(settings={"registry": {}})
@@ -392,14 +392,14 @@ class TestResolveLakebaseGraphSchema:
             "back.objects.registry.RegistryCfg.from_domain",
             return_value=MagicMock(catalog="c", schema="volume_sch", volume="v"),
         ):
-            out = resolve_lakebase_graph_schema(domain, settings, "")
+            out = resolve_postgres_graph_schema(domain, settings, "")
         assert out == "volume_sch"
 
     def test_falls_back_when_registry_schema_empty(self):
         from types import SimpleNamespace
 
-        from back.core.graphdb.lakebase.LakebaseFlatStore import (
-            resolve_lakebase_graph_schema,
+        from back.core.graphdb.postgres.PostgresFlatStore import (
+            resolve_postgres_graph_schema,
         )
 
         domain = SimpleNamespace()
@@ -408,14 +408,14 @@ class TestResolveLakebaseGraphSchema:
             "back.objects.registry.RegistryCfg.from_domain",
             return_value=MagicMock(catalog="c", schema="", volume="v"),
         ):
-            out = resolve_lakebase_graph_schema(domain, settings, "custom_g")
+            out = resolve_postgres_graph_schema(domain, settings, "custom_g")
         assert out == "custom_g"
 
 
 
 
 def test_copy_insert_batch_phy_reraises_index_limit_with_predicate_detail(auth):
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     long_object = "x" * 4000
     batch = [
         {
@@ -441,7 +441,7 @@ def test_copy_insert_batch_phy_reraises_index_limit_with_predicate_detail(auth):
 
 
 def test_upgrade_legacy_triple_table_adds_object_hash_and_pk():
-    from back.core.graphdb.lakebase._companion_ddl import (
+    from back.core.graphdb.postgres._companion_ddl import (
         upgrade_legacy_triple_table_to_object_hash,
     )
 
@@ -458,7 +458,7 @@ def test_upgrade_legacy_triple_table_adds_object_hash_and_pk():
 
 
 def test_create_triple_table_migrates_legacy_before_indexes():
-    from back.core.graphdb.lakebase._companion_ddl import _create_triple_table
+    from back.core.graphdb.postgres._companion_ddl import _create_triple_table
 
     cur = MagicMock()
     cur.fetchone.side_effect = [(1,), None]
@@ -474,7 +474,7 @@ def test_create_triple_table_migrates_legacy_before_indexes():
 
 
 def test_find_subjects_by_patterns_empty(auth):
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "execute_query") as mock_eq:
         result = store.find_subjects_by_patterns("MyGraph_V1", [])
     assert result == set()
@@ -482,7 +482,7 @@ def test_find_subjects_by_patterns_empty(auth):
 
 
 def test_find_subjects_by_patterns_suffix_fast_path(auth):
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "execute_query", return_value=[{"subject": "http://ex/WTG:1"}]) as mock_eq:
         result = store.find_subjects_by_patterns(
             "MyGraph_V1",
@@ -500,7 +500,7 @@ def test_find_subjects_by_patterns_suffix_fast_path(auth):
 
 
 def test_find_subjects_by_patterns_generic_fallback(auth):
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(
         store,
         "execute_query",
@@ -520,7 +520,7 @@ def test_find_subjects_by_patterns_generic_fallback(auth):
 
 
 def test_find_subjects_by_patterns_escapes_quotes(auth):
-    store = LakebaseFlatStore(auth, schema="ontobricks_graph")
+    store = PostgresFlatStore(auth, schema="ontobricks_graph")
     with patch.object(store, "execute_query", return_value=[]) as mock_eq:
         store.find_subjects_by_patterns("MyGraph_V1", ["%/O'Brien"])
     sql = mock_eq.call_args[0][0]

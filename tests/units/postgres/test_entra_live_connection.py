@@ -70,8 +70,8 @@ class TestEntraLive:
         refreshed inside an open session, so it must be minted per connection.
         """
         pytest.importorskip("psycopg")
-        from back.core.databricks.lakebase.LakebaseConnectionPool import (
-            LakebaseConnectionPool,
+        from back.core.postgres.PostgresConnectionPool import (
+            PostgresConnectionPool,
         )
         from back.core.postgres import PostgresAuth
 
@@ -86,7 +86,7 @@ class TestEntraLive:
         auth.password = counting_password  # type: ignore[method-assign]
 
         schema = "public"
-        pool = LakebaseConnectionPool(
+        pool = PostgresConnectionPool(
             auth=auth, schema=schema, application_name="ontobricks-test", max_size=2
         )
         try:

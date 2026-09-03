@@ -8,7 +8,7 @@ See ``docs/graphdb-integration.md`` for the full integration guide.
 Triples are stored as ``(subject, predicate, object)`` rows.  If your engine
 speaks SQL, the inherited named-query defaults from ``GraphDBBackend``
 will work out of the box.  If not (Cypher, Gremlin, …), you must override
-every named-query method — see ``LakebaseFlatStore`` for a complete SQL
+every named-query method — see ``PostgresFlatStore`` for a complete SQL
 reference implementation.
 """
 
@@ -307,7 +307,7 @@ class ExampleStore(GraphDBBackend):
     #  GraphDBBackend will work and you can DELETE this entire section.
     #
     #  If your engine is NON-SQL (Cypher, Gremlin, …), you MUST implement
-    #  every method below.  Use LakebaseFlatStore as a SQL reference; for
+    #  every method below.  Use PostgresFlatStore as a SQL reference; for
     #  a non-SQL engine adapt every method to the native query language.
     # ======================================================================
 
