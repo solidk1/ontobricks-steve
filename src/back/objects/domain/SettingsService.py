@@ -535,8 +535,8 @@ class SettingsService:
             from back.objects.registry.store import RegistryFactory  # noqa: PLC0415
             store = RegistryFactory.lakebase(
                 registry_cfg=rcfg,
-                schema=rcfg.lakebase_schema,
-                database=rcfg.lakebase_database,
+                schema=rcfg.postgres_schema,
+                database=rcfg.postgres_database,
             )
             return await run_blocking(store.check_permissions)
         except ImportError as exc:
@@ -611,8 +611,8 @@ class SettingsService:
         """Payload for GET /settings/registry.
 
         Includes the registry triplet (catalog/schema/volume) used for
-        binary artefacts, the configured ``lakebase_schema`` and
-        optional ``lakebase_database`` override, the **graph_engine** /
+        binary artefacts, the configured ``postgres_schema`` and
+        optional ``postgres_database`` override, the **graph_engine** /
         **graph_engine_config** read from the registry global-config
         blob (same persistence as Settings → Graph DB), and a read-only
         ``lakebase`` block that surfaces the runtime-injected Postgres
@@ -688,7 +688,7 @@ class SettingsService:
         from back.core.databricks import get_lakebase_auth
 
         auth = get_lakebase_auth()
-        override_db = getattr(rcfg, "lakebase_database", "") or ""
+        override_db = getattr(rcfg, "postgres_database", "") or ""
 
         if not auth.is_available:
             return {
@@ -700,7 +700,7 @@ class SettingsService:
                 "database_override": override_db,
                 "effective_database": override_db,
                 "user": "",
-                "schema": rcfg.lakebase_schema,
+                "schema": rcfg.postgres_schema,
                 "bound": False,
                 "initialized": False,
                 "populated": False,
@@ -723,7 +723,7 @@ class SettingsService:
         #   - keep the button visible on Volume but downgrade it to a
         #     red *Re-sync* with a hard warning popup when Lakebase
         #     already holds data from a previous migration.
-        status = SettingsService._lakebase_schema_status(rcfg)
+        status = SettingsService._postgres_schema_status(rcfg)
         return {
             "project": project,
             "host": host,
@@ -733,7 +733,7 @@ class SettingsService:
             "database_override": override_db,
             "effective_database": effective_db,
             "user": os.environ.get("PGUSER", ""),
-            "schema": rcfg.lakebase_schema,
+            "schema": rcfg.postgres_schema,
             "bound": True,
             "initialized": status["initialized"],
             "populated": status["populated"],
@@ -741,18 +741,18 @@ class SettingsService:
         }
 
     @staticmethod
-    def _lakebase_schema_initialized(rcfg: RegistryCfg) -> bool:
+    def _postgres_schema_initialized(rcfg: RegistryCfg) -> bool:
         """Best-effort probe of ``store.is_initialized()``. Never raises.
 
         Kept for callers that only need the boolean — internally
-        :meth:`_lakebase_schema_status` is the canonical entry point
+        :meth:`_postgres_schema_status` is the canonical entry point
         because it returns both ``initialized`` and ``populated`` from
         a single store instance.
         """
-        return SettingsService._lakebase_schema_status(rcfg)["initialized"]
+        return SettingsService._postgres_schema_status(rcfg)["initialized"]
 
     @staticmethod
-    def _lakebase_schema_status(rcfg: RegistryCfg) -> Dict[str, bool]:
+    def _postgres_schema_status(rcfg: RegistryCfg) -> Dict[str, bool]:
         """Probe ``initialized`` + ``populated`` for the Lakebase schema.
 
         ``initialized`` mirrors :meth:`RegistryStore.is_initialized` —
@@ -774,8 +774,8 @@ class SettingsService:
 
             store = RegistryFactory.lakebase(
                 registry_cfg=rcfg,
-                schema=rcfg.lakebase_schema,
-                database=rcfg.lakebase_database,
+                schema=rcfg.postgres_schema,
+                database=rcfg.postgres_database,
             )
             result["initialized"] = bool(store.is_initialized())
         except Exception as exc:  # noqa: BLE001 -- purely informational
@@ -941,8 +941,8 @@ class SettingsService:
 
             store = RegistryFactory.lakebase(
                 registry_cfg=rcfg,
-                schema=rcfg.lakebase_schema,
-                database=rcfg.lakebase_database,
+                schema=rcfg.postgres_schema,
+                database=rcfg.postgres_database,
             )
         except ImportError as exc:
             raise InfrastructureError(
@@ -2916,7 +2916,7 @@ class SettingsService:
             return {
                 "success": True,
                 "current_user": current_user,
-                "registry_schema": rcfg.lakebase_schema or "ontobricks_registry",
+                "registry_schema": rcfg.postgres_schema or "ontobricks_registry",
                 "schemas": schemas,
                 "tables": tables,
                 "views": views,

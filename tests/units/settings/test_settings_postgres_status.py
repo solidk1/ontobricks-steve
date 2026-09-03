@@ -1,4 +1,4 @@
-"""Unit tests for ``SettingsService._lakebase_schema_status``.
+"""Unit tests for ``SettingsService._postgres_schema_status``.
 
 The status probe surfaces ``initialized`` + ``populated`` flags on
 the admin Registry Location page so operators can tell at a glance
@@ -24,15 +24,15 @@ def _rcfg() -> RegistryCfg:
         catalog="cat",
         schema="sch",
         volume="vol",
-        lakebase_schema="ontobricks_registry",
-        lakebase_database="",
+        postgres_schema="ontobricks_registry",
+        postgres_database="",
     )
 
 
 @pytest.fixture
 def psycopg_installed(monkeypatch):
     """Stub ``psycopg`` so the optional-extra gate inside
-    ``_lakebase_schema_status`` lets the test reach the mocked factory.
+    ``_postgres_schema_status`` lets the test reach the mocked factory.
 
     The production code does ``import psycopg`` at function scope and
     bails to ``{initialized: False, populated: False}`` if the package
@@ -58,7 +58,7 @@ class TestLakebaseSchemaStatus:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
-        assert SettingsService._lakebase_schema_status(_rcfg()) == {
+        assert SettingsService._postgres_schema_status(_rcfg()) == {
             "initialized": False,
             "populated": False,
         }
@@ -74,7 +74,7 @@ class TestLakebaseSchemaStatus:
             "back.objects.registry.store.RegistryFactory.lakebase",
             return_value=store,
         ):
-            status = SettingsService._lakebase_schema_status(_rcfg())
+            status = SettingsService._postgres_schema_status(_rcfg())
         assert status == {"initialized": False, "populated": False}
         store.table_row_counts.assert_not_called()
 
@@ -94,7 +94,7 @@ class TestLakebaseSchemaStatus:
                  "back.objects.registry.store.RegistryFactory.lakebase",
                  return_value=store,
              ):
-            assert SettingsService._lakebase_schema_status(_rcfg()) == {
+            assert SettingsService._postgres_schema_status(_rcfg()) == {
                 "initialized": True,
                 "populated": False,
             }
@@ -117,7 +117,7 @@ class TestLakebaseSchemaStatus:
                  "back.objects.registry.store.RegistryFactory.lakebase",
                  return_value=store,
              ):
-            assert SettingsService._lakebase_schema_status(_rcfg()) == {
+            assert SettingsService._postgres_schema_status(_rcfg()) == {
                 "initialized": True,
                 "populated": True,
             }
@@ -130,7 +130,7 @@ class TestLakebaseSchemaStatus:
             "back.objects.registry.store.RegistryFactory.lakebase",
             side_effect=RuntimeError("factory boom"),
         ):
-            assert SettingsService._lakebase_schema_status(_rcfg()) == {
+            assert SettingsService._postgres_schema_status(_rcfg()) == {
                 "initialized": False,
                 "populated": False,
             }
@@ -149,25 +149,25 @@ class TestLakebaseSchemaStatus:
                  "back.objects.registry.store.RegistryFactory.lakebase",
                  return_value=store,
              ):
-            assert SettingsService._lakebase_schema_status(_rcfg()) == {
+            assert SettingsService._postgres_schema_status(_rcfg()) == {
                 "initialized": True,
                 "populated": False,
             }
 
     def test_legacy_helper_delegates_to_status(self):
-        # ``_lakebase_schema_initialized`` is kept as a thin wrapper for
+        # ``_postgres_schema_initialized`` is kept as a thin wrapper for
         # callers that only need the boolean. It must read the
         # canonical ``status['initialized']`` so we don't grow two
         # divergent code paths.
         with patch.object(
             SettingsService,
-            "_lakebase_schema_status",
+            "_postgres_schema_status",
             return_value={"initialized": True, "populated": True},
         ):
-            assert SettingsService._lakebase_schema_initialized(_rcfg()) is True
+            assert SettingsService._postgres_schema_initialized(_rcfg()) is True
         with patch.object(
             SettingsService,
-            "_lakebase_schema_status",
+            "_postgres_schema_status",
             return_value={"initialized": False, "populated": False},
         ):
-            assert SettingsService._lakebase_schema_initialized(_rcfg()) is False
+            assert SettingsService._postgres_schema_initialized(_rcfg()) is False

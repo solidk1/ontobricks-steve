@@ -504,7 +504,7 @@ class TestRegistryFactory:
         assert store.backend == "lakebase"
         assert store.cache_key.startswith("lakebase:")
 
-    def test_lakebase_database_override_propagates_to_store(self, monkeypatch):
+    def test_postgres_database_override_propagates_to_store(self, monkeypatch):
         """``RegistryFactory.lakebase(database=...)`` must store the
         override on the resulting store and surface it both via
         ``describe()`` and the (effective) ``cache_key`` so callers
@@ -532,7 +532,7 @@ class TestRegistryFactory:
 
     def test_from_cfg_plumbs_database_override(self, monkeypatch):
         """``RegistryFactory.from_cfg`` must forward the
-        ``lakebase_database`` override to the store — this is the
+        ``postgres_database`` override to the store — this is the
         entry point ``RegistryService._build_store`` uses.
         """
         monkeypatch.setenv("PGHOST", "test-host")
@@ -544,8 +544,8 @@ class TestRegistryFactory:
             catalog="c",
             schema="s",
             volume="v",
-            lakebase_schema="ontobricks_registry",
-            lakebase_database="ontobricks_other",
+            postgres_schema="ontobricks_registry",
+            postgres_database="ontobricks_other",
         )
 
         from back.objects.registry.store.postgres import PostgresRegistryStore

@@ -188,7 +188,7 @@ class TestGlobalConfigGraphEngineConfig:
             },
         )
 
-    def test_set_graph_engine_config_lakebase_database_and_schema(self):
+    def test_set_graph_engine_config_postgres_database_and_schema(self):
         svc = GlobalConfigService()
         cfg = {"database": "analytics", "schema": "ontobricks_graph"}
         with patch.object(svc, "_save", return_value=(True, "ok")) as mock_save:
@@ -503,8 +503,8 @@ class TestSettingsServiceRegistryPayloadGraphEngine:
             "schema": "s",
             "volume": "v",
             "backend": "volume",
-            "lakebase_schema": "ontobricks_registry",
-            "lakebase_database": "",
+            "postgres_schema": "ontobricks_registry",
+            "postgres_database": "",
         }
 
         rs = MagicMock()
@@ -538,8 +538,8 @@ class TestSettingsServiceRegistryPayloadGraphEngine:
             "catalog": "",
             "schema": "",
             "volume": "",
-            "lakebase_schema": "ontobricks_registry",
-            "lakebase_database": "",
+            "postgres_schema": "ontobricks_registry",
+            "postgres_database": "",
         }
 
         with (

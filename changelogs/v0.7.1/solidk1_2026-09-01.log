@@ -789,3 +789,43 @@ against the live Azure server (19.94s). No new ruff violations (1 before, 1 afte
 `tests/units/postgres/test_graph_auth_selection.py` rewritten (11 tests) to assert the
 branch override is inert, the class is gone, and a stale `LAKEBASE_SCHEMA` is ignored while
 `ONTOBRICKS_PG_SCHEMA` is honoured.
+
+## P3c — rename the Settings / RegistryCfg fields after all
+
+Context: correcting P3b. I justified keeping `Settings.lakebase_schema` and
+`lakebase_database` by claiming they are keys in persisted registry settings, so renaming
+would need a data migration. **That was wrong**, and checkable in three places:
+
+* `DomainSession.export_for_save` explicitly *excludes* "Databricks/registry settings", so
+  `domain.settings["registry"]` is never written into the persisted domain JSON.
+* The `DomainSession` default registry template is `{"catalog", "schema", "volume"}` — it
+  never contained a `lakebase_schema` key.
+* The live database has **zero** columns matching `%lakebase%`, and no such column exists in
+  either `schema.sql`.
+
+`domain.settings["registry"]` is populated at runtime from `RegistryCfg` and deliberately
+not saved. I generalised from "read out of a domain dict" to "persisted, needs migration"
+without checking the save path or the schema.
+
+Renamed, 150 occurrences across 19 files:
+
+* `Settings.lakebase_schema` → `postgres_schema`, `lakebase_database` → `postgres_database`
+* `RegistryCfg.lakebase_schema` / `lakebase_database` → `postgres_schema` /
+  `postgres_database`, including the `as_dict()` / `from_dict()` keys (in-process only)
+* `SettingsService._lakebase_schema_status` → `_postgres_schema_status`,
+  `_lakebase_schema_initialized` → `_postgres_schema_initialized`
+* `tests/units/settings/test_settings_lakebase_status.py` →
+  `test_settings_postgres_status.py`, plus three test names
+
+**No compatibility shim.** `RegistryCfg.from_domain` already reads
+`reg.get("postgres_schema") or <env value>`, so a stale session dict carrying the old key
+falls through to the environment value, which is the correct result. Adding dead-key
+tolerance for something never persisted would be speculative generality.
+
+What still legitimately carries `lakebase` in its name: `lakebase_section()` and the
+`graph_engine_config.lakebase` bucket it reads, plus the tolerated-legacy
+`lakebase_project` / `lakebase_branch` keys inside it. Those *are* persisted (in the
+registry's `global_config` row), and the reader is named after the key it reads.
+
+Tests: **4840 passed, 21 skipped, 283 deselected**. 7 co-tenancy `db` tests green against
+the live Azure server. No new ruff violations (1 before, 1 after).

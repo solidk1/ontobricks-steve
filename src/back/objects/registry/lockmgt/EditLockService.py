@@ -462,8 +462,8 @@ class EditLockService:
 
             return RegistryFactory.lakebase(
                 registry_cfg=rcfg,
-                schema=rcfg.lakebase_schema,
-                database=rcfg.lakebase_database,
+                schema=rcfg.postgres_schema,
+                database=rcfg.postgres_database,
             )
         except ImportError:
             return None

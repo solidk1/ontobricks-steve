@@ -830,8 +830,8 @@ class DigitalTwin:
             "view_check_error": None,
             "triple_count": 0,
             "pending": True,
-            "lakebase_database": "",
-            "lakebase_schema": "",
+            "postgres_database": "",
+            "postgres_schema": "",
             "lakebase_table": "",
         }
 
@@ -853,7 +853,7 @@ class DigitalTwin:
                 lk_table = (
                     PostgresBase.physical_table_id(graph_name) if graph_name else ""
                 )
-                result["lakebase_schema"] = lk_schema
+                result["postgres_schema"] = lk_schema
                 result["lakebase_table"] = lk_table
                 # Database display needs a live connection; leave blank while pending.
             except Exception as exc:  # noqa: BLE001 — keep skeleton best-effort
@@ -1147,8 +1147,8 @@ class DigitalTwin:
         result["lakebase_table_exists"] = pg["exists_tbl"]
         result["lakebase_check_error"] = pg["lk_check_error"]
         result["graph_display"] = pg["display"] or ""
-        result["lakebase_database"] = pg["lk_database"]
-        result["lakebase_schema"] = pg["lk_schema"]
+        result["postgres_database"] = pg["lk_database"]
+        result["postgres_schema"] = pg["lk_schema"]
         result["lakebase_table"] = pg["lk_table"]
         return result
 
@@ -2638,7 +2638,7 @@ class DigitalTwin:
     ):
         """Resolve registry location: explicit query params -> session -> env.
 
-        Always carries ``lakebase_schema`` / ``lakebase_database`` from the
+        Always carries ``postgres_schema`` / ``postgres_database`` from the
         session/env so callers that pass the dict straight to
         ``RegistryCfg.from_dict`` get the correct Lakebase schema rather than
         the hardcoded ``"ontobricks_registry"`` default.
@@ -2650,8 +2650,8 @@ class DigitalTwin:
             "catalog": registry_catalog or base.catalog,
             "schema": registry_schema or base.schema,
             "volume": registry_volume or base.volume,
-            "lakebase_schema": base.lakebase_schema,
-            "lakebase_database": base.lakebase_database,
+            "postgres_schema": base.postgres_schema,
+            "postgres_database": base.postgres_database,
         }
 
     @staticmethod

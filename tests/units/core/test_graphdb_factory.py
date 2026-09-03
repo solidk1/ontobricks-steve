@@ -114,8 +114,8 @@ class TestGraphDBFactory:
             registry_catalog="",
             registry_schema="",
             registry_volume="",
-            lakebase_schema="ontobricks_registry",
-            lakebase_database="",
+            postgres_schema="ontobricks_registry",
+            postgres_database="",
             registry_volume_path="",
         )
         mock_auth = MagicMock(is_available=True, instance_name="inst", database="ldb")
@@ -143,7 +143,7 @@ class TestGraphDBFactory:
             )
         assert mock_lb.call_args.kwargs["schema"] == "ontobricks_graph"
 
-    def test_lakebase_schema_falls_back_to_registry_volume_when_not_configured(self):
+    def test_postgres_schema_falls_back_to_registry_volume_when_not_configured(self):
         """When graph_engine_config.schema is empty, the registry volume schema is used."""
         from types import SimpleNamespace
 
@@ -153,8 +153,8 @@ class TestGraphDBFactory:
             registry_catalog="",
             registry_schema="",
             registry_volume="",
-            lakebase_schema="ontobricks_registry",
-            lakebase_database="",
+            postgres_schema="ontobricks_registry",
+            postgres_database="",
             registry_volume_path="",
         )
         mock_auth = MagicMock(is_available=True, instance_name="inst", database="ldb")

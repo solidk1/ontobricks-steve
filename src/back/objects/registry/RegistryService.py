@@ -7,7 +7,7 @@ construction, domain CRUD, version management) behind a single
 
 The registry is **Lakebase-only**: JSON-shaped registry data (domains,
 versions, permissions, schedules, global config) lives in the Postgres
-schema named by ``lakebase_schema``. The Unity Catalog Volume triplet
+schema named by ``postgres_schema``. The Unity Catalog Volume triplet
 (``catalog``/``schema``/``volume``) is kept around solely for
 domain-scoped binary artefacts — the ``documents/`` uploads imported by
 the ontology designer. The historical JSON-on-Volume backend was
@@ -67,10 +67,10 @@ _LEGACY_DOMAINS_FOLDER = "projects"
 class RegistryCfg:
     """Immutable registry location triplet (catalog, schema, volume).
 
-    Lakebase is the sole registry backend. ``lakebase_schema`` is the
+    Lakebase is the sole registry backend. ``postgres_schema`` is the
     Postgres schema for registry tables.
 
-    ``lakebase_database`` (optional) overrides the bound Postgres
+    ``postgres_database`` (optional) overrides the bound Postgres
     database name. When empty (the default), the runtime uses the
     ``PGDATABASE`` env var auto-injected by the Databricks Apps
     runtime from the ``database`` resource binding. Setting this lets
@@ -88,8 +88,8 @@ class RegistryCfg:
     catalog: str
     schema: str
     volume: str
-    lakebase_schema: str = "ontobricks_registry"
-    lakebase_database: str = ""
+    postgres_schema: str = "ontobricks_registry"
+    postgres_database: str = ""
 
     # -- constructors ------------------------------------------------
 
@@ -98,8 +98,8 @@ class RegistryCfg:
         cls,
         path: str,
         *,
-        lakebase_schema: str = "ontobricks_registry",
-        lakebase_database: str = "",
+        postgres_schema: str = "ontobricks_registry",
+        postgres_database: str = "",
     ) -> RegistryCfg:
         """Parse ``/Volumes/<catalog>/<schema>/<volume>`` into a RegistryCfg."""
         parts = path.strip("/").split("/")
@@ -108,8 +108,8 @@ class RegistryCfg:
                 catalog=parts[1],
                 schema=parts[2],
                 volume=parts[3],
-                lakebase_schema=lakebase_schema,
-                lakebase_database=lakebase_database,
+                postgres_schema=postgres_schema,
+                postgres_database=postgres_database,
             )
         logger.warning(
             "Cannot parse volume path '%s'; expected /Volumes/<c>/<s>/<v>", path
@@ -118,8 +118,8 @@ class RegistryCfg:
             catalog="",
             schema="",
             volume="",
-            lakebase_schema=lakebase_schema,
-            lakebase_database=lakebase_database,
+            postgres_schema=postgres_schema,
+            postgres_database=postgres_database,
         )
 
     @classmethod
@@ -135,8 +135,8 @@ class RegistryCfg:
         Resolution order (highest priority first):
 
         1. ``domain.settings["registry"]`` — admin choices made from the
-           Settings UI for the Lakebase-side knobs (``lakebase_schema`` /
-           ``lakebase_database``). These win even on a Databricks Apps
+           Settings UI for the Lakebase-side knobs (``postgres_schema`` /
+           ``postgres_database``). These win even on a Databricks Apps
            deployment where the Volume is bound by the platform.
         2. **Lakebase ``registries`` row** — when reachable, the
            catalog/schema/volume triplet is read from the row so binary
@@ -156,7 +156,7 @@ class RegistryCfg:
            registries row is found; used alone when step 2 does not
            return a row).
         4. ``settings.*`` env vars — last-resort fallback for catalog,
-           schema, volume, ``lakebase_schema`` and ``lakebase_database``.
+           schema, volume, ``postgres_schema`` and ``postgres_database``.
 
         ``prefer_volume_binding`` (Initialize path only): when ``True``
         the Lakebase row read in step 2 is skipped. Lets the Initialize
@@ -168,22 +168,22 @@ class RegistryCfg:
         artefact paths pointing at the previous Volume.
         """
         env_lb_schema = (
-            getattr(settings, "lakebase_schema", "ontobricks_registry")
+            getattr(settings, "postgres_schema", "ontobricks_registry")
             or "ontobricks_registry"
         )
-        env_lb_database = getattr(settings, "lakebase_database", "") or ""
+        env_lb_database = getattr(settings, "postgres_database", "") or ""
 
         reg = domain.settings.get("registry", {}) if domain is not None else {}
-        lb_schema = reg.get("lakebase_schema") or env_lb_schema
-        lb_database = reg.get("lakebase_database") or env_lb_database
+        lb_schema = reg.get("postgres_schema") or env_lb_schema
+        lb_database = reg.get("postgres_database") or env_lb_database
 
         vol_path = getattr(settings, "registry_volume_path", "")
         bound_cfg: Optional[RegistryCfg] = None
         if vol_path:
             parsed = cls.from_volume_path(
                 vol_path,
-                lakebase_schema=lb_schema,
-                lakebase_database=lb_database,
+                postgres_schema=lb_schema,
+                postgres_database=lb_database,
             )
             if parsed.catalog and parsed.schema and parsed.volume:
                 bound_cfg = parsed
@@ -218,23 +218,23 @@ class RegistryCfg:
                     catalog=cat,
                     schema=sch,
                     volume=vol or _DEFAULT_VOLUME,
-                    lakebase_schema=lb_schema,
-                    lakebase_database=lb_database,
+                    postgres_schema=lb_schema,
+                    postgres_database=lb_database,
                 )
 
         if vol_path:
             return cls.from_volume_path(
                 vol_path,
-                lakebase_schema=lb_schema,
-                lakebase_database=lb_database,
+                postgres_schema=lb_schema,
+                postgres_database=lb_database,
             )
 
         return cls(
             catalog=reg.get("catalog") or settings.registry_catalog,
             schema=reg.get("schema") or settings.registry_schema,
             volume=reg.get("volume") or settings.registry_volume or _DEFAULT_VOLUME,
-            lakebase_schema=lb_schema,
-            lakebase_database=lb_database,
+            postgres_schema=lb_schema,
+            postgres_database=lb_database,
         )
 
     @classmethod
@@ -251,8 +251,8 @@ class RegistryCfg:
             catalog=d.get("catalog", ""),
             schema=d.get("schema", ""),
             volume=d.get("volume", "") or _DEFAULT_VOLUME,
-            lakebase_schema=d.get("lakebase_schema") or "ontobricks_registry",
-            lakebase_database=d.get("lakebase_database") or "",
+            postgres_schema=d.get("postgres_schema") or "ontobricks_registry",
+            postgres_database=d.get("postgres_database") or "",
         )
 
     # -- helpers -----------------------------------------------------
@@ -267,8 +267,8 @@ class RegistryCfg:
             "catalog": self.catalog,
             "schema": self.schema,
             "volume": self.volume,
-            "lakebase_schema": self.lakebase_schema,
-            "lakebase_database": self.lakebase_database,
+            "postgres_schema": self.postgres_schema,
+            "postgres_database": self.postgres_database,
         }
 
 
@@ -330,7 +330,7 @@ class RegistryService:
         ``uc`` is accepted for parity with the constructor signature
         but unused — registry rows live entirely in Postgres. We route
         through :class:`RegistryFactory` and forward both the schema
-        *and the database override* (``cfg.lakebase_database``).
+        *and the database override* (``cfg.postgres_database``).
         Forgetting the latter would silently fall back to the bound
         ``PGDATABASE`` even when the admin picked a different database
         in Settings.
@@ -339,8 +339,8 @@ class RegistryService:
 
         return RegistryFactory.lakebase(
             registry_cfg=cfg,
-            schema=cfg.lakebase_schema,
-            database=cfg.lakebase_database,
+            schema=cfg.postgres_schema,
+            database=cfg.postgres_database,
         )
 
     # -- properties --------------------------------------------------

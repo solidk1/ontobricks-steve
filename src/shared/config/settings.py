@@ -51,13 +51,11 @@ class Settings(BaseSettings):
     # is retired: Lakebase is a PostgreSQL server like any other and uses the
     # same variables.
     #
-    # The *attribute* keeps its ``lakebase_`` name because it is also a key in
-    # persisted registry settings (``domain.settings["registry"]``, read in
-    # ``RegistryCfg.from_domain``); renaming it would need a data migration.
-    # Only the alias list is narrowed — and deliberately does not include the
-    # field name, because ``case_sensitive=False`` would then let a stale
-    # ``LAKEBASE_SCHEMA`` match it again.
-    lakebase_schema: str = Field(
+    # The alias list deliberately omits the field name. With
+    # ``case_sensitive=False`` a listed ``postgres_schema`` would also match a
+    # stray ``POSTGRES_SCHEMA``, and listing the old ``lakebase_schema`` was
+    # what previously let a retired ``LAKEBASE_SCHEMA`` keep working.
+    postgres_schema: str = Field(
         default="ontobricks_registry",
         validation_alias=AliasChoices("ONTOBRICKS_PG_SCHEMA"),
     )
@@ -66,7 +64,7 @@ class Settings(BaseSettings):
     # means "use PGDATABASE". Setting it points the registry at a different
     # database on the same server; the connecting principal needs ``CONNECT``
     # on it. ``LAKEBASE_DATABASE`` is retired — see above.
-    lakebase_database: str = Field(
+    postgres_database: str = Field(
         default="",
         validation_alias=AliasChoices("ONTOBRICKS_PG_DATABASE"),
     )

@@ -35,8 +35,8 @@ def _make_settings(**overrides):
         "registry_schema": "env_sch",
         "registry_volume": "",
         "registry_volume_path": "",
-        "lakebase_schema": "ontobricks_registry",
-        "lakebase_database": "",
+        "postgres_schema": "ontobricks_registry",
+        "postgres_database": "",
         "databricks_host": "https://host.databricks.com",
         "databricks_token": "tok-123",
     }
@@ -166,18 +166,18 @@ class TestRegistryCfgFromDomain:
         self._patch_no_lakebase_row(monkeypatch)
         domain = _make_domain(
             registry={
-                "lakebase_schema": "custom_schema",
-                "lakebase_database": "custom_db",
+                "postgres_schema": "custom_schema",
+                "postgres_database": "custom_db",
             },
         )
         settings = _make_settings(
             registry_volume_path="/Volumes/benoit_cayla/ontobricks_deployed/registry",
-            lakebase_schema="env_schema",
-            lakebase_database="env_db",
+            postgres_schema="env_schema",
+            postgres_database="env_db",
         )
         c = RegistryCfg.from_domain(domain, settings)
-        assert c.lakebase_schema == "custom_schema"
-        assert c.lakebase_database == "custom_db"
+        assert c.postgres_schema == "custom_schema"
+        assert c.postgres_database == "custom_db"
 
 
 class TestRegistryCfgFromDomainLakebaseRow:
@@ -248,7 +248,7 @@ class TestRegistryCfgFromDomainLakebaseRow:
         assert c.schema == "ontobricks_deployed_test"
         assert c.volume == "registry_test"
 
-    def test_lakebase_database_override_passed_to_triplet_probe(self, monkeypatch):
+    def test_postgres_database_override_passed_to_triplet_probe(self, monkeypatch):
         from back.objects.registry.store.postgres import store as _lb_store
 
         captured = {}
@@ -261,8 +261,8 @@ class TestRegistryCfgFromDomainLakebaseRow:
         monkeypatch.setattr(_lb_store, "fetch_lakebase_registry_triplet", _spy)
         domain = _make_domain(
             registry={
-                "lakebase_schema": "custom_schema",
-                "lakebase_database": "custom_db",
+                "postgres_schema": "custom_schema",
+                "postgres_database": "custom_db",
             }
         )
         settings = _make_settings(
@@ -291,8 +291,8 @@ class TestRegistryCfgHelpers:
             "catalog": "x",
             "schema": "y",
             "volume": "z",
-            "lakebase_schema": "ontobricks_registry",
-            "lakebase_database": "",
+            "postgres_schema": "ontobricks_registry",
+            "postgres_database": "",
         }
 
     def test_as_dict_roundtrip(self):
@@ -407,7 +407,7 @@ class TestInitialize:
             catalog="benoit_cayla",
             schema="ontobricks_deployed_test",
             volume="registry_test",
-            lakebase_schema="ontobricks_registry",
+            postgres_schema="ontobricks_registry",
         )
 
     def test_creates_volume_when_missing_and_initialises_store(self):
@@ -731,8 +731,8 @@ class TestFromContext:
 class TestSchedulerResolveCredsLakebase:
     """At startup the scheduler restores jobs *before* the global
     config has been read, so the ``RegistryCfg`` it builds from
-    *Settings* must already carry ``lakebase_schema`` /
-    ``lakebase_database``.
+    *Settings* must already carry ``postgres_schema`` /
+    ``postgres_database``.
     """
 
     def test_defaults_from_settings(self):
@@ -742,19 +742,19 @@ class TestSchedulerResolveCredsLakebase:
         host, token, cfg = BuildScheduler._resolve_creds(settings)
         assert host == "https://host.databricks.com"
         assert token == "tok-123"
-        assert cfg["lakebase_schema"] == "ontobricks_registry"
-        assert cfg["lakebase_database"] == ""
+        assert cfg["postgres_schema"] == "ontobricks_registry"
+        assert cfg["postgres_database"] == ""
 
     def test_lakebase_with_database_override(self):
         from back.objects.registry.scheduler import BuildScheduler
 
         settings = _make_settings(
-            lakebase_schema="ontobricks_registry",
-            lakebase_database="ontobricks_other",
+            postgres_schema="ontobricks_registry",
+            postgres_database="ontobricks_other",
         )
         _h, _t, cfg = BuildScheduler._resolve_creds(settings)
-        assert cfg["lakebase_schema"] == "ontobricks_registry"
-        assert cfg["lakebase_database"] == "ontobricks_other"
+        assert cfg["postgres_schema"] == "ontobricks_registry"
+        assert cfg["postgres_database"] == "ontobricks_other"
 
     def test_registry_volume_path_overrides_static_env_triplet(self):
         """Scheduler boot must not use ``REGISTRY_VOLUME`` alone when the

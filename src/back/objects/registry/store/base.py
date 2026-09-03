@@ -291,7 +291,7 @@ class RegistryStore(ABC):
         """Bring the backend up to a usable state (idempotent).
 
         For :class:`PostgresRegistryStore` this applies the DDL in
-        ``store/lakebase_schema.sql`` and verifies connectivity with a
+        ``store/postgres_schema.sql`` and verifies connectivity with a
         ``SELECT 1`` wake probe.
         """
 

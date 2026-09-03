@@ -109,10 +109,10 @@ class TestRetiredEnvVars:
         monkeypatch.setenv("LAKEBASE_SCHEMA", "retired_name")
         from shared.config.settings import Settings
 
-        assert Settings().lakebase_schema == "ontobricks_registry"
+        assert Settings().postgres_schema == "ontobricks_registry"
 
     def test_new_schema_var_is_honoured(self, monkeypatch):
         monkeypatch.setenv("ONTOBRICKS_PG_SCHEMA", "chosen")
         from shared.config.settings import Settings
 
-        assert Settings().lakebase_schema == "chosen"
+        assert Settings().postgres_schema == "chosen"

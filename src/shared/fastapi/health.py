@@ -263,7 +263,7 @@ def _check_registry_cfg(settings: Settings) -> Tuple[str, str]:
     return (
         _OK,
         f"catalog={cfg.catalog} schema={cfg.schema} volume={cfg.volume} "
-        f"lakebase_schema={cfg.lakebase_schema}",
+        f"postgres_schema={cfg.postgres_schema}",
     )
 
 
@@ -446,8 +446,8 @@ def _check_lakebase(settings: Settings) -> Tuple[str, str]:
 
     store = PostgresRegistryStore(
         registry_cfg=cfg,
-        schema=cfg.lakebase_schema or "ontobricks_registry",
-        database=cfg.lakebase_database or "",
+        schema=cfg.postgres_schema or "ontobricks_registry",
+        database=cfg.postgres_database or "",
     )
     status_dict = store.init_status()
     reason = status_dict.get("reason", "unknown")
@@ -478,8 +478,8 @@ def _check_lakebase_permissions(settings: Settings) -> Tuple[str, str]:
 
     store = PostgresRegistryStore(
         registry_cfg=cfg,
-        schema=cfg.lakebase_schema or "ontobricks_registry",
-        database=cfg.lakebase_database or "",
+        schema=cfg.postgres_schema or "ontobricks_registry",
+        database=cfg.postgres_database or "",
     )
     status_dict = store.init_status()
     reason = status_dict.get("reason", "unknown")
@@ -840,8 +840,8 @@ def _check_lakebase_registry_initialized(settings: Settings) -> Tuple[str, str]:
 
     store = PostgresRegistryStore(
         registry_cfg=cfg,
-        schema=cfg.lakebase_schema or "ontobricks_registry",
-        database=cfg.lakebase_database or "",
+        schema=cfg.postgres_schema or "ontobricks_registry",
+        database=cfg.postgres_database or "",
     )
     status_dict = store.init_status()
     reason = status_dict.get("reason", "unknown")
@@ -917,8 +917,8 @@ def _check_lakebase_registry_tables(settings: Settings) -> Tuple[str, str]:
 
     store = PostgresRegistryStore(
         registry_cfg=cfg,
-        schema=cfg.lakebase_schema or "ontobricks_registry",
-        database=cfg.lakebase_database or "",
+        schema=cfg.postgres_schema or "ontobricks_registry",
+        database=cfg.postgres_database or "",
     )
     _CORE_TABLES = frozenset(
         {

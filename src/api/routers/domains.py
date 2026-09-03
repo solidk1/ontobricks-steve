@@ -167,8 +167,8 @@ async def list_registry_domains(
         catalog=registry_catalog or base_cfg.catalog,
         schema=registry_schema or base_cfg.schema,
         volume=registry_volume or base_cfg.volume,
-        lakebase_schema=base_cfg.lakebase_schema,
-        lakebase_database=base_cfg.lakebase_database,
+        postgres_schema=base_cfg.postgres_schema,
+        postgres_database=base_cfg.postgres_database,
     )
     if not cfg.is_configured:
         raise ValidationError("Registry not configured")
@@ -220,8 +220,8 @@ async def list_domain_versions(
         catalog=registry_catalog or base_cfg.catalog,
         schema=registry_schema or base_cfg.schema,
         volume=registry_volume or base_cfg.volume,
-        lakebase_schema=base_cfg.lakebase_schema,
-        lakebase_database=base_cfg.lakebase_database,
+        postgres_schema=base_cfg.postgres_schema,
+        postgres_database=base_cfg.postgres_database,
     )
     if not cfg.is_configured:
         raise ValidationError("Registry not configured")

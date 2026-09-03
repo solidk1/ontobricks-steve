@@ -85,6 +85,6 @@ class RegistryFactory:
         """Build the Lakebase store from a fully-populated :class:`RegistryCfg`."""
         return cls.lakebase(
             registry_cfg=registry_cfg,
-            schema=registry_cfg.lakebase_schema,
-            database=getattr(registry_cfg, "lakebase_database", ""),
+            schema=registry_cfg.postgres_schema,
+            database=getattr(registry_cfg, "postgres_database", ""),
         )

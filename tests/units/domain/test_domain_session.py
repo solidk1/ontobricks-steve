@@ -140,8 +140,8 @@ class TestDomainSessionDelta:
         fake_settings.registry_catalog = ""
         fake_settings.registry_schema = ""
         fake_settings.registry_volume = ""
-        fake_settings.lakebase_schema = "ontobricks_registry"
-        fake_settings.lakebase_database = ""
+        fake_settings.postgres_schema = "ontobricks_registry"
+        fake_settings.postgres_database = ""
 
         with patch("shared.config.settings.get_settings", return_value=fake_settings):
             d = ds.delta
@@ -171,8 +171,8 @@ class TestDomainSessionDelta:
         fake_settings.registry_catalog = ""
         fake_settings.registry_schema = ""
         fake_settings.registry_volume = ""
-        fake_settings.lakebase_schema = "ontobricks_registry"
-        fake_settings.lakebase_database = ""
+        fake_settings.postgres_schema = "ontobricks_registry"
+        fake_settings.postgres_database = ""
 
         from back.objects.registry.store.postgres import store as _lb_store
 

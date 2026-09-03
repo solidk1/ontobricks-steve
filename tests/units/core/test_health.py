@@ -193,8 +193,8 @@ def _fake_cfg(catalog="main", schema="bronze", volume="reg"):
         catalog=catalog,
         schema=schema,
         volume=volume,
-        lakebase_schema="ontobricks_registry",
-        lakebase_database="",
+        postgres_schema="ontobricks_registry",
+        postgres_database="",
     )
 
 
