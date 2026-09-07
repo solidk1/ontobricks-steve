@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const btnRefresh = document.getElementById('btnRefreshWarehouses');
                 if (btnRefresh) btnRefresh.disabled = true;
                 const whHelp = document.getElementById('warehouseHelp');
-                if (whHelp) whHelp.innerHTML = '<i class="bi bi-lock-fill text-muted me-1"></i> Configured via Databricks App resource';
+                if (whHelp) whHelp.innerHTML = '<i class="bi bi-lock-fill text-muted me-1"></i> Fixed by the deployment environment';
             } else {
                 await loadWarehouseSelect(data.warehouse_id);
             }

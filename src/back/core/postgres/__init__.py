@@ -2,7 +2,7 @@
 
 OntoBricks stores its registry and (on the Postgres engine) its triple store in
 an ordinary PostgreSQL database — by default Azure Database for PostgreSQL —
-rather than in Lakebase. This package owns the connection identity for that
+rather than on Databricks Lakebase. This package owns the connection identity
 server; the pool itself still lives in
 :mod:`back.core.postgres.PostgresConnectionPool` and is shared, since
 its LIFO reuse, cold-start backoff and retry-once-on-auth-failure behaviour are

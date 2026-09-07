@@ -818,7 +818,7 @@ This document describes the REST API endpoints available in OntoBricks.
 ### Base URL
 
 - **Local Development**: `http://localhost:8000`
-- **Databricks Apps**: `https://<workspace>.databricks.com/apps/<app-id>/`
+- **Container deployment**: `https://<your-host>/`
 
 ---
 

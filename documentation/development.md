@@ -39,7 +39,7 @@ This document describes all external dependencies used by OntoBricks, including 
 
 ##### MCP Server Additional Dependencies
 
-These packages are used by the MCP server (`src/mcp-server/`) which runs as a separate Databricks App:
+These packages are used by the MCP server (`src/mcp-server/`), which runs as a separate process:
 
 | Package | Version | Description | License | Link |
 |---------|---------|-------------|---------|------|
@@ -375,7 +375,6 @@ tests/
   test_triplestore_factory.py       # Graph DB factory auto-resolve + view path
   test_graphdb_factory.py           # GraphDB engine factory
   test_lakebase_flat_store.py       # Lakebase Postgres flat-store backend
-  test_synced_table_manager.py      # Lakeflow synced-table orchestration (managed_synced)
   test_routes.py                    # HTTP route tests (all endpoints)
   test_sql_wizard.py                # SQL Wizard service (pre-existing)
   test_ui_rendering.py              # UI Layer 1: HTML DOM structure tests (stdlib html.parser)
@@ -471,7 +470,7 @@ Databricks workspace.
 | Test File | Module Under Test | What Is Verified |
 |-----------|-------------------|------------------|
 | `test_lakebase_flat_store.py` | `back.core.graphdb.lakebase.LakebaseFlatStore` | Table lifecycle, `insert_triples` (small + bulk paths via `bulk_insert_iter`), `query_triples`, `count_triples`, `delete_triples`, `bulk_delete_iter`, named queries (BFS, transitive closure, symmetric expansion), capability flags |
-| `test_synced_table_manager.py` | `back.core.graphdb.lakebase.SyncedTableManager` | Idempotent `ensure`, `_build_synced_table_payload`, refresh trigger, polling, race-handling on `ALREADY_EXISTS`, deletion |
+| ~~`test_synced_table_manager.py`~~ | *(removed in v0.7.1 with the managed-synced mode)* | trigger, polling, race-handling on `ALREADY_EXISTS`, deletion |
 | `test_graphdb_factory.py` | `back.core.graphdb.GraphDBFactory` | Default engine resolution (`lakebase`), `engine_config` propagation, unknown-engine handling |
 
 #### P2 -- HTTP Route Tests (59 tests)
@@ -542,8 +541,8 @@ open htmlcov/index.html
 | `back/core/w3c/owl/OntologyGenerator.py` | 50% | Advanced OWL features (annotations, complex axioms) less covered |
 | `back/core/w3c/sparql/SparqlTranslator.py` | 41% | Large module; advanced translation paths need Databricks |
 | Routes (`front/routes/`, `api/routers/internal/`) | 11-40% | Route handlers require full app context for deeper testing |
-| `back/core/graphdb/lakebase/LakebaseFlatStore.py` | ~80% | Triple CRUD, bulk paths and named queries covered with mocked psycopg |
-| `back/core/graphdb/lakebase/SyncedTableManager.py` | ~85% | `ensure` idempotency, refresh trigger, polling and delete fully tested with mocked Databricks SDK |
+| `back/core/graphdb/postgres/PostgresFlatStore.py` | ~80% | Triple CRUD, bulk paths and named queries covered with mocked psycopg |
+| ~~`back/core/graphdb/lakebase/SyncedTableManager.py`~~ | — | *(removed in v0.7.1 with the managed-synced write mode)* |
 
 Modules with 0% coverage (`back/core/w3c/rdfs`, `back/core/sqlwizard`, `back/core/databricks/unity_catalog/MetadataService.py`) are either not yet tested or depend entirely on external services.
 
@@ -750,9 +749,18 @@ Browser-based tests using Playwright against a live Uvicorn server. Verifies nav
 
 ## OntoBricks — Permission & Rights Management
 
-This document describes how access control works in OntoBricks, covering
-both the **Databricks App–level permissions** and the **in-app permission
-list**. It is intended for administrators who deploy and manage OntoBricks.
+This document describes how access control works in OntoBricks. It is intended
+for administrators who deploy and manage it.
+
+> **Read this first.** Access control moved into the registry database in v0.7.1.
+> The authoritative sources are now the `app_roles` and `domain_permissions`
+> tables in PostgreSQL — not a Databricks App ACL and not a `.permissions.json`
+> file on a Volume, neither of which is used any more. The Databricks App ACL
+> survives only as an optional *fallback*, consulted when `app_roles` yields
+> nothing **and** `ONTOBRICKS_APP_NAME` is set, so an existing Apps deployment
+> kept working through the migration without a flag day. Since the Apps deploy
+> itself was removed in v0.7.1, that fallback is vestigial: leave
+> `ONTOBRICKS_APP_NAME` unset and it never runs.
 
 ---
 
@@ -761,8 +769,8 @@ list**. It is intended for administrators who deploy and manage OntoBricks.
 1. [Overview](#overview)
 2. [Roles](#roles)
 3. [How Permission Resolution Works](#how-permission-resolution-works)
-4. [Databricks App Permissions (External)](#databricks-app-permissions-external)
-5. [In-App Permission List (Internal)](#in-app-permission-list-internal)
+4. [App-level roles (`app_roles`)](#app-level-roles-app_roles)
+5. [Domain-level roles (`domain_permissions`)](#in-app-permission-list-internal)
 6. [Managing Permissions — Step by Step](#managing-permissions--step-by-step)
 7. [Service Principal Setup](#service-principal-setup)
 8. [Local Development Mode](#local-development-mode)
@@ -781,11 +789,15 @@ OntoBricks uses a **two-layer** access-control model:
 
 | Layer | Where it lives | What it controls |
 |-------|----------------|------------------|
-| **Databricks App permissions** | Databricks workspace UI → Apps → *ontobricks* → Permissions | Who can reach the app at all, and who is an **Admin** (`CAN_MANAGE`). |
-| **In-app permission list** | `.permissions.json` stored in the Unity Catalog Registry Volume | Fine-grained roles (**Viewer** / **Editor** / **Builder**) for individual users and groups. |
-| **Domain-level overrides** | `.domain_permissions.json` inside each domain folder | Per-domain role overrides that can restrict (but not elevate) the app-level role. |
+| **App-level roles** | `app_roles` table in the registry Postgres schema | Whether a principal can reach the app at all, and who is an **admin**. Managed from **Settings → App access** or `POST /settings/app-roles/{grant,revoke}`. |
+| **Domain-level roles** | `domain_permissions` table in the registry Postgres schema | Per-domain **viewer** / **editor** / **builder**. Can restrict, never elevate, the app-level role. |
+| *(legacy)* **Databricks App ACL** | Workspace UI → Apps → Permissions | Fallback only, when `app_roles` yields nothing and `ONTOBRICKS_APP_NAME` is set. Vestigial — see the note above. |
 
-A user's effective role is determined by combining all three layers.
+A user's effective role combines the first two layers; the third is consulted only
+if the first is silent.
+
+Identity comes from the OIDC session (§4 of `deployment.md`), not from proxy
+headers — there is no platform injecting `X-Forwarded-*` any more.
 
 ---
 
@@ -793,10 +805,10 @@ A user's effective role is determined by combining all three layers.
 
 | Role | Source | Capabilities |
 |------|--------|--------------|
-| **Admin** | Databricks App `CAN_MANAGE` permission | Full access. Can view, edit, build, and manage the Settings page including the permission list. |
-| **Builder** | In-app permission list | Can view, edit, and **build graph viewers**. Cannot access Settings. |
-| **Editor** | In-app permission list | Can view all pages, create and modify domains, ontologies, and mappings. **Cannot build graph viewers.** Cannot access Settings. |
-| **Viewer** | In-app permission list | Read-only access. Can browse domains, ontologies, and query results. All write operations (POST, PUT, PATCH, DELETE) are blocked. Cannot access Settings. |
+| **Admin** | `app_roles` table (seeded by `ONTOBRICKS_BOOTSTRAP_ADMIN` on first use) | Full access. Can view, edit, build, and manage the Settings page including App access and per-domain roles. The last admin cannot be revoked. |
+| **Builder** | `domain_permissions` table | Can view, edit, and **build graph viewers**. Cannot access Settings. |
+| **Editor** | `domain_permissions` table | Can view all pages, create and modify domains, ontologies, and mappings. **Cannot build graph viewers.** Cannot access Settings. |
+| **Viewer** | `domain_permissions` table | Read-only access. Can browse domains, ontologies, and query results. All write operations (POST, PUT, PATCH, DELETE) are blocked. Cannot access Settings. |
 | **None** | Default when not matched | Completely blocked. Redirected to the Access Denied page. |
 
 Role hierarchy: `admin > builder > editor > viewer > none`.
@@ -811,7 +823,7 @@ resolution follows this priority order:
 ```
 Request arrives
   │
-  ├─ Running locally (no DATABRICKS_APP_PORT)?
+  ├─ ONTOBRICKS_AUTH_ENABLED=false?
   │    └─ Yes → role = admin, full access
   │
   ├─ Path is a bypass path (/static, /health, /docs, /api, etc.)?
@@ -820,7 +832,7 @@ Request arrives
   └─ Resolve app-level role via get_user_role():
        │
        ├─ 1. is_admin(email)?
-       │    Check if the user has CAN_MANAGE on the Databricks App.
+       │    Legacy fallback: only when ONTOBRICKS_APP_NAME is set,
        │    └─ Yes → app_role = admin
        │
        ├─ 2. User explicitly listed in .permissions.json?
@@ -854,7 +866,7 @@ Request arrives
 
 ---
 
-### Databricks App Permissions (External)
+### App-level roles (`app_roles`)
 
 These are managed in the Databricks workspace UI:
 
@@ -981,7 +993,7 @@ These endpoints are admin-only.
 
 #### Prerequisites
 
-1. You have `CAN_MANAGE` on the Databricks App (`ontobricks`).
+1. You hold the **admin** role in `app_roles` (seeded by `ONTOBRICKS_BOOTSTRAP_ADMIN`).
 2. The app's Service Principal also has `CAN_MANAGE` on itself (see
    [Service Principal Setup](#service-principal-setup)).
 3. A Registry is configured in OntoBricks (Settings → Registry tab).
@@ -992,7 +1004,9 @@ These endpoints are admin-only.
    to Settings.
 2. Open **Admin → Teams**.
 3. Assign **Viewer**, **Editor**, or **Builder** roles per domain in the
-   matrix. Principals listed there come from Databricks App permissions
+   matrix. Principals are searched from the workspace via SCIM (`GET
+   /settings/permissions/search`), or listed from a Databricks App ACL when the
+   legacy `ONTOBRICKS_APP_NAME` is set
    (`CAN_USE` / `CAN_MANAGE`).
 4. Click **Save**. Changes are written to the Registry.
 
@@ -1008,14 +1022,15 @@ Clear a role to revoke domain access. Save when done.
 - Users with `CAN_MANAGE` always have full admin access regardless of
   domain-role assignments.
 - The Teams matrix only shows principals that already have permissions
-  on the Databricks App. To add someone who doesn't appear, first grant
-  them `CAN_USE` on the Databricks App.
+  from the workspace via SCIM search. To add someone who does not appear, grant
+  them app access directly in **Settings → App access**, which writes to
+  `app_roles` and needs no workspace-side change.
 
 ---
 
 ### Service Principal Setup
 
-The OntoBricks Databricks App runs under a **Service Principal** (SP).
+OntoBricks authenticates to Databricks as a **Service Principal** (`DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`), or as the logged-in user for interactive queries.
 This SP needs `CAN_MANAGE` on the app itself so it can read the app's
 access control list to determine which users are admins.
 
@@ -1056,13 +1071,13 @@ those with `CAN_MANAGE` set in the Databricks UI.
 
 ### Local Development Mode
 
-When running locally (i.e., `DATABRICKS_APP_PORT` is not set), the
+When `ONTOBRICKS_AUTH_ENABLED=false`, the
 permission system is **completely disabled**:
 
 - Every user gets `role = admin`.
 - All pages and features are accessible.
 - The Settings page and Admin → Teams matrix work normally.
-- No Databricks App permissions or `.permissions.json` are checked.
+- Neither `app_roles` nor `domain_permissions` is consulted.
 
 This allows local development and testing without any permission setup.
 
@@ -1101,11 +1116,11 @@ user has no access to any part of the application.
 
 ### Configuration Reference
 
-#### app.yaml Environment Variables
+#### Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ONTOBRICKS_APP_NAME` | No | Optional override of the deployed Databricks App name used to query the app's permission ACL. If unset, the runtime auto-detects it from the Databricks-Apps-injected `DATABRICKS_APP_NAME` (e.g. `ontobricks` for prod, `ontobricks-dev` for the sandbox). Useful in `.env` for local development. |
+| `ONTOBRICKS_APP_NAME` | No | Legacy. Names a Databricks App whose ACL is consulted as a fallback when `app_roles` yields nothing. Leave unset on a container deployment. If unset, the runtime auto-detects it from the Databricks-Apps-injected `DATABRICKS_APP_NAME` (e.g. `ontobricks` for prod, `ontobricks-dev` for the sandbox). Useful in `.env` for local development. |
 | `REGISTRY_CATALOG` | Yes | Unity Catalog catalog for the Registry Volume where `.permissions.json` is stored. |
 | `REGISTRY_SCHEMA` | Yes | Unity Catalog schema for the Registry Volume. |
 | `REGISTRY_VOLUME` | No | Volume name (default: `"OntoBricksRegistry"`). |
@@ -1122,8 +1137,8 @@ user has no access to any part of the application.
 |----------|--------|------|-------------|
 | `/settings/permissions/me` | GET | Bypassed | Returns the current user's email, role, and `is_app_admin` flag. Used by the UI to show/hide admin elements. |
 | `/settings/permissions/diag` | GET | Bypassed | Diagnostic: returns SDK auth details, CAN_MANAGE principals, cache state. |
-| `/settings/permissions` | GET | Admin | Lists Databricks App principals (users + groups). Used by Teams. |
-| `/settings/permissions/principals` | GET | Admin | Lists users and groups from the Databricks App permissions for the add-user picker. |
+| `/settings/permissions` | GET | Admin | Lists known principals (users + groups). Used by Teams. |
+| `/settings/permissions/principals` | GET | Admin | Lists candidate users and groups for the add-user picker. |
 
 ---
 
@@ -1135,7 +1150,7 @@ To reduce API calls, the permission system caches several results:
 |-------|-----|----------------|
 | Admin check | 60 seconds | Per-email `is_admin` result. Cleared on every page load and `/permissions/me` call. |
 | Permission file | 5 minutes | Contents of `.permissions.json`. Forced refresh on add/update/delete operations. |
-| App principals | 10 minutes | Users/groups from the Databricks App permissions API. Cleared before loading the add-user picker. |
+| App principals | 10 minutes | Candidate users/groups. Cleared before loading the add-user picker. |
 
 Permission changes made through Settings → Admin → Teams take effect immediately
 because the relevant caches are invalidated. Changes made externally
@@ -1195,19 +1210,19 @@ Key fields to check:
 #### Settings gear icon not visible
 
 The gear icon only appears for admins. Verify:
-1. The user has `CAN_MANAGE` on the Databricks App.
+1. The user holds the **admin** role in `app_roles`.
 2. The SP has `CAN_MANAGE` (so the admin check can succeed).
 3. Hard refresh the page.
 
 #### User added to in-app permission list but still blocked
 
-1. The user must also have at least `CAN_USE` on the Databricks App.
+1. The user must also have an app-level role in `app_roles` (any of admin / app_user).
    Without it, they cannot reach the app at all.
 2. Check that the principal email matches exactly (case-insensitive).
 
 #### User not appearing in the "Add" picker dropdown
 
-The picker shows users/groups from the **Databricks App permissions**,
+The picker shows users/groups searched from the workspace via **SCIM**,
 not all workspace users. The person must first be granted `CAN_USE` (or
 `CAN_MANAGE`) on the app in the Databricks UI.
 

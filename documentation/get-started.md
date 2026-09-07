@@ -7,8 +7,10 @@ By the end of this guide you will have OntoBricks running locally and connected 
 Before you begin, ensure you have:
 
 - **Python 3.10+** installed on your system
-- **Databricks workspace** access (Databricks Apps must be enabled)
-- **Personal Access Token** from Databricks (local dev) or service-principal auth (Databricks Apps)
+- **PostgreSQL 14+** server (any: Azure, RDS, self-hosted, Databricks Lakebase)
+- **Optional: a Databricks workspace** — only for Unity Catalog source metadata,
+  SQL Warehouse queries, the Delta graph engine and UC Volume attachments. A
+  Personal Access Token (local dev) or `DATABRICKS_CLIENT_ID`/`_SECRET`.
 - **SQL Warehouse** in the workspace (you will need its ID for local dev)
 - **Databricks Lakebase Autoscaling** project + branch + Postgres database — used for
   the domain registry (domains, versions, permissions, schedules, global config)
@@ -120,30 +122,31 @@ REGISTRY_CATALOG=<your-catalog>
 REGISTRY_SCHEMA=<your-schema>
 REGISTRY_VOLUME=OntoBricksRegistry
 
-# Lakebase (Required since v0.4.0 for the domain registry)
-# When deployed as a Databricks App with a `database` resource bound,
-# Databricks auto-injects PG* — leave these unset in that case.
-# For local dev use the semantic coordinates below:
-LAKEBASE_PROJECT=ontobricks-app          # Autoscaling project name
-LAKEBASE_BRANCH=develop                  # Branch to connect to
-LAKEBASE_DATABASE=ontobricks_registry    # Postgres database (datname)
-LAKEBASE_SCHEMA=ontobricks_registry      # Postgres schema for the registry
-PGUSER=you@example.com                   # Your Databricks email (local dev)
-# Postgres password is minted at runtime via `LakebaseAuth.password()`,
-# do NOT set PGPASSWORD here.
+# PostgreSQL registry (required) — one set of variables for every server
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=ontobricks
+PGUSER=postgres
+ONTOBRICKS_PG_SCHEMA=ontobricks_registry
+ONTOBRICKS_PG_AUTH=password               # entra | lakebase | password
+PGPASSWORD=...                            # only when ONTOBRICKS_PG_AUTH=password
 
 # Optional Configuration
 SECRET_KEY=your-secret-key-here
-DATABRICKS_APP_PORT=8000
+PORT=8000
+ONTOBRICKS_AUTH_ENABLED=false             # local dev only
 ```
 
-> **Lakebase auth in local dev.** The Postgres password is a short-lived
-> JWT minted by `LakebaseAuth` via `POST /api/2.0/postgres/credentials`
-> using your `DATABRICKS_TOKEN`. Set `LAKEBASE_PROJECT` + `LAKEBASE_BRANCH`
-> (and optionally `LAKEBASE_DATABASE`) in `.env` — `LakebaseAuth` resolves
-> the endpoint hostname automatically via the Postgres API.
-> In a deployed App, `PGHOST` / `PGDATABASE` / `PGUSER` are auto-injected
-> by the platform; `LAKEBASE_*` vars then serve as informational labels only.
+> **Choosing `ONTOBRICKS_PG_AUTH`.** `password` uses `PGPASSWORD`. `entra` mints a
+> Microsoft Entra ID token per connection via `DefaultAzureCredential` — set
+> `PGUSER` to the Entra principal name and leave `PGPASSWORD` unset. `lakebase`
+> mints a short-lived JWT from the Databricks Postgres API using your Databricks
+> credentials; point `PGHOST` at the Lakebase endpoint hostname (Compute →
+> Lakebase → *branch* → Connection details).
+>
+> The `LAKEBASE_PROJECT` / `LAKEBASE_BRANCH` / `LAKEBASE_DATABASE` /
+> `LAKEBASE_SCHEMA` variables are **retired** — Lakebase is a PostgreSQL endpoint
+> like any other, so it uses the same `PG*` variables. Only the credential differs.
 
 ## Running the Application
 
@@ -177,31 +180,42 @@ scripts/stop.sh
 
 Open your browser to: **http://localhost:8000**
 
-## Permission Management (Databricks App Only)
+## Access control
 
-When running as a Databricks App, OntoBricks enforces role-based access control:
+OntoBricks enforces two independent layers of access control.
 
-- **Admin**: Users with **CAN_MANAGE** on the Databricks App. They can manage per-domain roles in **Settings → Admin → Teams**.
-- **Editor**: Full read/write access to all features.
-- **Viewer**: Read-only access.
-- **No role**: Blocked from accessing the app entirely.
+**App-level roles** live in the registry's `app_roles` table — not in a Databricks
+App ACL, which no longer exists:
 
-> **First-time setup**: When no permissions are configured yet, only users with **CAN_MANAGE** on the Databricks App have access. Everyone else is blocked. Grant app access in **Databricks → Apps → Permissions**, then assign domain roles via **Settings → Admin → Teams**.
+| Role | Access |
+|---|---|
+| **admin** | Everything, including **Settings → App access** and per-domain roles |
+| **editor** | Full read/write on domains they are granted |
+| **viewer** | Read-only |
+| *(none)* | Blocked entirely |
 
-To manage permissions, you must:
-1. Have **CAN_MANAGE** set on the app in the Databricks UI (Compute → Apps → ontobricks → Permissions)
-2. The app's service principal must have **CAN_MANAGE** on itself — `make deploy` runs `scripts/bootstrap/app-permissions.sh` automatically; otherwise run `make bootstrap-perms`. See the [Deployment Guide](deployment.md#4-permission-management).
-3. The app's service principal must have **USAGE + DML** on the Lakebase
-   registry / graph / sync schemas — `scripts/deploy.sh` runs
-   `scripts/bootstrap/lakebase-perms.sh` automatically on the
-   `dev-lakebase` target; otherwise run `make bootstrap-lakebase`. See
-   the [Deployment Guide §2 Step 5b](deployment.md#step-5b--lakebase-schema-grants-target-dev-lakebase-only).
-4. The app's service principal must have **Unity Catalog** privileges
-   on the registry catalog/schema/volume **and** on every source table
-   referenced by an R2RML mapping. See the [Deployment Guide §3](deployment.md#3-unity-catalog-permissions-for-the-service-principal)
-   for the exact grants.
+`ONTOBRICKS_AUTH_ENABLED` defaults to **true** (fail closed), so on a fresh
+deployment nobody can get in until an admin exists. Set
+`ONTOBRICKS_BOOTSTRAP_ADMIN=you@example.com` and restart — it seeds that email as
+admin, and applies only while no admin exists, so a deliberate revoke is not
+undone. After that, manage grants from **Settings → App access** or via
+`GET`/`POST /settings/app-roles{,/grant,/revoke}`. The last admin cannot be
+revoked.
 
-In local development mode, there are no restrictions — all users have full admin access.
+**Per-domain roles** are managed in **Settings → Admin → Teams** by an admin.
+
+For local development, `ONTOBRICKS_AUTH_ENABLED=false` disables both layers and
+gives every request full admin access. Never set it false in a deployment.
+
+### What the Databricks identity still needs
+
+Two grants remain, and only if you use the Databricks connector:
+
+1. **PostgreSQL** — `USAGE` + `CREATE` on the registry and graph schemas. Two
+   statements; see [Deployment §5](postgres-graphdb.md#5-permissions).
+2. **Unity Catalog** — privileges on the registry catalog/schema/volume and on
+   every source table referenced by an R2RML mapping. See
+   [Deployment §6](deployment.md#6-unity-catalog-permissions) for the exact grants.
 
 ## First Steps in OntoBricks
 
@@ -214,7 +228,7 @@ In local development mode, there are no restrictions — all users have full adm
 5. You should see "Connection successful"
 6. Open **Settings → Registry**. On a fresh Lakebase database the
    registry tables don't exist yet — click **Initialize**. This runs
-   the schema migration in `LAKEBASE_SCHEMA` (default
+   the schema migration in `ONTOBRICKS_PG_SCHEMA` (default
    `ontobricks_registry`) and creates the registry Volume if missing.
    Then run `make bootstrap-lakebase` once to grant the app SP
    USAGE/DML on the freshly-created schema.
@@ -399,7 +413,7 @@ The OntoBricks interface has a navigation bar with status indicators:
 
 Change the port in `.env`:
 ```bash
-DATABRICKS_APP_PORT=8080
+PORT=8080
 ```
 
 Then restart the application.
@@ -432,7 +446,7 @@ scripts/setup.sh
 
 - Read the [User Guide](user-guide.md) for detailed instructions
 - See the [Architecture](architecture.md) for technical details
-- Check [Deployment](deployment.md) for Databricks Apps deployment
+- Check [Deployment](deployment.md) for running in a container
 - Explore the [MCP Server](mcp.md) for Databricks Playground integration
 - Review [Data Quality](user-guide.md#data-quality-shacl-shapes) for SHACL shape validation
 - Explore [Reasoning](user-guide.md#step-7b-run-reasoning-optional) for OWL 2 RL and SWRL inference
@@ -464,8 +478,8 @@ OntoBricks uses environment variables for configuration, making it easy to deplo
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SECRET_KEY` | Secret key for session encryption | Random (dev only) |
-| `DATABRICKS_APP_PORT` | Port the application listens on | `8000` |
-| `REGISTRY_VOLUME_PATH` | Full volume path injected by the Databricks App `volume` resource (`/Volumes/<catalog>/<schema>/<volume>`). When set, overrides the three `REGISTRY_*` variables below. | *(from volume resource)* |
+| `PORT` | Port the application listens on | `8000` |
+| `REGISTRY_VOLUME_PATH` | Full volume path set by the deployment (`/Volumes/<catalog>/<schema>/<volume>`). When set, overrides the three `REGISTRY_*` variables below. | *(from volume resource)* |
 | `REGISTRY_CATALOG` | Unity Catalog catalog for the domain registry (local dev fallback) | *(from session or Settings)* |
 | `REGISTRY_SCHEMA` | Schema for the domain registry (local dev fallback) | *(from session or Settings)* |
 | `REGISTRY_VOLUME` | Volume name for domain storage (local dev fallback) | `OntoBricksRegistry` |
@@ -476,10 +490,6 @@ OntoBricks uses environment variables for configuration, making it easy to deplo
 
 | Variable | Description | Default / Source |
 |----------|-------------|------------------|
-| `LAKEBASE_SCHEMA` | Postgres schema used by the registry inside `PGDATABASE`. Mirror the bundle's `lakebase_registry_schema`. | `ontobricks_registry` |
-| `LAKEBASE_PROJECT` | Lakebase Autoscaling **project id** (`projects/<this>/...`). Used by `LakebaseAuth` for local dev host resolution. In deployed Apps, informational only (injected via `app.yaml`). | *(set in `.env` for local dev)* |
-| `LAKEBASE_BRANCH` | Branch to connect to (e.g. `develop`, `production`). Used together with `LAKEBASE_PROJECT` to resolve the endpoint hostname locally. | *(set in `.env` for local dev)* |
-| `LAKEBASE_DATABASE` | Postgres database name (`datname`). Resolved from the branch when unset. | *(set in `.env` for local dev)* |
 | `PGHOST` | Lakebase Autoscaling endpoint (`ep-<id>.database.<region>.cloud.databricks.com`). **Auto-injected** by the `database` Apps resource binding — do not set in `.env`. | *(auto-injected by the Apps platform)* |
 | `PGPORT` | Postgres port. | `5432` |
 | `PGDATABASE` | Postgres database name. **Auto-injected** by the Apps platform. | *(auto-injected)* |
@@ -538,7 +548,7 @@ DATABRICKS_SQL_WAREHOUSE_ID=abc123def456...
 
 ## Optional Configuration
 SECRET_KEY=your-secret-key-here
-DATABRICKS_APP_PORT=8000
+PORT=8000
 
 ## Performance / Observability (optional)
 LOG_FORMAT=json                        # Structured JSON logging (default: text)
@@ -557,16 +567,16 @@ export DATABRICKS_TOKEN=dapi1234567890abcdef...
 export DATABRICKS_SQL_WAREHOUSE_ID=abc123def456...
 ```
 
-#### Databricks Apps Deployment
+#### Container deployment
 
-When deploying to Databricks Apps, set environment variables in the app configuration:
+Set environment variables through your platform's configuration or secret store:
 
 1. Navigate to your app in Databricks UI
 2. Go to Configuration → Environment Variables
 3. Add the required variables
 4. Restart the app
 
-**Note**: In Databricks Apps, `DATABRICKS_HOST` and authentication are typically handled automatically by the service principal.
+**Note**: Credentials belong in your platform's secret store, injected as environment variables. See `documentation/deployment.md` §12.
 
 ### Automatic Configuration Detection
 
@@ -584,14 +594,14 @@ When you open the Settings page:
 - **No Environment Variables**: Fields are empty and editable
 - **Partial Configuration**: Mix of pre-populated and editable fields
 
-#### Resource-Locked Controls (Databricks Apps)
+#### Externally-configured controls
 
-When the app is deployed with Databricks App resource bindings (`sql-warehouse` and/or `volume`), the corresponding Settings controls are **locked**:
+When the deployment fixes a value through the environment (`DATABRICKS_SQL_WAREHOUSE_ID`, `REGISTRY_VOLUME_PATH` or `PGHOST`) **and** `ONTOBRICKS_CONTAINERIZED=true`, the corresponding Settings controls are **locked**. On a developer machine the same variables are only defaults, so the fields stay editable:
 
-- **SQL Warehouse**: The warehouse dropdown and refresh button are disabled. A lock icon indicates the value is configured via the Databricks App resource.
+- **SQL Warehouse**: The warehouse dropdown and refresh button are disabled. A lock icon indicates the value is fixed by the deployment environment.
 - **Registry**: The Change button is disabled. If the volume is bound but the registry is not yet initialized, the **Initialize** button remains available so an admin can bootstrap the registry.
 
-To change these values, update the resource bindings in **Compute > Apps > Resources** and restart the app.
+To change these values, update the container's environment and restart it.
 
 #### Visual Indicators
 
@@ -674,34 +684,34 @@ DATABRICKS_HOST=https://my-workspace.cloud.databricks.com
 DATABRICKS_TOKEN=dapi1234567890abcdef
 DATABRICKS_SQL_WAREHOUSE_ID=abc123
 SECRET_KEY=dev-secret-key
-DATABRICKS_APP_PORT=8000
+PORT=8000
 
 ## MLflow (optional — persist traces to Databricks)
 MLFLOW_TRACKING_URI=databricks
 ```
 
-#### Databricks Apps
+#### Container / platform configuration
 
 ```bash
-## Injected from app.yaml resource bindings
+## PostgreSQL registry
 DATABRICKS_SQL_WAREHOUSE_ID=<from sql-warehouse resource>
 REGISTRY_VOLUME_PATH=<from volume resource, e.g. /Volumes/catalog/schema/volume>
 
-## Set via app.yaml env section
+## Application settings
 MLFLOW_TRACKING_URI=databricks
-DATABRICKS_APP_PORT=8000
+PORT=8000
 
 ## Static fallbacks (used for local dev / MCP when no resource is bound)
 REGISTRY_CATALOG=main
 REGISTRY_SCHEMA=default
 REGISTRY_VOLUME=OntoBricksRegistry
 
-## MCP server (when deployed as separate app)
+## MCP server (separate process)
 ONTOBRICKS_URL=https://your-ontobricks-app-url.databricks-apps.com
 
-## Automatically set by Databricks
+## Optional Databricks connector
 DATABRICKS_HOST=<automatically-configured>
-## Authentication via service principal (automatic)
+## Databricks service principal (optional)
 ```
 
 When both the `sql-warehouse` and `volume` resources are bound, the Settings UI locks the warehouse and registry controls. See the [Deployment Guide](deployment.md) for details.

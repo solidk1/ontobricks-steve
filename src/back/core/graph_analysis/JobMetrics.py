@@ -65,7 +65,7 @@ def resolve_analytics_source(domain: Any, settings: Any) -> Tuple[str, str]:
 
     Always the ``…_data`` snapshot the Build materialises from the R2RML VIEW,
     never the engine's own graph relation. That is what makes a KPI identical
-    on Lakehouse, Lakebase and Neo4j: the engines differ, the mapped snapshot
+    on Lakehouse, Postgres and Neo4j: the engines differ, the mapped snapshot
     does not.
 
     Returns ``(table, "")`` or ``("", reason)``, where the reason is written for

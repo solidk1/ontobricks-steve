@@ -17,7 +17,7 @@ assumptions and include expected growth.
 - **Required — Databricks region:** ______________________________
 - **Required — Databricks platform tier:** ______________________________
 - **Required — Unity Catalog enabled:** [ ] Yes  [ ] No
-- **Required — Databricks Apps enabled:** [ ] Yes  [ ] No  [ ] To confirm
+- **Required — PostgreSQL 14+ server available:** [ ] Yes  [ ] No  [ ] To confirm
 - **Required — Lakebase Autoscaling available in the target region:**
   [ ] Yes  [ ] No  [ ] To confirm
 - **Optional — Compliance requirements:** [ ] None  [ ] HIPAA  [ ] PCI
@@ -163,7 +163,7 @@ Delta-backed operations.
   `______________________________`
 - **Optional — Auto-stop requirement:** __________________ minutes
 
-## 9. Databricks Apps and MCP
+## 9. Container platform and MCP
 
 A standard deployment contains the OntoBricks application and an optional MCP
 companion application.
@@ -241,7 +241,7 @@ When possible, provide a representative production sample or benchmark:
 
 The customer may leave this section blank.
 
-- Recommended Databricks App compute: ______________________________
+- Recommended container size (single replica): ______________________
 - Recommended MCP App compute: ______________________________
 - Recommended Lakebase capacity and storage: _____________________________
 - Recommended SQL Warehouse type, size, and scaling range:

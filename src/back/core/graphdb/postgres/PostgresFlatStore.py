@@ -763,17 +763,18 @@ def resolve_postgres_graph_schema(
     settings: Any | None,
     config_schema: str,
 ) -> str:
-    """Postgres / UC schema segment for Lakebase triple tables.
+    """Postgres schema segment for the graph triple tables.
 
-    When **Settings → Registry** resolves to a non-empty Unity Catalog **Volume**
-    schema (``RegistryCfg.schema``, the middle part of ``catalog.schema.volume``),
-    that value **always** wins over ``graph_engine_config.schema``. Managed-synced
-    tables must register in UC as ``catalog.schema.table`` where ``schema`` matches
-    the Lakebase Postgres schema; aligning with the registry Volume keeps graph
-    triples and synced metadata under the same UC namespace as artefacts.
+    Precedence: an explicit ``graph_engine_config.schema`` always wins. With none
+    set, the value is derived from the Unity Catalog Volume's schema segment
+    (``RegistryCfg.schema``, the middle part of ``catalog.schema.volume``) so graph
+    triples land under the same namespace as registry artefacts, then falls back to
+    ``DEFAULT_GRAPH_SCHEMA``.
 
-    Falls back to *config_schema* (validated) when the registry triplet has no
-    schema or resolution fails.
+    The original reason for preferring the Volume's segment was the managed-synced
+    write mode, which needed UC-registerable ``catalog.schema.table`` names. That
+    mode was removed in v0.7.1; the alignment is kept because it keeps existing
+    deployments' schema names stable, not because anything still requires it.
     """
     from back.core.graphdb.postgres.PostgresBase import (
         DEFAULT_GRAPH_SCHEMA,

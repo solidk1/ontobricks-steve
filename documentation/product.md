@@ -43,7 +43,7 @@ Organizations invest heavily in Lakehouse platforms to store and process data at
 
 #### A Graph Viewer Builder that lives inside Databricks.
 
-OntoBricks is not a separate platform. It deploys as a **Databricks App** and uses the services you already have.
+OntoBricks is not a separate platform. It deploys as a **container** against your own PostgreSQL, and connects to the Databricks services you already have.
 
 ```mermaid
 flowchart LR
@@ -81,7 +81,7 @@ flowchart LR
 | SQL Warehouse  | Executes all data queries -- no separate compute                           |
 | Model Serving  | Powers LLM-driven ontology generation and auto-mapping                  |
 | Delta Table    | Triple store -- triples live in your Lakehouse, not in a separate graph DB |
-| Databricks App | Deployment target -- `databricks apps deploy` and you are live             |
+| Container      | Deployment target -- any container runtime, single replica                  |
 | MCP Server     | Exposes knowledge-graph tools to the Databricks Playground and LLM clients |
 
 
@@ -253,7 +253,7 @@ OntoBricks is the **only** solution that combines all of the following in a sing
 **Get started:**
 
 ```
-databricks apps deploy --app-name ontobricks
+ONTOBRICKS_CONTAINERIZED=true python run.py    # in your container image
 ```
 
 **Requirements:**
@@ -358,7 +358,7 @@ OntoBricks provides an end-to-end, web-based solution that runs directly on Data
 
 - **Knowledge Graph REST API**: Stateless endpoints for triple store status, ontology/R2RML/SQL retrieval, entity search, and build triggers (`/api/v1/digitaltwin/`).
 - **GraphQL API**: Auto-generated typed schema per domain with configurable relationship depth and GraphiQL playground.
-- **MCP Server**: Model Context Protocol server deployable as a Databricks App (`mcp-ontobricks`) for Databricks Playground integration and LLM client access (Cursor, Claude Desktop).
+- **MCP Server**: Model Context Protocol server, run as a separate process, for Databricks Playground integration and LLM client access (Cursor, Claude Desktop).
 - **Ontology Assistant**: Conversational LLM agent for natural-language ontology editing.
 
 ---
@@ -385,9 +385,9 @@ OntoBricks provides an end-to-end, web-based solution that runs directly on Data
 
 #### Deliverable
 
-A **production-ready Databricks App** (open-source, MIT license) that:
+A **production-ready container application** (open-source, MIT license) that:
 
-- Deploys in minutes via `databricks apps deploy`
+- Deploys in minutes to any container runtime
 - Requires only a SQL Warehouse and (optionally) an OpenAI-compatible LLM endpoint
 - Stores all domain data in Unity Catalog Volumes (no external dependencies)
 - Supports the full lifecycle: design → map → materialize → explore → validate
@@ -431,7 +431,7 @@ A **production-ready Databricks App** (open-source, MIT license) that:
 | Data       | Databricks SQL Connector, Unity Catalog, Delta Lake                                       |
 | AI         | Any OpenAI-compatible chat-completions endpoint (Databricks FMAPI, OpenAI, vLLM, …)        |
 | MCP        | FastMCP, httpx, Databricks SDK (separate App)                                             |
-| Deployment | Databricks Apps (`app.yaml`)                                                              |
+| Deployment | Any container runtime (`ONTOBRICKS_CONTAINERIZED=true python run.py`)                     |
 
 
 #### Current State

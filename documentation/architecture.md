@@ -18,7 +18,7 @@ Under the hood, SPARQL translates ontology mappings into Spark SQL — users nev
 | Layer | What it does |
 |-------|-------------|
 | **User Interface** | Bootstrap 5.3 + OntoViz visual editor + Sigma.js / D3.js graph views |
-| **MCP Server** | Separate Databricks App (`mcp-ontobricks`) exposing knowledge-graph tools to LLM clients (Cursor, Claude Desktop, Playground) |
+| **MCP Server** | Separate process (`src/mcp-server/`) exposing knowledge-graph tools to LLM clients (Cursor, Claude Desktop, Databricks Playground) |
 | **FastAPI Application** | Routes → Domain Objects → Core layered architecture with GlobalConfigService, PermissionService, and BuildScheduler |
 | **LLM Agents** | MLflow-traced agentic loops for ontology generation, auto-mapping, icon mapping, and conversational assistance |
 | **Reasoning Engine** | OWL 2 RL deductive closure, SWRL rules (compiled to SQL), graph reasoning, and constraint validation |
@@ -388,7 +388,7 @@ src/
 │   │   │   ├── GraphDBFactory.py       # Engine factory (auto / lakebase / delta / view)
 │   │   │   ├── constants.py            # RDF_TYPE, RDFS_LABEL
 │   │   │   ├── delta/                  # DeltaFlatStore (SQL Warehouse engine)
-│   │   │   ├── lakebase/               # LakebaseFlatStore, LakebaseBase, SyncedTableManager
+│   │   │   ├── postgres/               # PostgresFlatStore, PostgresBase, _companion_ddl
 │   │   │   └── _starter_kit/           # ExampleStore template for new engines
 │   │   │
 │   │   ├── reasoning/                  # Reasoning engine (OWL 2 RL + SWRL + SPARQL rules + Decision tables)
@@ -450,9 +450,7 @@ src/
 │   ├── agent_auto_icon_assign/         # Emoji icon mapping agent
 │   └── agent_ontology_assistant/       # Conversational assistant + ResponsesAgent wrapper
 │
-└── mcp-server/                         # MCP Server (separate Databricks App; under src/)
-    ├── app.yaml                        # Databricks App config (also rendered via DAB)
-    ├── deploy-mcp-server.sh            # Legacy standalone deploy (prefer `make deploy`)
+└── mcp-server/                         # MCP Server (separate process; under src/)
     ├── pyproject.toml                  # Python dependencies
     └── server/
         ├── app.py                      # MCP tools, domain selection, text formatting
@@ -1175,12 +1173,12 @@ OntoBricks uses Python's standard `logging` module with `logging.config.dictConf
 
 | Handler | Type | Target |
 |---------|------|--------|
-| `console` | `StreamHandler` | `stdout` — visible in Databricks App logs |
+| `console` | `StreamHandler` | `stdout` — collected by the container platform |
 | `file` | `RotatingFileHandler` | Rotating log file (10 MB, 5 backups) |
 
 The file handler writes to a path determined by (in priority order):
 1. `LOG_DIR` environment variable
-2. `/local_disk0/logs` when running inside Databricks Apps
+2. `/tmp/logs` when `ONTOBRICKS_CONTAINERIZED=true` (the filesystem is ephemeral)
 3. `./logs` for local development
 
 ### Format
@@ -1265,7 +1263,7 @@ Every agent invocation produces a nested span tree:
 |-------------|-------------|-----------------|---------|
 | **Local dev** (default) | *(not set)* | `ontobricks-agents` | `mlflow.db` + `mlruns/` on disk |
 | **Local dev** (persistent) | `MLFLOW_TRACKING_URI=databricks` | `/Shared/ontobricks-agents` | Databricks workspace |
-| **Databricks App** | `MLFLOW_TRACKING_URI=databricks` (set in `app.yaml`) | `/Shared/ontobricks-agents` | Databricks workspace |
+| **Databricks-backed** | `MLFLOW_TRACKING_URI=databricks` | `/Shared/ontobricks-agents` | Databricks workspace |
 
 When the tracking URI is `databricks`, experiment names are automatically resolved to absolute workspace paths (`/Shared/<name>`) so that traces are accessible from the workspace Experiments UI.
 
@@ -1330,7 +1328,7 @@ All blocking Databricks I/O runs through `run_blocking()` in `DatabricksHelpers.
 
 ### Authentication
 - Personal Access Token (development)
-- Service Principal (production/Databricks Apps)
+- Service Principal (`DATABRICKS_CLIENT_ID` / `_SECRET`)
 - Tokens stored in environment variables
 
 ### CSRF Protection
@@ -1341,7 +1339,7 @@ All blocking Databricks I/O runs through `run_blocking()` in `DatabricksHelpers.
 - Disabled via `CSRF_DISABLED=1` for automated test suites
 
 ### Data Protection
-- Session cookies use `secure=True` and `samesite=lax` when running as a Databricks App (`DATABRICKS_APP_PORT` set), ensuring cookies are only sent over HTTPS
+- Session cookies use `secure=True` and `samesite=lax` when `ONTOBRICKS_SECURE_COOKIES=true`, ensuring cookies are only sent over HTTPS
 - No credentials persisted to disk
 - HTTPS enforced in production
 
@@ -1411,7 +1409,7 @@ OntoBricks provides a stateless REST API at `/api/v1/` for external applications
 > backend is unavailable (e.g. the table is missing) `EditLockService._shape`
 > degrades to permissive rather than presenting a phantom "another user" lock.
 > `domain_edit_locks` is provisioned as the schema owner by the deploy
-> migration (`scripts/bootstrap/lakebase-perms.sh`), because the app service
+> migration (`GRANT USAGE, CREATE ON SCHEMA`), because the application
 > principal cannot self-heal the table's FK to `domains`.
 >
 > The lifecycle replaces the old per-version "Active"/`mcp_enabled` toggle.
@@ -1550,7 +1548,7 @@ OntoBricks uses **LLM-powered agents** to automate complex, multi-step tasks tha
 
 All agents run against the **Databricks Foundation Model API** (or any OpenAI-compatible chat/completions endpoint) and are designed to degrade gracefully if the endpoint does not support function calling.
 
-In addition to the UI-driven agents, OntoBricks provides an **MCP server** (`mcp-ontobricks`) that exposes knowledge-graph tools to LLM clients (Databricks Playground, Cursor, Claude Desktop) via the Model Context Protocol. The MCP server is a separate Databricks App that calls the main app's REST and GraphQL APIs. See [MCP Server](mcp.md) for details.
+In addition to the UI-driven agents, OntoBricks provides an **MCP server** (a separate process) that exposes knowledge-graph tools to LLM clients (Databricks Playground, Cursor, Claude Desktop) via the Model Context Protocol. The MCP server is a separate Databricks App that calls the main app's REST and GraphQL APIs. See [MCP Server](mcp.md) for details.
 
 ```
 ┌─────────────────────────────────────────────────────────┐

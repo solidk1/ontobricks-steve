@@ -62,7 +62,7 @@ admins re-enter connections in the master–detail UI.
 
 **Auth.** Every connection must use a Databricks secret (`auth_method:
 databricks_secret`). Clear-text passwords are stripped on save. In a deployed
-Databricks App the runtime still accepts a bound `NEO4J_PASSWORD` env var as a
+legacy configs the runtime still accepts a `NEO4J_PASSWORD` env var as a
 legacy fallback for older configs, but the Settings UI only exposes the
 secret-scope path. Self-hosted servers may use `bolt://` / `neo4j://`
 (unencrypted) or `neo4j+s://` / `bolt+s://` (TLS embedded).

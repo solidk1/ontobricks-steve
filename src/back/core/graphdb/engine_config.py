@@ -1,4 +1,4 @@
-"""Per-backend graph engine configuration (Lakebase / Neo4j / Lakehouse).
+"""Per-backend graph engine configuration (Postgres / Neo4j / Lakehouse).
 
 ``graph_engine_config`` is stored as a nested object so backends share nothing::
 
@@ -9,7 +9,7 @@
     }
 
 Legacy flat Neo4j blobs (single ``uri`` / ``username`` profile, or pre-nesting
-shapes) are still folded into the ``neo4j`` bucket on read for Lakebase /
+shapes) are still folded into the ``neo4j`` bucket on read for Postgres /
 Lakehouse normalisation, but Neo4j *runtime* and Settings UI use only
 ``neo4j.connections[]`` — there is no auto-migration of a flat profile into a
 named connection.
@@ -83,11 +83,11 @@ def _looks_like_neo4j_section(cfg: Mapping[str, Any]) -> bool:
     """True when *cfg* is already a Neo4j bucket (not a nested/flat root).
 
     Used so ``neo4j_section({"connections": [...]})`` round-trips through
-    ``normalize`` without dumping ``connections`` into Lakebase.
+    ``normalize`` without dumping ``connections`` into the Postgres bucket.
     """
     if any(k in cfg for k in _BACKEND_KEYS):
         return False
-    # Lakebase / shared flat markers → use the flat or nested paths.
+    # Postgres / shared flat markers → use the flat or nested paths.
     if any(
         k in cfg
         for k in (

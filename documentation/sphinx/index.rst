@@ -28,7 +28,7 @@ RST summaries; see the architecture guide for the full design document.
    guides/api
    guides/data-access
    guides/graphdb-integration
-   guides/lakebase-graphdb
+   guides/postgres-graphdb
    guides/cohort_discovery
    guides/mcp
    guides/development
@@ -55,7 +55,7 @@ RST summaries; see the architecture guide for the full design document.
    api/app.core.external
    api/app.core.external.pitfalls
    api/app.core.graphdb
-   api/app.core.graphdb.lakebase
+   api/app.core.graphdb.postgres
    api/app.core.graphdb.neo4j
    api/app.core.graphql
    api/app.core.industry

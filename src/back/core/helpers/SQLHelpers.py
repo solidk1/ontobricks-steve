@@ -139,7 +139,7 @@ class SQLHelpers:
 
         * **databricks** — union VIEW ``…_graph`` (``_data`` ∪ ``_inferred``) when
           *include_inferred* is true; otherwise the materialized ``…_data`` TABLE.
-        * **lakebase** — union view (``Domain_V<n>``) when *include_inferred* is true,
+        * **postgres** — union view (``Domain_V<n>``) when *include_inferred* is true,
           otherwise the synced bulk table via *store.synced_table_name*.
         """
         from back.core.errors import ValidationError

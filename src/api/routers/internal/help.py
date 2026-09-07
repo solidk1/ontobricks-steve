@@ -69,9 +69,9 @@ _DOC_CATEGORIES: List[Dict] = [
                 "title": "GraphDB Integration",
             },
             {
-                "slug": "lakebase-graphdb",
-                "file": "lakebase-graphdb.md",
-                "title": "Lakebase GraphDB",
+                "slug": "postgres-graphdb",
+                "file": "postgres-graphdb.md",
+                "title": "PostgreSQL GraphDB",
             },
             {
                 "slug": "neo4j-requirements",

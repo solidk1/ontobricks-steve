@@ -50,9 +50,21 @@ an MCP tool wrapping an agent):
   API code path.
 
 When asking to deploy:
-* Always synchronize the files with the server.
-* Deploy both the UI and the MCP server via databricks automation/asset bundle (DAB)
-* run "make deploy"
+* **There is no in-repo deploy automation.** The Databricks Apps path, the asset
+  bundle (`databricks.yml`, `app.yaml.template`) and `scripts/deploy*` were all
+  removed in v0.7.1. `make deploy` does not exist — do not suggest it.
+* OntoBricks is a container-ready ASGI process. `make prod` runs it the way a
+  container should: `ONTOBRICKS_CONTAINERIZED=true python run.py`, which binds
+  `0.0.0.0` on `$PORT`. `make run` / `make dev` bind loopback for local work.
+* Deploying therefore means building an image around that entrypoint and running
+  it on the target platform (Azure Container Apps, ECS, Kubernetes, …) with the
+  environment documented in `.env.example`. See `README.md` §"Running in a
+  container" for the required variables, the `documentation/` bundling
+  requirement, and the **single-replica** constraint (APScheduler runs
+  in-process; more than one replica duplicates every scheduled build).
+* Before handing a build off: `uv run --frozen pytest -q -m "not scenario"` green
+  and `uv.lock` free of proxy URLs — `.claude/skills/deploy/SKILL.md` has the
+  lockfile checks, which still matter because the container installs from it.
 
 When asking to create a Release Notes:
 * Looks at the folder ./changelogs, and use the current version (vx.x.x)

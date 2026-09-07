@@ -27,8 +27,9 @@ gate requires a SPEC for this path anyway and two documents would drift.
 1. **SPEC + dataset first.** 24 baseline + 3 regression contract cases, written before any
    source change, and run red (109 failures) to prove they bind to real behaviour.
 2. **`shared/config/LLMTarget.py`** — `completions_url`, `headers`, `payload_extras`,
-   `describe`, `from_env`, `for_databricks`, `resolve`, `external_configured`,
-   `picker_models`.
+   `describe`, `from_env`, `is_configured`, `models`. (`for_databricks`, `resolve`
+   and the `api_style` branching existed in the first revision and were removed
+   when the Databricks preset went — see SPEC §10.)
 3. **`agents/engine_base.py`** — resolve a target; URL, headers and the `model` body field
    come from it. Signature untouched. `_UNSUPPORTED_PARAMS` re-keyed from `endpoint_name`
    to the resolved model.
@@ -46,8 +47,10 @@ gate requires a SPEC for this path anyway and two documents would drift.
 ## Verification
 
 - `tests/units/agents/test_engine_base_transport_contract.py` — 112 tests, dataset-driven.
-- `tests/units/agents/test_agent_engine_base.py` — **unchanged and passing**, which is the
-  evidence that the Databricks preset is byte-identical.
+- `tests/units/agents/test_agent_engine_base.py` — rewritten in the second revision,
+  because removing the preset changed the transport's signature. It no longer
+  accepts a host or token, so "byte-identical to the Databricks preset" stopped
+  being the property under test.
 - `tests/units/core/test_sql_wizard.py` — unchanged and passing.
 - `tests/eval/run_engine_base.py` — offline aggregate `0.9000` against a `0.90` threshold.
 - Negative control: re-injecting a key into a log line makes `no_secret_leak` fail on 13
@@ -66,3 +69,30 @@ uv run --frozen python tests/eval/run_engine_base.py --live \
     --host "$(databricks auth env -p <profile> | jq -r .DATABRICKS_HOST)" \
     --endpoint databricks-claude-sonnet-4
 ```
+
+
+---
+
+## Revision 2 — one generic endpoint, no fallbacks
+
+Feedback: *"remove all the fallbacks, make it a generic URL and API key for openai
+compatible models."* Revision 1 kept a Databricks preset and chose between it and
+an external provider by whichever happened to be configured — two URL shapes, two
+credential sources, and a provider selected as a side effect of unrelated settings.
+
+What changed, and the reasoning, is recorded in SPEC §1, §10 and the changelog
+entry for 2026-09-03. Three findings from investigating before cutting are worth
+keeping here:
+
+1. **`host`/`token` had to stay** on the engine signatures — `agents/tools/documents.py`
+   uses `ctx.host`/`ctx.token` for the Databricks Files API. They are *connector*
+   credentials, not the LLM's, and conflating those two roles is what made the old
+   design look natural.
+2. **`agent_supervisor/mas.py`'s `endpoint_name` is a Databricks Multi-Agent
+   Supervisor *agent-endpoint* name**, not an LLM model. The mechanical rename
+   would have corrupted it.
+3. **The ruff F-rule delta check earned its place**: it caught 8 `F821 undefined
+   name` the rename left in `mapping.py` and `ontology.py` — code paths the 4900+
+   tests do not cover. Tests alone would have shipped them.
+
+The rename this plan deferred is done, because removing the preset forced it.

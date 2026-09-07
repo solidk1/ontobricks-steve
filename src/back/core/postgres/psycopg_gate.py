@@ -1,7 +1,7 @@
 """Lazy-import gate for ``psycopg``.
 
 Both the registry store and the graph engine are import-safe without
-``psycopg`` installed — the dependency is only required when a Lakebase
+``psycopg`` installed — the dependency is only required when a Postgres
 connection is actually opened. This module centralises the import so the
 error message (and the extra install hint) lives in exactly one place.
 """

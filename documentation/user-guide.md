@@ -589,7 +589,7 @@ Because the job can take a while on large graphs, it runs **asynchronously** in 
 > **Prerequisites.** Three conditions must all be met before a run can start; the Analytics panel tells you which one is missing if any of them fails:
 >
 > 1. **Admin toggle on** — an admin must enable *Compute large-graph metrics on Databricks* in **Settings → Global**. `ONTOBRICKS_ANALYTICS_JOB_ENABLED` sets the *initial* value for a new deployment; once an admin uses the checkbox their choice wins (including an explicit "off").
-> 2. **Bundle deployed** — the Lakeflow job (`resources/graph_analytics.job.yml`) must be deployed via `make deploy`. OntoBricks resolves the job by name (suffix-matching so `[dev <user>]` prefixes work automatically).
+> 2. **Job created** — the Lakeflow job (`resources/graph_analytics.job.yml`) must exist in your workspace; this repo no longer deploys it, so create it with your own bundle or the Jobs UI. OntoBricks resolves the job by name (suffix-matching so `[dev <user>]` prefixes work automatically).
 > 3. **Domain built** — the domain must have been built at least once after this version of OntoBricks was deployed. Build unconditionally materialises a Delta snapshot of the R2RML-mapped triples (`catalog.schema.triplestore_<domain>_V<n>_data`). If that snapshot is absent or empty, the panel names this requirement and the remedy is a rebuild. Domains built before upgrading to this version need one rebuild.
 >
 > **What the job scores.** Analytics reads the mapped-triple snapshot — the same table regardless of whether your backend is Lakehouse, Lakebase or Neo4j. Inferred and cohort triples are out of scope; reasoning does not affect the KPIs.
@@ -1237,7 +1237,6 @@ See the [MCP Server documentation](mcp.md) for full details including local usag
 - Lakebase Postgres is the source of truth for the graph engine — verify the App is bound to the Lakebase instance (`PGHOST` / `PGDATABASE` env vars set by the Apps runtime)
 - If the Lakebase instance was paused or scaled to zero, the connection layer retries on `SQLSTATE 57P03`. Wait a few seconds and re-trigger the build.
 - Re-run the Knowledge Graph sync — the build is idempotent (`INSERT … ON CONFLICT DO NOTHING`)
-- For `managed_synced` mode, check the Lakeflow synced-table status under **Settings → Back end**
 
 ### Design Changes Not Saving
 

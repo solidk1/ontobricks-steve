@@ -291,11 +291,11 @@ Databricks Playground / Agent
     │
     │  Streamable HTTP (Databricks OAuth)
     ▼
-mcp-ontobricks  (Databricks App)
+mcp-ontobricks  (separate process)
     │
     │  httpx  →  ONTOBRICKS_URL
     ▼
-OntoBricks  (Databricks App)
+OntoBricks  (main app)
     ├── /api/v1/digitaltwin/*    (REST — entity search, stats, status)
     └── /graphql/{domain}        (GraphQL — typed queries, nested traversal; path segment is the registry domain name)
     │
@@ -318,14 +318,13 @@ Authentication between the two apps uses Databricks OAuth (service principal).
 
 The registry variables are passed as query parameters to every
 `/api/v1/digitaltwin/*` call, letting the MCP server operate without a
-browser session.  Set them in `src/mcp-server/app.yaml` to match the
+browser session.  Set them in the MCP process's environment to match the
 registry you configured in the OntoBricks Settings UI.
 
 ### MCP server layout
 
 ```
 src/mcp-server/
-├── app.yaml                 # Databricks App config (command + env vars)
 │                            #   ONTOBRICKS_URL, REGISTRY_CATALOG/SCHEMA/VOLUME
 ├── deploy-mcp-server.sh     # One-command deployment script
 ├── requirements.txt         # "uv" — dependency manager
@@ -340,12 +339,11 @@ src/mcp-server/
 ### Deployment
 
 The MCP server ships in the **same Databricks Asset Bundle** as the main app
-(`databricks.yml` → `mcp_ontobricks_app`). Prefer the DAB path:
+Run it as a second container alongside the main app:
 
 ```bash
 # Deploy both app definitions (from repo root)
-make deploy
-# or: scripts/deploy.sh -t <DAB_TARGET>
+ONTOBRICKS_URL=https://<main-app-host> python src/mcp-server/mcp_server.py
 
 # Start the MCP app if it is not already running
 databricks bundle run mcp_ontobricks_app -t <DAB_TARGET>
@@ -359,7 +357,7 @@ cd src/mcp-server
 ./deploy-mcp-server.sh
 ```
 
-See `documentation/deployment.md` §7 for Playground wiring and `app.yaml` env.
+See `documentation/deployment.md` §8 for how to run it.
 
 ### Using in Playground
 
@@ -444,7 +442,7 @@ Add to `claude_desktop_config.json`:
 ### Remote HTTP Client
 
 For MCP clients that support Streamable HTTP transport, point to the
-deployed Databricks App:
+deployed MCP process:
 
 ```json
 {

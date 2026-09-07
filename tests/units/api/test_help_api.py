@@ -123,7 +123,7 @@ class TestHelpDocsIndex:
             for doc in cat["docs"]
         }
         assert "graphdb-integration" in slugs
-        assert "lakebase-graphdb" in slugs
+        assert "postgres-graphdb" in slugs
         assert "neo4j-requirements" in slugs
 
         neo = client.get("/api/help/docs/neo4j-requirements")

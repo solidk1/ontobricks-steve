@@ -108,13 +108,13 @@
 
 ## Security
 - **CSRF Protection**: Double-submit cookie pattern for all state-changing requests; `X-CSRF-Token` header auto-attached by the frontend fetch wrapper.
-- **Secure Cookies**: Session cookies use `secure=True` and `samesite=lax` in Databricks Apps deployments (HTTPS-only).
+- **Secure Cookies**: Session cookies use `secure=True` and `samesite=lax` when `ONTOBRICKS_SECURE_COOKIES=true` (set it behind TLS).
 
 ## Observability
 - **Structured JSON Logging**: Set `LOG_FORMAT=json` for machine-readable log lines with `ts`, `level`, `logger`, `module`, `func`, `line`, `msg` fields.
 - **Request Timing**: Middleware logs method, path, status code, and duration (ms) for every non-static request.
 
 ## Deployment
-- **Databricks Apps Ready**: Deploy as a native Databricks App with service principal authentication.
-- **MCP Server App**: Separate `mcp-ontobricks` Databricks App for Playground integration.
+- **Container Ready**: Deploy to any container runtime against any PostgreSQL, with OIDC login and service-principal auth for the Databricks connector.
+- **MCP Server**: Separate process for Databricks Playground integration.
 - **Local Development**: Run locally with hot-reload for development and testing.

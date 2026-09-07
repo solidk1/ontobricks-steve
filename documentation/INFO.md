@@ -150,7 +150,7 @@ Explore your graph viewer — search, filter, and navigate entities and relation
 - **💾 Unity Catalog Storage**: Save/load domains to UC Volumes with version control
 - **📥 Import/Export**: Import OWL, RDFS ontologies and R2RML mappings; export OWL and R2RML
 - **🏦 Industry-Standard Ontologies**: One-click import of [FIBO](https://spec.edmcouncil.org/fibo/) (Financial), [CDISC](https://www.cdisc.org/) (Clinical), and [IOF](https://www.industrialontologies.org/) (Manufacturing) — see [Ontology import](documentation/user-guide.md#ontology-import-merged) in the user guide
-- **☁️ Databricks Apps Ready**: Designed for deployment as a Databricks App
+- **☁️ Container Ready**: Deploys to any container runtime against any PostgreSQL
 - **🧭 Domain Cockpit (Validation)**: Tiles for registry readiness; **Active Version** reflects the version **exposed via API/MCP** (set in Registry → Browse), not only the newest file on disk — with a *(not loaded)* hint when the editor session differs
 - **⏳ New domain flow**: Full-page loading overlay until Domain Information completes its first round-trip after **New Domain**
 - **🧱 Save guard**: Duplicate sanitized domain names are rejected before save to the registry (inline + Save-to-UC check)
@@ -195,7 +195,7 @@ scripts/start.sh
 
 Open **http://localhost:8000**
 
-### Deploy to Databricks Apps
+### Deploy as a container
 
 ```bash
 # Install Databricks CLI
@@ -203,11 +203,10 @@ pip install databricks-cli
 databricks configure --token
 
 # Deploy
-make deploy
-# Or: scripts/deploy.sh
+ONTOBRICKS_CONTAINERIZED=true python run.py   # inside your container image
 ```
 
-After deployment, bind the **sql-warehouse** and **volume** resources in the Databricks Apps UI (**Compute > Apps > ontobricks > Resources**). If the registry volume is empty, open the app and click **Settings > Registry > Initialize**.
+After deployment, open **Settings > Registry > Initialize** to create the registry schema. See `documentation/deployment.md` for the full env (**and the single-replica constraintes**). If the registry volume is empty, open the app and click **Settings > Registry > Initialize**.
 
 See [Deployment Guide](documentation/deployment.md) for detailed instructions including resource configuration, permissions, and the full deployment checklist.
 
@@ -347,11 +346,10 @@ src/
 │   ├── fastapi/health.py
 │   └── config/                  # settings, constants
 │
-└── mcp-server/                  # MCP server (separate Databricks App)
+└── mcp-server/                  # MCP server (separate process)
     ├── server/
     │   ├── app.py               # MCP tools, text formatting, combined app
     │   └── main.py              # Entry point
-    ├── app.yaml                 # Databricks App config
     ├── deploy-mcp-server.sh     # Deployment script
     └── pyproject.toml           # Dependencies
 ```

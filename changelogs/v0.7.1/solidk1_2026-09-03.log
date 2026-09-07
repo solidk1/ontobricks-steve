@@ -435,3 +435,175 @@ unchanged from the previous commit and 6 below HEAD.
 `documentation/*.md` still describes the Databricks Apps deploy in places P7 made
 obsolete — `product.md` was fixed above because it was in the same paragraph, but a
 full docs pass against the container deploy has not been done and is not claimed.
+
+---
+
+# Sweeping the operator-facing surface
+
+## Context
+
+Asked to check what was remaining. The audit found a coherent single gap: **the
+code was finished, but nothing that *describes* it had been updated.** P7 deleted
+the Databricks Apps deploy and P6 replaced the LLM path; the instruction files,
+docs and a handful of user-visible strings still documented both.
+
+## 1. Instruction files — the ones loaded every session
+
+These mattered most because they were actively misdirecting the agents reading
+them, including me.
+
+1. **`.cursorrules` §"When asking to deploy"** said *"deploy via DAB, run
+   `make deploy`"*. **No `deploy` target exists in the Makefile.** Replaced with
+   what is actually true: no in-repo deploy automation, `make prod` is the
+   container entrypoint, and the environment lives in `.env.example`.
+2. **`.claude/skills/deploy/SKILL.md`** wrapped the Asset Bundle deploy across
+   ~130 lines of `make deploy` / `bootstrap-perms` / `databricks bundle run`.
+   Rewritten around the container path. The `uv.lock` pre-flight section was
+   **kept** — it is still correct and still load-bearing, because the image
+   installs from the lock.
+3. **`.cursor/03-system-components-and-requirements.mdc`** described a
+   "Lakebase-backed registry" whose coordinates come from `databricks.yml`
+   resources and are "read-only when bound by Databricks Apps". Rewritten for
+   `PostgresRegistryStore` on any PostgreSQL 14+, the `PG*` variables and
+   `ONTOBRICKS_PG_AUTH`.
+
+**Caught while writing the skill:** I documented `GET /healthz` and
+`GET /health/detailed`. Neither exists — `/health` is the only readiness endpoint
+and `/health/detailed` was folded into it. Verifying my own new prose against the
+code caught it before commit, which is the same class of error the whole sweep is
+about.
+
+## 2. Docs
+
+**Deleted, not edited** — both were 100% about removed artifacts:
+
+- `documentation/dab-reference.md` (~110 lines) — `databricks.yml`, `app.yaml`,
+  `.databricksignore`, `scripts/deploy.sh`. It also leaked a real workspace id and
+  catalog name.
+- `documentation/DEPLOY_CHECKLIST.md` (208 lines) — `make deploy-check`,
+  `scripts/_internal/`, `bootstrap-lakebase-perms.sh`. `deployment.md` §10 now
+  carries a real checklist.
+
+**Rewritten:**
+
+- **`documentation/deployment.md`** — was 1665 lines with **153** Apps/DAB
+  references; sections 2 through 11 documented a path that no longer exists, so it
+  could not be patched. Replaced with ~460 accurate lines: container run, the
+  Postgres co-tenancy contract and the three `ONTOBRICKS_PG_AUTH` modes, OIDC,
+  the LLM provider, UC grants, graph backends, MCP, observability, checklist,
+  troubleshooting, production. The genuinely valuable non-reproducible content —
+  the UC privilege mental model and the per-operation grant table — was preserved
+  and corrected.
+- **`documentation/lakebase-graphdb.md` → `postgres-graphdb.md`** (729 → ~250
+  lines). Its §3 provisioned a Lakebase project with deleted scripts, §5 and §7–8
+  documented `managed_synced` and `SyncedTableManager`. The rename is wired
+  through `help.py`'s doc registry, `documentation/README.md`, the Sphinx guide
+  stub and toctree, and `tests/units/api/test_help_api.py`.
+- Its §6.4 claimed `object_hash` came from `digest(object,'sha256')` **via the
+  pgcrypto extension** — the pre-P0 design. Corrected to the in-schema
+  `sha256_utf8()` wrapper, with both reasons recorded: co-tenancy (an extension
+  survives `DROP SCHEMA … CASCADE` and needs an Azure server-level allowlist
+  change) and the fact that `convert_to` is `STABLE` while a generated column
+  requires `IMMUTABLE`.
+
+**Targeted fixes — 60+ replacements across 14 files:** `get-started.md`,
+`development.md`, `architecture.md`, `mcp.md`, `graphdb-integration.md`,
+`product.md`, `INFO.md`, `code_organization.md`, `sizing.md`, `features.md`,
+`user-guide.md`, `data-access.md`, `neo4j-requirements.md`, `api.md`,
+`documentation/README.md`.
+
+Two of those were **factually wrong, not merely stale**:
+
+- `get-started.md`'s env reference documented `LAKEBASE_PROJECT`,
+  `LAKEBASE_BRANCH`, `LAKEBASE_SCHEMA` and `LAKEBASE_DATABASE`. All four are dead
+  — verified by asserting `Settings` has no `lakebase_schema` attribute at all
+  (the field is `postgres_schema`, aliased to `ONTOBRICKS_PG_SCHEMA` only). Rows
+  removed and the `.env` example rewritten.
+- `DATABRICKS_APP_PORT` appeared 5 times as the listen port. Nothing reads it, and
+  `tests/units/core/test_runtime_env.py` asserts it stays gone. Now `PORT`.
+
+`development.md`'s ~470-line permissions chapter described the Databricks App ACL
+plus a `.permissions.json` file on a Volume. **Checked the code rather than
+assuming**: permissions now live in the `app_roles` and `domain_permissions`
+Postgres tables, and the App ACL survives *only* as a fallback consulted when
+`app_roles` yields nothing **and** `ONTOBRICKS_APP_NAME` is set. Reframed with
+that precedence stated explicitly, and the fallback labelled vestigial — since the
+Apps deploy is gone, leaving `ONTOBRICKS_APP_NAME` unset means it never runs. Left
+in place rather than removed, because deleting a migration path is a behaviour
+change nobody asked for.
+
+## 3. Stale prose in code moved during P2b — including user-visible errors
+
+`PostgresConnectionPool.py` moved from `databricks/lakebase/` to `postgres/` and
+the prose came with it. **Four were runtime error messages**, so an Azure Postgres
+operator saw *"Lakebase pool exhausted"*, *"Lakebase connection failed"* and
+*"Lakebase cold start"*. 15 replacements there, plus docstrings in
+`PostgresAuth.py`, `psycopg_gate.py`, `postgres/__init__.py`, `engine_config.py`,
+`SQLHelpers.py`, `JobMetrics.py`, `SPARQLRuleEngine.py`, `DecisionTableEngine.py`.
+
+`PostgresFlatStore.resolve_postgres_graph_schema`'s docstring still explained the
+Volume-segment preference as a managed-synced requirement. Corrected: the reason
+is gone, the behaviour is kept only because it keeps existing deployments' schema
+names stable.
+
+`src/front/static/config/js/settings.js` told users a locked field was *"Configured
+via Databricks App resource"*. The Python predicate had already been fixed in P1 to
+"containerized **and** the env var is set" — only the string lagged. Now "Fixed by
+the deployment environment".
+
+## 4. My own planning docs
+
+`.planning/agents/engine_base/PLAN.md` still described the design the second P6
+revision removed (`for_databricks`, "the Databricks preset is byte-identical").
+Corrected, with a Revision 2 section recording the three findings worth keeping.
+
+`.planning/databricks-decoupling/SPEC.md` listed `ONTOBRICKS_PG_GRAPH_SCHEMA` as a
+variable. **It was never implemented** — the graph schema is per-domain
+`graph_engine_config.schema`. Row removed and the reference corrected, in the SPEC
+and in the new deployment guide, which had inherited the same wrong claim from it.
+
+## 5. Repo hygiene
+
+`.gitignore` had `docs/sphinx/_build/`, but Sphinx output lives at
+`documentation/sphinx/_build/`. The rule never matched, so **330 files / 46MB of
+generated HTML were committed** — including pages for modules P5 deleted
+(`SyncedTableManager.html`, `LakebaseFlatStore.html`). It also poisoned every
+`grep` over the docs, which is what made the original audit so noisy.
+
+Added the correct path and untracked the tree (`git rm -r --cached`; files stay on
+disk). CI rebuilds it with `make html`, so nothing is lost. The `docs/` rule was
+left alone — that directory exists and is separate.
+
+Also deleted `documentation/sphinx/api/app.core.graphdb.lakebase.rst`, whose every
+`automodule` pointed at `back.core.graphdb.lakebase.*` — a package that no longer
+exists — and replaced it with `app.core.graphdb.postgres.rst` against the real
+modules. The toctree was retargeted and every entry in it now verified to resolve.
+
+## Verification
+
+- `uv run --frozen pytest -q -m "not scenario"` → **4930 passed, 299 skipped,
+  5 deselected**. No failures.
+- ruff: **F-rule (real-bug) findings identical to HEAD at 67**; total 4705 → 4699.
+- `node --check` clean on all three touched JS files.
+- Every Help-Center-registered doc resolves (19/19) — checked programmatically,
+  because the rename could have left the Help Center serving a 404.
+- Every Sphinx toctree entry resolves to a file.
+- The 6 remaining broken relative links in `documentation/` are pre-existing
+  (`../data/customer/`, `LICENSE`, `../releasereq/`) and none is from a deleted
+  file — the three deletions broke no links.
+- Eval unchanged: 26 cases, 4/4 offline dimensions, aggregate 0.9000.
+- References to the three deleted docs survive only in `releases/` and
+  `changelogs/`, which are frozen historical records and correctly untouched.
+
+## Still outstanding
+
+- **`live_smoke`** (eval weight 0.10) — needs any OpenAI-compatible base URL and
+  key. Scored zero, not skipped.
+- **G2's `mlflow_uri_present`** — needs a PR body with an MLflow run URI or a
+  `waiver:` line. Only applies when the PR is opened.
+- **The Databricks App ACL permission fallback** is now vestigial code kept for a
+  migration from a deploy path that no longer exists. A candidate for deletion,
+  deliberately not done here.
+- **The `lakebase` extras name** in `pyproject.toml` still fronts plain psycopg.
+  Renaming changes everyone's install command, so it needs a decision rather than
+  an edit.

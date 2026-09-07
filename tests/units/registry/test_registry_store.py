@@ -1357,7 +1357,7 @@ class TestLakebaseInitStatus:
 
         @contextmanager
         def boom():
-            raise RuntimeError("Lakebase pool exhausted")
+            raise RuntimeError("Postgres pool exhausted")
 
         monkeypatch.setattr(store, "_connect", boom)
 
@@ -1381,11 +1381,11 @@ class TestLakebaseTableRowCountsErrors:
 
         @contextmanager
         def boom():
-            raise RuntimeError("Lakebase pool exhausted")
+            raise RuntimeError("Postgres pool exhausted")
 
         monkeypatch.setattr(store, "_connect", boom)
 
-        with pytest.raises(RuntimeError, match="Lakebase pool exhausted"):
+        with pytest.raises(RuntimeError, match="Postgres pool exhausted"):
             store.table_row_counts(("registries", "domains"))
 
     def test_returns_zero_for_known_tables_when_schema_is_empty(self, monkeypatch):

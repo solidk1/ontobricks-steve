@@ -40,6 +40,11 @@ artifacts/
 
 # Sphinx build output (ci/build_docs.sh) — regenerate, never commit
 docs/sphinx/_build/
+# Sphinx output actually lives here. The rule above predates the rename of
+# docs/ -> documentation/ and never matched, so 46MB of generated HTML was
+# committed -- including pages for modules that no longer exist. CI rebuilds
+# it with `make html`, so it is regenerable and does not belong in git.
+documentation/sphinx/_build/
 
 # OS
 .DS_Store

@@ -188,7 +188,7 @@ App, authenticates with an M2M OAuth token, and uses `httpx.AsyncClient`. It
 
 The Graph Chat agent runs **inside** the OntoBricks process, talks to
 loopback (`http://localhost:8000`), forwards user session cookies + the
-Databricks Apps `X-Forwarded-*` headers, and targets the **internal**
+the OIDC session identity, and targets the **internal**
 session-aware `/dtwin/...` routes. This means it works on unsaved domains
 and (uniquely) speaks SPARQL.
 
@@ -367,7 +367,7 @@ Wrappers in play: REST → (SPARQL → **Spark SQL** on Delta) and **Postgres SQ
 - Graph DB factory — `src/back/core/graphdb/GraphDBFactory.py`
 - GraphDB backend — `src/back/core/graphdb/GraphDBBackend.py`
 - Delta engine — `src/back/core/graphdb/delta/DeltaFlatStore.py`
-- GraphDB engine (Lakebase Postgres) — `src/back/core/graphdb/lakebase/{LakebaseBase,LakebaseFlatStore,SyncedTableManager}.py`
+- GraphDB engine (PostgreSQL) — `src/back/core/graphdb/postgres/{PostgresBase,PostgresFlatStore,_companion_ddl}.py`
 - Reasoning — `src/back/core/reasoning/{OWLRLReasoner,SWRLSQLTranslator,SPARQLRuleEngine,DecisionTableEngine,AggregateRuleEngine}.py`
 - MCP server — `src/mcp-server/server/app.py`, `src/mcp-server/mcp_server.py`
 - Graph Chat — `src/agents/agent_dtwin_chat/{engine,tools}.py`

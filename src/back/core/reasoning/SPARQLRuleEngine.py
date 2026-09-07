@@ -2,7 +2,7 @@
 
 Each rule is a SPARQL CONSTRUCT query that produces new triples from
 existing graph data.  Cur­rently every supported triple store is SQL-
-based (Delta views, Lakebase Postgres) so the CONSTRUCT is translated
+based (Delta views, Postgres) so the CONSTRUCT is translated
 to a SELECT against the flat ``(subject, predicate, object)`` table.
 A future Cypher / Gremlin backend would add its own translator branch
 here, gated by a capability flag on :class:`GraphDBBackend`.

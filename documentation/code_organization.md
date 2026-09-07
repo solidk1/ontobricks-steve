@@ -149,7 +149,7 @@ api/
 
 1. **Middleware stack** (order matters; Starlette runs *last added* first on the way *in*):  
    - **CORS** — allows credentials for local dev.  
-   - **PermissionMiddleware** — when running as a Databricks App, resolves the user role from registry permissions and blocks viewers from mutating HTTP methods; bypasses `/static/`, `/api/`, `/graphql/`, OpenAPI, health, etc. Local dev behaves as admin.  
+   - **PermissionMiddleware** — resolves the user role from the registry's `app_roles` and per-domain permissions, and blocks viewers from mutating HTTP methods; bypasses `/static/`, `/api/`, `/graphql/`, OpenAPI, health, etc. Local dev behaves as admin.  
    - **FileSessionMiddleware** — cookie-backed **file sessions** (JSON on disk under `settings.session_dir`); skips static, docs, health, and `/tasks/*` so task polling does not churn session I/O. The cookie must be 32 lowercase hex characters, since it is used as a filename; anything else mints a fresh ID. Files are written only once a session is actually modified, their mtime records last use (refreshed at most hourly), and `reap_expired_sessions()` clears ones older than `settings.session_max_age` at startup.
 
 2. **Static files** are mounted at `/static` from `src/front/static/` (with a fallback path for unusual layouts).
@@ -314,7 +314,7 @@ The **MCP** package exposes OntoBricks capabilities (domains, status, entities, 
 
 - **`src/mcp-server/server/app.py`** — `FastMCP` server factory (`create_mcp_server`), tool/resource definitions, HTTP client helpers, response formatting; **`create_databricks_app`** builds a **combined** FastAPI app mounting MCP HTTP routes for Databricks App deployment.
 - **`src/mcp-server/server/main.py`** — CLI entry (`uv run mcp-ontobricks`) running **`combined_app`** with Uvicorn.
-- **`app.yaml`** / deploy scripts (see `documentation/deployment.md`) wire env vars: `ONTOBRICKS_URL`, registry volume or catalog/schema/volume, warehouse ID, etc.
+- **Environment** (see `documentation/deployment.md`) wires: `ONTOBRICKS_URL`, registry volume or catalog/schema/volume, warehouse ID, etc.
 
 ### 6.3 Operating modes (from module docstring)
 
@@ -473,7 +473,7 @@ All logging goes through `back/core/logging/LogManager`.
 
 - **Test framework**: `pytest` for the backend. Run with `uv run pytest -q`.
 - **Package management**: This project uses **uv** for Python package management and virtual environment management. Dependencies are declared in `pyproject.toml`. Run commands via `uv run <command>`.
-- **Deployment**: Deployed as a Databricks App via `databricks bundle deploy` using `app.yaml` (Databricks Asset Bundle format).
+- **Deployment**: Deployed as a container running `ONTOBRICKS_CONTAINERIZED=true python run.py`. See `documentation/deployment.md`.
 - **Development Server**: Run via `run.py` which imports `create_app` from `shared.fastapi.main`. Uvicorn with auto-reload for local development.
 - **Changelog**: After any code change, update `/changelogs/YYYY-MM-DD.log` with a section including title, context, numbered changes with file paths, modified files list, and test results.
 

@@ -13,7 +13,7 @@ under **Settings → Back end**.
 
 | Engine | Storage | Notes |
 |--------|---------|--------|
-| ``lakebase`` (default) | Flat triple tables on **Lakebase Postgres** | Uses the App-bound Postgres instance (``PGHOST`` / ``PGDATABASE``…). Configure ``graph_engine_config.lakebase`` with optional ``database`` (Postgres DB name on that instance) and ``schema`` (default ``ontobricks_graph``), and ``sync_mode`` (``app_managed`` or ``managed_synced``). SQL-only (no Cypher); reasoning uses the existing SQL translators. |
+| ``postgres`` (default) | Flat triple tables on **any PostgreSQL 14+** | Uses the configured Postgres server (``PGHOST`` / ``PGDATABASE``…). Configure ``graph_engine_config.lakebase`` with optional ``database`` (Postgres DB name on that instance) and ``schema`` (default ``ontobricks_graph``), and ``sync_mode`` (``app_managed`` or ``managed_synced``). SQL-only (no Cypher); reasoning uses the existing SQL translators. |
 | ``databricks`` (Delta) | Unity Catalog Delta triple tables | Configure ``graph_engine_config.lakehouse.warehouse_id``. |
 | ``neo4j`` | Native graph over Bolt | Neo4j Aura or self-hosted; connection config in ``graph_engine_config.neo4j`` (``uri``, ``database``, credentials). |
 
@@ -134,7 +134,7 @@ if your engine does not speak SQL:
 (default `{}`) from the factory.  This is a free-form JSON dict set by the
 admin in **Settings > Graph DB > Engine Configuration**.  Each engine defines
 its own keys.  For Lakebase, recognised keys include ``database``, ``schema``,
-and ``mode`` (``app_managed`` or ``managed_synced``).
+and ``mode`` (``app_managed``).
 
 These abstract methods **must** be implemented:
 
@@ -336,13 +336,12 @@ graphdb/lakebase/
 ├── __init__.py           ← re-exports
 ├── LakebaseBase.py       ← GraphDBBackend subclass (connection pool, capabilities)
 ├── LakebaseFlatStore.py  ← Flat triple table (subject, predicate, object) on Postgres
-├── SyncedTableManager.py ← Lakeflow synced-table orchestration (managed_synced mode)
 └── models.py             ← Internal dataclasses
 ```
 
 The flat store keeps the contract simple: a single Postgres table per
 `(domain, version)` with a primary key on `(subject, predicate, object)` and
-two write modes (`app_managed` via `COPY FROM STDIN`, `managed_synced` via
+the `app_managed` write path (`COPY FROM STDIN` +
 Lakeflow). A simpler engine can use a single store class and skip
 `SyncedTableManager`.
 

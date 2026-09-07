@@ -255,7 +255,9 @@ Consequences:
 - **One schema by default:** `ONTOBRICKS_PG_SCHEMA=ontobricks` holds registry and
   graph tables both (names don't collide: `registries`, `domains`,
   `domain_versions`, `domain_permissions`, `app_roles`, `schedules`, … vs
-  `g_<dom>_v<n>`, `…_sync`, `…__app`, `ix_*`). `ONTOBRICKS_PG_GRAPH_SCHEMA`
+  `g_<dom>_v<n>`, `…_sync`, `…__app`, `ix_*`). The graph schema (per-domain
+  `graph_engine_config.schema`, **not** an env var — the planned
+  `ONTOBRICKS_PG_GRAPH_SCHEMA` was never implemented)
   optionally splits them.
 - **Modest connection budget:** other tenants share `max_connections`, so the
   pool defaults small rather than assuming the instance is ours.
@@ -392,7 +394,6 @@ plus a shared session store — deferred (§13).
 | `ONTOBRICKS_PG_AUTH` | `entra` | `entra` (token-as-password) or `password` |
 | `AZURE_CLIENT_ID` | — | Only for a *user-assigned* managed identity |
 | `ONTOBRICKS_PG_SCHEMA` | `ontobricks` | Schema holding registry + graph tables |
-| `ONTOBRICKS_PG_GRAPH_SCHEMA` | *(unset)* | Optional separate graph schema |
 | `ONTOBRICKS_PG_POOL_MIN` / `_MAX` | `1` / `8` | Pool bounds |
 | `ONTOBRICKS_AUTH_ENABLED` | `true` | Fail closed; set `false` only for local dev |
 | `ONTOBRICKS_OIDC_CLIENT_ID` / `_SECRET` | — | Databricks custom OAuth app integration |

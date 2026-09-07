@@ -9,7 +9,7 @@ including the pool's retry-once-on-auth-failure loop. That loop is precisely
 what Entra token rotation needs, which is why the pool is reused rather than
 rewritten.
 
-What this class does *not* do is the Lakebase-specific work: no project /
+What this class does *not* do is any Lakebase-specific work: no project /
 branch / endpoint discovery through the Databricks control plane, and no
 Lakebase JWT minting. Connection coordinates come from the standard ``PG*``
 environment variables, and the password is either an Entra access token or

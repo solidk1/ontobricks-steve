@@ -1,6 +1,6 @@
-"""Process-wide psycopg connection pool for Lakebase (Postgres).
+"""Process-wide psycopg connection pool for PostgreSQL.
 
-This is the single technical connection layer shared by every Lakebase
+This is the single technical connection layer shared by every Postgres
 consumer — the registry store and the graph triple store. Those two remain
 **independent databases**: each caller supplies its own ``auth`` object
 (``PostgresAuth`` or ``LakebaseAuth``), ``schema`` and optional
@@ -11,7 +11,8 @@ The pool is a tiny thread-safe LIFO cache of warm connections. It keeps all
 the bespoke behaviour the two duplicated pools used to have:
 
 - Cold-start retries with exponential backoff on SQLSTATE ``57P03`` and on
-  ``connection refused`` (Lakebase Autoscaling scales-to-zero when idle).
+  ``connection refused`` (Databricks Lakebase scales to zero when idle; other
+  servers may be briefly unreachable during failover).
 - OAuth/JWT token rotation on auth failure (SQLSTATE ``28P01``): the token is
   invalidated once and the open retried.
 - ``search_path`` setup on every fresh connection.
@@ -49,11 +50,11 @@ ErrorFactory = Callable[[str], Exception]
 
 
 class PostgresConnectionError(RuntimeError):
-    """Raised when the pool cannot serve a Lakebase connection."""
+    """Raised when the pool cannot serve a Postgres connection."""
 
 
 class PostgresConnectionPool:
-    """Tiny thread-safe LIFO connection pool for a single Lakebase target.
+    """Tiny thread-safe LIFO connection pool for a single Postgres target.
 
     A single instance is shared by every consumer pointing at the same
     ``host/db/user/schema`` and ``application_name`` (see
@@ -75,7 +76,7 @@ class PostgresConnectionPool:
         self._schema = schema
         # Empty string means "use whatever PGDATABASE is bound to the app".
         # A non-empty value points the pool at a different database on the
-        # same Lakebase instance (the JWT scope is per-instance so the cached
+        # same server (a Lakebase JWT is scoped per-instance, so the cached
         # token still authenticates).
         self._database = database or ""
         self._application_name = application_name
@@ -91,7 +92,7 @@ class PostgresConnectionPool:
 
     @contextmanager
     def connection(self):
-        """Yield a healthy Lakebase connection from the pool."""
+        """Yield a healthy Postgres connection from the pool."""
         conn, opened_at = self._acquire()
         try:
             yield conn
@@ -138,7 +139,7 @@ class PostgresConnectionPool:
         with self._cv:
             while True:
                 if self._closed:
-                    raise self._error("Lakebase pool is closed")
+                    raise self._error("Postgres pool is closed")
                 # Re-use an idle connection (LIFO keeps the hottest connection
                 # on top — friendliest to TCP keep-alive).
                 while self._idle:
@@ -160,7 +161,7 @@ class PostgresConnectionPool:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise self._error(
-                        f"Lakebase pool exhausted after waiting "
+                        f"Postgres pool exhausted after waiting "
                         f"{timeout:.1f}s for a connection"
                     )
                 self._cv.wait(remaining)
@@ -227,13 +228,13 @@ class PostgresConnectionPool:
                 if auth_failed and not retried_auth:
                     self._auth.invalidate()
                     retried_auth = True
-                    logger.info("Lakebase auth failed; rotating token and retrying")
+                    logger.info("Postgres auth failed; rotating credential and retrying")
                     continue
                 if cold and attempts < MAX_COLD_START_ATTEMPTS:
                     attempts += 1
                     sleep_for = min(backoff, MAX_BACKOFF_S)
                     logger.info(
-                        "Lakebase cold start (sqlstate=%s, attempt=%d/%d); "
+                        "Postgres cold start (sqlstate=%s, attempt=%d/%d); "
                         "sleeping %.1fs",
                         sqlstate or "?",
                         attempts,
@@ -243,7 +244,7 @@ class PostgresConnectionPool:
                     time.sleep(sleep_for)
                     backoff *= 2
                     continue
-                raise self._error(f"Lakebase connection failed: {exc}") from exc
+                raise self._error(f"Postgres connection failed: {exc}") from exc
 
 
 # Process-wide pool registry. Consumer stores are rebuilt on every request
@@ -269,7 +270,7 @@ def get_postgres_pool(
     application_name: str,
     error_factory: ErrorFactory = PostgresConnectionError,
 ) -> PostgresConnectionPool:
-    """Return (and lazily create) the shared pool for a Lakebase target.
+    """Return (and lazily create) the shared pool for a Postgres target.
 
     The pool identity is the full connection tuple plus ``application_name``,
     so two consumers only ever share a pool when they talk to the exact same
@@ -278,7 +279,7 @@ def get_postgres_pool(
     (and often different projects), so they never collide.
 
     ``database`` is the optional override that points the pool at a different
-    Postgres database on the same Lakebase instance. The empty string means
+    Postgres database on the same server. The empty string means
     "use the bound PGDATABASE".
     """
     bound_db = _safe_attr(auth, "database")
@@ -305,7 +306,7 @@ def get_postgres_pool(
             )
             _pools[key] = pool
             logger.info(
-                "Created Lakebase connection pool for %s/%s (schema=%s, app=%s, max_size=%d)",
+                "Created Postgres connection pool for %s/%s (schema=%s, app=%s, max_size=%d)",
                 key[0],
                 effective_db,
                 schema,
