@@ -48,9 +48,14 @@ from fastapi import APIRouter, Depends
 from back.core.helpers import run_blocking
 from back.core.logging import get_logger
 from shared.config.constants import APP_VERSION
+from shared.config.RuntimeEnv import RuntimeEnv
 from shared.config.settings import Settings, get_settings
 
 logger = get_logger(__name__)
+
+#: The built-in ``SECRET_KEY``. Read off the field default rather than restated,
+#: so this check cannot drift from ``Settings`` if the default ever changes.
+_DEFAULT_SECRET_KEY = Settings.model_fields["secret_key"].default
 
 router = APIRouter(tags=["Health"])
 
@@ -1414,6 +1419,48 @@ def run_diagnostics_checks(settings: Settings | None = None) -> dict[str, Any]:
     }
 
 
+def _check_deployment_secrets(settings: Settings) -> tuple[str, str]:
+    """Flag configuration that is safe locally but unsafe once deployed.
+
+    Every field in :class:`Settings` has a default, so the app starts happily with
+    nothing configured. That is right for local development and dangerous in a
+    container: ``SECRET_KEY`` falls back to a literal published in this
+    repository, so session cookies would be signed with a key anyone can read and
+    therefore forge. Nothing warned about it before this check existed.
+
+    Severity is deliberately conditional on ``ONTOBRICKS_CONTAINERIZED``: a
+    developer running ``make run`` should not be nagged, and a deployment should
+    not be able to hide it.
+    """
+    deployed = RuntimeEnv.is_containerized()
+    problems: list[str] = []
+
+    if settings.secret_key == _DEFAULT_SECRET_KEY:
+        problems.append(
+            "SECRET_KEY is the built-in default, which is published in the "
+            "repository, so session cookies can be forged. Set it to a random value"
+        )
+    if deployed and not RuntimeEnv.secure_cookies():
+        problems.append(
+            "ONTOBRICKS_SECURE_COOKIES is off, so session cookies are sent over "
+            "plain HTTP. Set it true behind TLS"
+        )
+    if deployed and not RuntimeEnv.auth_enabled():
+        problems.append(
+            "ONTOBRICKS_AUTH_ENABLED is false, so every request has full admin "
+            "access. Only ever set that for local development"
+        )
+
+    if not problems:
+        return _OK, (
+            "SECRET_KEY set, cookies TLS-only, authentication enforced."
+            if deployed
+            else "No deployment-unsafe defaults in use."
+        )
+
+    return (_ERROR if deployed else _WARNING), "; ".join(problems) + "."
+
+
 # ---------------------------------------------------------------------------
 # Aggregator
 # ---------------------------------------------------------------------------
@@ -1438,6 +1485,13 @@ def run_readiness_checks(settings: Settings | None = None) -> dict[str, Any]:
                 _OK,
                 f"Python {sys.version.split()[0]} — OntoBricks {APP_VERSION}",
             ),
+        )
+    )
+    checks.append(
+        _safely_run(
+            "deployment.secrets",
+            "Deployment-unsafe defaults",
+            lambda: _check_deployment_secrets(settings),
         )
     )
     checks.append(_safely_run("filesystem.tmp", "/tmp writable + free space", _check_tmp))

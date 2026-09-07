@@ -729,3 +729,61 @@ is churn without a reader benefit.
   `documents.py` was clean and stays clean.
 - Tests: **4932 passed, 299 skipped**. ruff F-rule findings identical to HEAD (67);
   total 4705 → 4704. `compileall` clean; the app imports.
+
+## A silent security default, found by asking what a clean deployment needs
+
+Asked what has to be configured before deploying. Answering it from the code rather
+than from the docs I had just written turned up a real gap.
+
+**Every field in `Settings` has a default.** Zero are hard-required, so the app
+starts happily with nothing configured. That is right for local development and
+dangerous once deployed, because `secret_key` defaults to
+`"dev-secret-key-change-in-prod"` — a literal published in this repository. A
+container deployed without `SECRET_KEY` signs its session cookies with a key anyone
+can read, so those cookies can be forged. `ONTOBRICKS_AUTH_ENABLED` defaults to
+true and fails closed, but that is no defence when the session itself is forgeable.
+
+**Nothing warned about it.** The only other reference to the literal was a test
+asserting the default exists. No startup log, no health check, no doc gate.
+
+### New readiness probe: `deployment.secrets`
+
+`_check_deployment_secrets` in `shared/fastapi/health.py`, registered right after
+`runtime`, flags three settings that are safe locally and unsafe deployed:
+
+| Condition | Local | Deployed (`ONTOBRICKS_CONTAINERIZED=true`) |
+|---|---|---|
+| `SECRET_KEY` still the built-in default | warning | **error** |
+| `ONTOBRICKS_SECURE_COOKIES` off | not checked | **error** |
+| `ONTOBRICKS_AUTH_ENABLED` false | not checked | **error** |
+
+Severity is conditional on purpose: a developer running `make run` should not be
+nagged about TLS cookies, and a deployment should not be able to hide any of it.
+The cookie and auth flags are deployment-only because locally they are legitimate;
+the `SECRET_KEY` one warns even locally, because a developer who has never seen the
+message will not know to set it in the container either.
+
+The compared default is read off `Settings.model_fields["secret_key"].default`
+rather than restated, so the probe cannot drift from the field it guards — and a
+test asserts exactly that.
+
+`tests/units/core/test_deployment_secrets_check.py` — 9 tests pinning the severity
+in all six states, plus one asserting the probe is actually registered in
+`run_readiness_checks` (a probe nothing runs is not a probe).
+
+### Verification
+
+- All six states exercised directly before writing the tests.
+- Tests: **4941 passed, 299 skipped**.
+- ruff F-rule findings identical to HEAD (67).
+- black: `health.py` was already non-clean at HEAD and is equally so now, so it was
+  deliberately not reformatted; the new test file is clean.
+
+### Noted, not fixed
+
+The health UI still groups Postgres checks under titles reading "Lakebase —
+Registry (Postgres)" and "Lakebase — Graph DB", with check ids `lakebase.connection`,
+`lakebase.env_vars`, `lakebase.initialized`, `lakebase.psycopg`. Those are
+user-visible labels for what is now any PostgreSQL server. Same class as the copy
+already fixed in the settings UI; left for a separate pass because renaming a check
+id is a contract change for anything parsing `/health`.
