@@ -184,17 +184,19 @@ def tool_read_document(ctx: ToolContext, *, filename: str = "", **_kwargs) -> st
             {
                 "filename": filename,
                 "error": (
-                    "Binary document could not be parsed. A SQL warehouse with "
-                    "ai_parse_document access is required to read PDF, Office, or "
-                    "image files. See documentation/ai-parse-document-prereq.md"
-                    "ai-parse-document-prereq.md for setup. Falling back to "
-                    "filename-only inference for ontology generation."
+                    "Binary document could not be parsed. A Databricks SQL "
+                    "warehouse with ai_parse_document access is required to read "
+                    "PDF, Office, or image files. See "
+                    "documentation/ai-parse-document-prereq.md for setup. Falling "
+                    "back to filename-only inference for ontology generation."
                 ),
                 "remediation": (
-                    "1) Grant USE CATALOG + ALL ON SCHEMA on system.ai to the "
-                    "app service principal, OR pick a SQL warehouse with "
-                    "ai_parse_document enabled in the workspace. "
-                    "2) Re-deploy or re-bind the sql-warehouse Apps resource."
+                    "1) Grant USE CATALOG on `system` + ALL ON SCHEMA on "
+                    "`system.ai` to the identity OntoBricks authenticates with "
+                    "(DATABRICKS_CLIENT_ID, or the logged-in user), OR set "
+                    "DATABRICKS_SQL_WAREHOUSE_ID to a warehouse where "
+                    "ai_parse_document is enabled. "
+                    "2) Restart the container so the setting is picked up."
                 ),
             }
         )
