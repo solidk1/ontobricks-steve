@@ -118,6 +118,8 @@ clean:
 	rm -rf .pytest_cache htmlcov .coverage
 	rm -rf $(SCENARIO_ARTIFACTS) artifacts
 	rm -rf flask_session fastapi_session
+	# Generated Sphinx output. Rebuild with: cd documentation/sphinx && make html
+	rm -rf documentation/sphinx/_build
 	@echo "Clean complete!"
 
 dev:

@@ -607,3 +607,31 @@ modules. The toctree was retargeted and every entry in it now verified to resolv
 - **The `lakebase` extras name** in `pyproject.toml` still fronts plain psycopg.
   Renaming changes everyone's install command, so it needs a decision rather than
   an edit.
+
+## Follow-up: delete the Sphinx build output, don't just ignore it
+
+Fair challenge on the previous commit: gitignoring 46MB of stale generated HTML
+left it sitting in the working tree. Established what consumes it before removing
+it:
+
+| Consumer | Verdict |
+|---|---|
+| The app at runtime | No. The Help Center serves `documentation/*.md` directly; nothing in `src/` references Sphinx. |
+| CI | Build-smoke only — `ci.yml` runs `make html` to check Sphinx still builds, with no artifact upload and no deploy. |
+| GitHub Pages | No. `docs/` is a separate hand-written marketing site (10 tracked files); its README explains that Pages can only publish `/` or `/docs`, which is why product docs live in `/documentation`. No Pages workflow, no CNAME, no `.nojekyll`. |
+| Releases | No reference in `release.yml` or `nightly.yml`. |
+
+So it is purely local build output. Deleted from disk, after confirming the
+previous commit still has all 330 files should anyone want them back.
+
+Verified it regenerates: `cd documentation/sphinx && make html` → "build
+succeeded, 19 warnings". The fresh build is **327 files, not 330** — the three
+missing ones are exactly `SyncedTableManager.html`, `LakebaseFlatStore.html` and
+`LakebaseBase.html`, pages for modules P5 deleted. The committed output had been
+drifting from the source tree, which is the argument against committing build
+output in the first place. The renamed `guides/postgres-graphdb.html` and
+`api/app.core.graphdb.postgres.html` both render.
+
+`make clean` now sweeps `documentation/sphinx/_build`, so it cannot silently
+accumulate again — the gitignore stops it being committed, the clean target stops
+it being hoarded.
