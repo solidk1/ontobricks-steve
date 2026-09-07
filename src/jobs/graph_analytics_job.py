@@ -35,6 +35,9 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("ontobricks.jobs.graph_analytics")
 
+# Duplicated from back/core/graphdb/constants.py on purpose: this module is a
+# separate deployable with no dependency on the app package, so it cannot
+# import from it. Keep the two in sync if a W3C URI ever changes.
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 

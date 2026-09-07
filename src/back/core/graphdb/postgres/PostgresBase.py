@@ -15,6 +15,12 @@ logger = get_logger(__name__)
 
 DEFAULT_GRAPH_SCHEMA = "ontobricks_graph"
 
+# Postgres identifier rule — deliberately NOT shared with the UC identifier
+# helpers in back/core/helpers/SQLHelpers.py, which allow hyphens
+# ([a-zA-Z0-9_-]) because UC names may contain them and Postgres bare
+# identifiers may not. An identical copy lives in back/objects/registry/store/postgres/store.py;
+# merging them would couple two unrelated subsystems, so if this pattern
+# ever changes, change both. See .planning/refactor-audit/PLAN.md.
 _SAFE_SCHEMA_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 

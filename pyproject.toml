@@ -165,7 +165,17 @@ constraint-dependencies = [
 ]
 
 [tool.pytest.ini_options]
+# The single pytest config. A root `pytest.ini` used to sit alongside this block
+# and silently won -- pytest.ini takes precedence and reported "ignoring pytest
+# config in pyproject.toml" on every run, while pytest.ini's own header claimed
+# this file was the source of truth. Anyone adding a marker here got
+# --strict-markers failures with no explanation. Removed in favour of this block,
+# which is where ruff, mypy, coverage and black are already configured.
 pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short --strict-markers --strict-config"
 markers = [
@@ -189,6 +199,13 @@ filterwarnings = [
     "ignore::DeprecationWarning:rdflib.plugins.sparql.parser",
     "ignore::DeprecationWarning:rdflib.plugins.parsers.notation3",
     "ignore::DeprecationWarning:pyparsing.util",
+    # `--strict-markers` in addopts installs a filter turning an unknown marker
+    # into an error, but this ini list is applied afterwards and outranks it, so
+    # an undeclared marker only ever warned -- despite .coding_rules.md §10
+    # stating "--strict-markers is enforced". Re-asserting it here makes the
+    # documented guarantee real. Verified a no-op against the existing suite
+    # (4930 passed), so nothing today relies on the loophole.
+    "error::pytest.PytestUnknownMarkWarning",
 ]
 
 [tool.coverage.run]

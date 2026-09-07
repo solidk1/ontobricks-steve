@@ -65,14 +65,13 @@ from agents.tools.sql import (
 )
 from agents.tracing import trace_agent
 from shared.config.LLMTarget import LLMTarget
+from agents.agent_mapping_pge.constants import MAX_TOKENS
 
 logger = get_logger(__name__)
 
 MAX_ITERATIONS = 6
 LLM_TIMEOUT = 180
 _ITERATION_DELAY_SEC = 1
-# See planner._MAX_TOKENS comment — same rationale for submit_evaluation.
-_MAX_TOKENS = 50000
 
 _TRACE_NAME = "mapping_pge_critic"
 
@@ -508,7 +507,7 @@ def run_critic(
                 target,
                 messages,
                 tools=TOOL_DEFINITIONS,
-                max_tokens=_MAX_TOKENS,
+                max_tokens=MAX_TOKENS,
                 temperature=0.1,
                 timeout=LLM_TIMEOUT,
                 trace_name=_TRACE_NAME,

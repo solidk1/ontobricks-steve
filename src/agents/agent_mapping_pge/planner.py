@@ -62,20 +62,13 @@ from agents.tools.sql import (
 )
 from agents.tracing import trace_agent
 from shared.config.LLMTarget import LLMTarget
+from agents.agent_mapping_pge.constants import MAX_TOKENS
 
 logger = get_logger(__name__)
 
 MAX_ITERATIONS = 50
 LLM_TIMEOUT = 180
 _ITERATION_DELAY_SEC = 1
-
-# The submit_source_model JSON for a real-world ontology can run several KB
-# (17+ classes × multiple candidates + canonical_ids + join_keys + plan).
-# A small ceiling silently truncates the call (finish_reason=length) and the
-# dataclass validation fails with no clue to the LLM as to why. 100k removes
-# the practical ceiling for any ontology size; you only pay for tokens
-# actually generated, so the cost stays bounded by output complexity.
-_MAX_TOKENS = 50000
 
 _TRACE_NAME = "mapping_pge_planner"
 
@@ -487,7 +480,7 @@ def run_planner(
                 target,
                 messages,
                 tools=TOOL_DEFINITIONS,
-                max_tokens=_MAX_TOKENS,
+                max_tokens=MAX_TOKENS,
                 temperature=0.1,
                 timeout=LLM_TIMEOUT,
                 trace_name=_TRACE_NAME,

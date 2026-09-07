@@ -24,11 +24,13 @@ from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-ROLE_ADMIN = "admin"
-ROLE_APP_USER = "app_user"
-ROLE_NONE = "none"
-
-_VALID_ROLES = (ROLE_ADMIN, ROLE_APP_USER)
+# Re-exported so `from ...AppRoleService import ROLE_ADMIN` keeps working.
+from back.objects.registry.roles import (  # noqa: E402,F401
+    APP_LEVEL_ROLES as _VALID_ROLES,
+    ROLE_ADMIN,
+    ROLE_APP_USER,
+    ROLE_NONE,
+)
 
 
 class AppRoleService:

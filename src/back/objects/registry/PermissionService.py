@@ -24,22 +24,17 @@ from shared.config.constants import HTTP_USER_AGENT
 
 logger = get_logger(__name__)
 
-ROLE_ADMIN = "admin"
-ROLE_BUILDER = "builder"
-ROLE_EDITOR = "editor"
-ROLE_VIEWER = "viewer"
-ROLE_APP_USER = "app_user"
-ROLE_NONE = "none"
-
-ROLE_HIERARCHY: Dict[str, int] = {
-    ROLE_NONE: 0,
-    ROLE_VIEWER: 1,
-    ROLE_EDITOR: 2,
-    ROLE_BUILDER: 3,
-    ROLE_ADMIN: 4,
-}
-
-ASSIGNABLE_ROLES = (ROLE_VIEWER, ROLE_EDITOR, ROLE_BUILDER)
+# Re-exported so `from ...PermissionService import ROLE_ADMIN` keeps working.
+from back.objects.registry.roles import (  # noqa: E402,F401
+    ASSIGNABLE_ROLES,
+    ROLE_ADMIN,
+    ROLE_APP_USER,
+    ROLE_BUILDER,
+    ROLE_EDITOR,
+    ROLE_HIERARCHY,
+    ROLE_NONE,
+    ROLE_VIEWER,
+)
 
 
 def role_level(role: str) -> int:

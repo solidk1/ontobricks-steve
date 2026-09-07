@@ -95,6 +95,12 @@ _LEGACY_SCHEDULE_KEYS = (
 )
 _DDL_FILENAME = "schema.sql"
 _SCHEMA_TOKEN = "__SCHEMA__"
+# Postgres identifier rule — deliberately NOT shared with the UC identifier
+# helpers in back/core/helpers/SQLHelpers.py, which allow hyphens
+# ([a-zA-Z0-9_-]) because UC names may contain them and Postgres bare
+# identifiers may not. An identical copy lives in back/core/graphdb/postgres/PostgresBase.py;
+# merging them would couple two unrelated subsystems, so if this pattern
+# ever changes, change both. See .planning/refactor-audit/PLAN.md.
 _SAFE_SCHEMA_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 # Whitelist used by ``table_row_counts``; keeps the dynamic SQL safe

@@ -15,8 +15,8 @@ from typing import Iterable
 
 from back.core.w3c.rdf_utils import uri_local_name
 
-RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
-RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+# W3C URIs, identical everywhere by definition — imported rather than restated.
+from back.core.graphdb.constants import RDF_TYPE, RDFS_LABEL  # noqa: E402
 
 DEFAULT_ACTION_INVOKE_HINT = "call request_entity_action(entity_uri, action) to propose one (UI confirmation required)"
 

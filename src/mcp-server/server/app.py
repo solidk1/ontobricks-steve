@@ -67,6 +67,9 @@ API_V1_DOMAIN_CLASSES = "/api/v1/domain/classes"
 API_V1_DT_NODE_CONTEXT = "/api/v1/digitaltwin/nodes/context"
 API_V1_DT_NODE_ACTION = "/api/v1/digitaltwin/nodes/action"
 
+# Duplicated from back/core/graphdb/constants.py on purpose: this module is a
+# separate deployable with no dependency on the app package, so it cannot
+# import from it. Keep the two in sync if a W3C URI ever changes.
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 MAX_DEPTH = 1  # Maximum depth of the BFS traversal
