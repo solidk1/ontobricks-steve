@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     )
 
 from back.core.logging import get_logger
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -36,7 +37,7 @@ class AgentClient:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         base_uri: str,
         selected_tables: List[str],
         metadata: Optional[Dict] = None,
@@ -48,7 +49,7 @@ class AgentClient:
         Args:
             host: Databricks workspace host (with or without ``https://``).
             token: Bearer token for the workspace APIs.
-            endpoint_name: Model serving endpoint name for the agent.
+            target: Resolved OpenAI-compatible LLM endpoint.
             base_uri: Ontology base URI used in generated IRIs.
             selected_tables: Fully qualified or logical table names the agent may use.
             metadata: Optional pre-fetched schema/catalog context for the agent.
@@ -68,7 +69,7 @@ class AgentClient:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             base_uri=base_uri,
             selected_tables=selected_tables,
             metadata=metadata,
@@ -81,7 +82,7 @@ class AgentClient:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         client: Any,
         metadata: Any,
         ontology: Any,
@@ -96,7 +97,7 @@ class AgentClient:
         Args:
             host: Databricks workspace host (with or without ``https://``).
             token: Bearer token for the workspace APIs.
-            endpoint_name: Model serving endpoint name for the agent.
+            target: Resolved OpenAI-compatible LLM endpoint.
             client: SQL client (typically :class:`~back.core.databricks.DatabricksClient`)
                 used to validate or sample queries against the configured warehouse.
             metadata: Schema context (for example UC table metadata) for the agent.
@@ -121,7 +122,7 @@ class AgentClient:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             client=client,
             metadata=metadata,
             ontology=ontology,
@@ -137,7 +138,7 @@ class AgentClient:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         client: Any,
         metadata: Any,
         ontology: Any,
@@ -157,7 +158,7 @@ class AgentClient:
         Args:
             host: Databricks workspace host (with or without ``https://``).
             token: Bearer token for the workspace APIs.
-            endpoint_name: Model serving endpoint name for the agent.
+            target: Resolved OpenAI-compatible LLM endpoint.
             client: SQL client (typically :class:`~back.core.databricks.DatabricksClient`)
                 used to validate or sample queries against the configured warehouse.
             metadata: Schema context (for example UC table metadata) for the agent.
@@ -182,7 +183,7 @@ class AgentClient:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             client=client,
             metadata=metadata,
             ontology=ontology,
@@ -198,7 +199,7 @@ class AgentClient:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         entity_names: List[str],
         metadata: Optional[Dict] = None,
         ontology: Optional[Dict] = None,
@@ -209,7 +210,7 @@ class AgentClient:
         Args:
             host: Databricks workspace host (with or without ``https://``).
             token: Bearer token for the workspace APIs.
-            endpoint_name: Model serving endpoint name for the agent.
+            target: Resolved OpenAI-compatible LLM endpoint.
             entity_names: Human-readable entity names to receive icon suggestions.
             metadata: Optional schema or glossary context for disambiguation.
             ontology: Optional ontology dict for class/label context.
@@ -227,7 +228,7 @@ class AgentClient:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             entity_names=entity_names,
             metadata=metadata,
             ontology=ontology,
@@ -239,7 +240,7 @@ class AgentClient:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         messages: List[Dict[str, str]],
         ontology_context: Dict[str, Any],
         on_step: Optional[Callable] = None,
@@ -249,7 +250,7 @@ class AgentClient:
         Args:
             host: Databricks workspace host (with or without ``https://``).
             token: Bearer token for the workspace APIs.
-            endpoint_name: Model serving endpoint name for the assistant.
+            target: Resolved OpenAI-compatible LLM endpoint.
             messages: Chat history as a list of role/content dicts (OpenAI-style).
             ontology_context: Serialized ontology and session facts passed to the
                 assistant as system or tool context.
@@ -267,7 +268,7 @@ class AgentClient:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             messages=messages,
             ontology_context=ontology_context,
             on_step=on_step,

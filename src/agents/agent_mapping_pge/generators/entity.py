@@ -15,7 +15,7 @@ The Generator does NOT see the full ontology or full metadata. That is the
 core design contract: keep its context bounded and each decision cheap.
 
 The loop shape mirrors :mod:`agents.agent_mapping_pge.planner` — same
-``call_serving_endpoint`` + ``dispatch_tool`` ReAct cycle, same 3-second
+``call_chat_completion`` + ``dispatch_tool`` ReAct cycle, same 3-second
 inter-iteration delay, same MLflow trace decorator — with these differences:
 
 * Smaller default budget (12 vs 25): mapping one class is bounded work.
@@ -39,7 +39,7 @@ import requests
 
 from back.core.logging import get_logger
 from agents.engine_base import (
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     accumulate_usage,
 )
@@ -57,6 +57,7 @@ from agents.tools.sql import (
     SQL_TOOL_HANDLERS,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -94,9 +95,7 @@ _TRACE_NAME = "mapping_pge_entity_generator"
 _SUBMIT_ENTITY_DEF: dict = MAPPING_TOOL_DEFINITIONS_BY_NAME["submit_entity_mapping"]
 
 TOOL_DEFINITIONS: List[dict] = (
-    SQL_TOOL_DEFINITIONS
-    + [SAMPLE_TABLE_DEF]
-    + [_SUBMIT_ENTITY_DEF]
+    SQL_TOOL_DEFINITIONS + [SAMPLE_TABLE_DEF] + [_SUBMIT_ENTITY_DEF]
 )
 
 TOOL_HANDLERS: Dict[str, Callable] = {
@@ -380,7 +379,7 @@ def _build_user_prompt(
 def run_entity_generator(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     *,
     ontology_class: dict,
@@ -397,9 +396,9 @@ def run_entity_generator(
     terminal ``submit_entity_mapping`` tool.
 
     Args:
-        host: Databricks workspace URL.
-        token: Bearer token for the serving endpoint.
-        endpoint_name: Foundation Model serving endpoint name.
+        host: Databricks workspace URL (document tools).
+        token: Databricks bearer token (document tools).
+        target: Resolved OpenAI-compatible LLM endpoint.
         client: Databricks SQL client (must expose ``execute_query(sql)``).
         ontology_class: Full dict for the SINGLE class to map (uri, label,
             comment, attributes list).
@@ -420,17 +419,16 @@ def run_entity_generator(
     iteration_limit = max_iterations if max_iterations is not None else MAX_ITERATIONS
 
     class_uri = (ontology_class or {}).get("uri", "")
-    class_label = (
-        (ontology_class or {}).get("label")
-        or (ontology_class or {}).get("name", "")
+    class_label = (ontology_class or {}).get("label") or (ontology_class or {}).get(
+        "name", ""
     )
     n_attrs = len(((ontology_class or {}).get("attributes") or []))
     n_candidates = len(((source_model_slice or {}).get("candidate_tables") or []))
 
     logger.info(
-        "===== ENTITY GENERATOR START ===== endpoint=%s, class=%s (%s), "
+        "===== ENTITY GENERATOR START ===== llm=%s, class=%s (%s), "
         "attributes=%d, candidate_tables=%d, retry_hint=%s, max_iter=%d",
-        endpoint_name,
+        target.describe(),
         class_label,
         class_uri,
         n_attrs,
@@ -515,10 +513,8 @@ def run_entity_generator(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=_MAX_TOKENS,
@@ -623,9 +619,7 @@ def run_entity_generator(
             "EntityGenerator iteration %d: processing %d tool call(s): [%s]",
             current_iteration,
             len(tool_calls),
-            ", ".join(
-                tc.get("function", {}).get("name", "?") for tc in tool_calls
-            ),
+            ", ".join(tc.get("function", {}).get("name", "?") for tc in tool_calls),
         )
         messages.append(message)
 

@@ -41,6 +41,7 @@ from back.core.w3c.shacl.constants import (
     rule_check_id,
 )
 from shared.config.constants import DEFAULT_BASE_URI, DEFAULT_GRAPH_NAME
+from shared.config.LLMTarget import LLMTarget
 
 router = APIRouter(prefix="/ontology", tags=["Ontology"])
 logger = get_logger(__name__)
@@ -310,7 +311,9 @@ async def analyze_import(
         s = result.get("report", {}).get("summary", {})
         logger.info(
             "/ontology/analyze-import: done — new=%s duplicates=%s conflicts=%s",
-            s.get("new"), s.get("duplicates"), s.get("conflicts"),
+            s.get("new"),
+            s.get("duplicates"),
+            s.get("conflicts"),
         )
         return result
 
@@ -342,7 +345,9 @@ async def merge_import(
         raise ValidationError("No content provided")
     logger.info(
         "/ontology/merge-import: format=%s content_len=%d resolutions=%d",
-        fmt, len(content), len(resolutions),
+        fmt,
+        len(content),
+        len(resolutions),
     )
     with map_route_errors("Import merge failed", logger):
         result = Ontology(get_domain(session_mgr)).merge_parsed_owl_to_domain(
@@ -354,8 +359,11 @@ async def merge_import(
         logger.info(
             "/ontology/merge-import: done — classes=%s properties=%s new=%s "
             "duplicates_skipped=%s conflicts_resolved=%s",
-            stats.get("classes"), stats.get("properties"), stats.get("new"),
-            stats.get("duplicates_skipped"), stats.get("conflicts_resolved"),
+            stats.get("classes"),
+            stats.get("properties"),
+            stats.get("new"),
+            stats.get("duplicates_skipped"),
+            stats.get("conflicts_resolved"),
         )
         return result
 
@@ -433,12 +441,22 @@ def _selectable_rule_families(domain) -> list:
     """
     ontology_dict = getattr(domain, "ontology", None)
     if not isinstance(ontology_dict, dict):
-        ontology_dict = domain._data.get("ontology", {}) if hasattr(domain, "_data") else {}
+        ontology_dict = (
+            domain._data.get("ontology", {}) if hasattr(domain, "_data") else {}
+        )
 
     families = (
         (SWRL_ID_PREFIX, domain.swrl_rules or [], "SWRL Rule"),
-        (DECISION_TABLE_ID_PREFIX, ontology_dict.get("decision_tables", []), "Decision Table"),
-        (AGGREGATE_ID_PREFIX, ontology_dict.get("aggregate_rules", []), "Aggregate Rule"),
+        (
+            DECISION_TABLE_ID_PREFIX,
+            ontology_dict.get("decision_tables", []),
+            "Decision Table",
+        ),
+        (
+            AGGREGATE_ID_PREFIX,
+            ontology_dict.get("aggregate_rules", []),
+            "Aggregate Rule",
+        ),
     )
     rules = []
     for prefix, family, fallback in families:
@@ -518,10 +536,15 @@ async def save_shape(
             shapes.append(new_shape)
 
         domain.shacl_shapes = shapes
-        _ref = shape_id or shape_data.get("label", "") or shape_data.get("target_class", "")
+        _ref = (
+            shape_id
+            or shape_data.get("label", "")
+            or shape_data.get("target_class", "")
+        )
         domain.record_change(
             "shacl_updated" if is_update else "shacl_added",
-            entity_type="shacl", entity_ref=_ref,
+            entity_type="shacl",
+            entity_ref=_ref,
             summary=shape_data.get("label", "") or _ref,
         )
         domain.save()
@@ -543,8 +566,10 @@ async def delete_shape(
         shapes = SHACLService.delete_shape(domain.shacl_shapes, shape_id)
         domain.shacl_shapes = shapes
         domain.record_change(
-            "shacl_removed", entity_type="shacl",
-            entity_ref=shape_id, summary=shape_id,
+            "shacl_removed",
+            entity_type="shacl",
+            entity_ref=shape_id,
+            summary=shape_id,
         )
         domain.save()
         return {"success": True, "message": "Shape deleted", "shapes": shapes}
@@ -586,7 +611,9 @@ async def import_shacl(
         dropped = report.get("conditions_dropped", 0)
         message = f"Imported {len(imported)} shapes"
         if dropped:
-            message += f" — {dropped} lost their conditions and now apply to every instance"
+            message += (
+                f" — {dropped} lost their conditions and now apply to every instance"
+            )
         return {
             "success": True,
             "message": message,
@@ -686,7 +713,7 @@ async def cleanup_shapes(session_mgr: SessionManager = Depends(get_session_manag
             if not uri:
                 return ""
             idx = max(uri.rfind("#"), uri.rfind("/"))
-            return uri[idx + 1:] if idx >= 0 else uri
+            return uri[idx + 1 :] if idx >= 0 else uri
 
         # Excluded mapping URIs — index by full URI *and* local name for robust matching
         excluded_class_uris: set = set()
@@ -790,8 +817,12 @@ async def suggest_shapes(session_mgr: SessionManager = Depends(get_session_manag
         properties = domain.get_properties()
         base_uri = domain.ontology.get("base_uri", "")
         existing_ids = {s.get("id") for s in domain.shacl_shapes}
-        all_suggestions = SHACLService.suggest_from_ontology(classes, properties, base_uri)
-        new_suggestions = [s for s in all_suggestions if s.get("id") not in existing_ids]
+        all_suggestions = SHACLService.suggest_from_ontology(
+            classes, properties, base_uri
+        )
+        new_suggestions = [
+            s for s in all_suggestions if s.get("id") not in existing_ids
+        ]
         return {
             "success": True,
             "suggestions": new_suggestions,
@@ -873,7 +904,8 @@ async def save_swrl_rule(
         domain.swrl_rules = rules
         domain.record_change(
             "swrl_updated" if is_update else "swrl_added",
-            entity_type="swrl", entity_ref=rule.get("name", ""),
+            entity_type="swrl",
+            entity_ref=rule.get("name", ""),
             summary=rule.get("name", ""),
         )
         domain.save()
@@ -898,12 +930,16 @@ async def delete_swrl_rule(
         if not (0 <= index < len(rules)):
             raise ValidationError("Invalid rule index")
 
-        removed_name = rules[index].get("name", "") if isinstance(rules[index], dict) else ""
+        removed_name = (
+            rules[index].get("name", "") if isinstance(rules[index], dict) else ""
+        )
         rules.pop(index)
         domain.swrl_rules = rules
         domain.record_change(
-            "swrl_removed", entity_type="swrl",
-            entity_ref=removed_name, summary=removed_name,
+            "swrl_removed",
+            entity_type="swrl",
+            entity_ref=removed_name,
+            summary=removed_name,
         )
         domain.save()
         return {"success": True, "message": "SWRL rule deleted", "rules": rules}
@@ -915,7 +951,9 @@ async def validate_swrl_rule(request: Request):
     data = await request.json()
     errors = Ontology.validate_swrl_rule(data.get("rule", {}))
     if errors:
-        raise ValidationError("SWRL rule is invalid", detail="; ".join(str(e) for e in errors))
+        raise ValidationError(
+            "SWRL rule is invalid", detail="; ".join(str(e) for e in errors)
+        )
     return {"success": True, "valid": True, "message": "Rule syntax is valid"}
 
 
@@ -1113,7 +1151,12 @@ async def validate_rule(rule_type: str, request: Request):
 # ===========================================
 
 # Maps each rule list to its engine validator. SWRL is validated via Ontology.
-_RULE_VALIDATORS_KEYS = ("swrl_rules", "decision_tables", "sparql_rules", "aggregate_rules")
+_RULE_VALIDATORS_KEYS = (
+    "swrl_rules",
+    "decision_tables",
+    "sparql_rules",
+    "aggregate_rules",
+)
 
 
 def _ontology_name_sets(domain) -> tuple:
@@ -1191,7 +1234,11 @@ def _rule_signature(key: str, rule: dict) -> tuple:
     differently, so re-accepting an already-stored suggestion is a no-op.
     """
     if key == "swrl_rules":
-        return ("swrl", _norm_ws(rule.get("antecedent")), _norm_ws(rule.get("consequent")))
+        return (
+            "swrl",
+            _norm_ws(rule.get("antecedent")),
+            _norm_ws(rule.get("consequent")),
+        )
     if key == "sparql_rules":
         return ("sparql", _norm_ws(rule.get("query")))
     if key == "decision_tables":
@@ -1238,7 +1285,7 @@ async def generate_business_rules_async(
     documents = data.get("documents", [])
 
     domain = get_domain(session_mgr)
-    host, token, llm_endpoint = require_serving_llm(domain, settings)
+    host, token, target = require_serving_llm(domain, settings)
     warehouse_id = resolve_warehouse_id(domain, settings)
 
     tm = get_task_manager()
@@ -1263,7 +1310,7 @@ async def generate_business_rules_async(
             agent_result = Ontology(domain).generate_rules_with_agent(
                 host=host,
                 token=token,
-                endpoint_name=llm_endpoint,
+                target=target,
                 options=options,
                 guidelines=guidelines,
                 selected_docs=documents,
@@ -1345,9 +1392,7 @@ async def accept_business_rules_suggestions(
             for rule in candidates:
                 if not isinstance(rule, dict):
                     continue
-                errors = _validate_business_rule(
-                    key, rule, class_names, property_names
-                )
+                errors = _validate_business_rule(key, rule, class_names, property_names)
                 if errors:
                     rejected.append(
                         {
@@ -1841,7 +1886,7 @@ async def generate_ontology_async(
     tables_count = len(metadata.get("tables", []))
 
     domain = get_domain(session_mgr)
-    host, token, llm_endpoint = require_serving_llm(domain, settings)
+    host, token, target = require_serving_llm(domain, settings)
     warehouse_id = resolve_warehouse_id(domain, settings)
 
     tm = get_task_manager()
@@ -1876,7 +1921,7 @@ async def generate_ontology_async(
             agent_result = Ontology(domain).generate_with_agent(
                 host=host,
                 token=token,
-                endpoint_name=llm_endpoint,
+                target=target,
                 metadata=metadata,
                 guidelines=guidelines,
                 options=options,
@@ -1899,9 +1944,7 @@ async def generate_ontology_async(
             tm.advance_step(task.id, "Finalizing…")
 
             iteration_summary = agent_result.iteration_summary or []
-            final_score = (
-                iteration_summary[-1]["score"] if iteration_summary else None
-            )
+            final_score = iteration_summary[-1]["score"] if iteration_summary else None
             converged = bool(
                 iteration_summary
                 and iteration_summary[-1]["status"] in ("passed", "max_rounds_reached")
@@ -1923,7 +1966,11 @@ async def generate_ontology_async(
                     f"Generated {stats.get('classes', 0)} classes, "
                     f"{stats.get('properties', 0)} properties "
                     f"({agent_result.iterations} agent iterations)"
-                    + (f" — quality score {final_score}/100" if final_score is not None else "")
+                    + (
+                        f" — quality score {final_score}/100"
+                        if final_score is not None
+                        else ""
+                    )
                 ),
             )
 
@@ -1964,7 +2011,7 @@ async def auto_assign_icons(
         raise ValidationError("No entity names provided")
 
     domain = get_domain(session_mgr)
-    host, token, llm_endpoint = require_serving_llm(domain, settings)
+    host, token, target = require_serving_llm(domain, settings)
 
     tm = get_task_manager()
     task = tm.create_task(
@@ -1993,7 +2040,7 @@ async def auto_assign_icons(
             agent_result = Ontology(domain).assign_icons_with_agent(
                 host=host,
                 token=token,
-                endpoint_name=llm_endpoint,
+                target=target,
                 entity_names=entity_names,
                 on_step=on_step,
             )
@@ -2091,7 +2138,7 @@ async def ontology_assistant_chat(
         raise ValidationError("No message provided")
 
     domain = get_domain(session_mgr)
-    host, token, llm_endpoint = require_serving_llm(domain, settings)
+    host, token, target = require_serving_llm(domain, settings)
 
     classes = list(domain.get_classes())
     properties = list(domain.get_properties())
@@ -2109,7 +2156,7 @@ async def ontology_assistant_chat(
             run_assistant,
             host=host,
             token=token,
-            endpoint_name=llm_endpoint,
+            target=target,
             classes=classes,
             properties=properties,
             base_uri=base_uri,
@@ -2171,7 +2218,7 @@ async def ontology_assistant_invoke(
             "custom_inputs": {          // optional overrides
                 "host": "...",
                 "token": "...",
-                "endpoint_name": "..."
+                "model": "..."
             }
         }
 
@@ -2185,13 +2232,13 @@ async def ontology_assistant_invoke(
 
     domain = get_domain(session_mgr)
     host, token = get_databricks_host_and_token(domain, settings)
-    llm_endpoint = domain.info.get("llm_endpoint", "")
+    target = LLMTarget.from_env(domain.info.get("llm_endpoint", ""))
     base_uri = domain.ontology.get("base_uri") or DEFAULT_BASE_URI
 
     custom_inputs = data.get("custom_inputs", {})
     custom_inputs.setdefault("host", host)
     custom_inputs.setdefault("token", token)
-    custom_inputs.setdefault("endpoint_name", llm_endpoint)
+    custom_inputs.setdefault("model", target.model)
     custom_inputs.setdefault("base_uri", base_uri)
     custom_inputs.setdefault("classes", list(domain.get_classes()))
     custom_inputs.setdefault("properties", list(domain.get_properties()))
@@ -2199,7 +2246,7 @@ async def ontology_assistant_invoke(
 
     if not custom_inputs.get("host") or not custom_inputs.get("token"):
         raise ValidationError("Databricks credentials not configured")
-    if not custom_inputs.get("endpoint_name"):
+    if not custom_inputs.get("model"):
         raise ValidationError("No LLM serving endpoint configured.")
 
     with map_route_errors("Ontology assistant invoke failed", logger):
@@ -2264,7 +2311,9 @@ async def analyze_pitfalls(
 
     domain = get_domain(session_mgr)
 
-    pattern_label = ", ".join(patterns) if len(patterns) <= 5 else f"{len(patterns)} patterns"
+    pattern_label = (
+        ", ".join(patterns) if len(patterns) <= 5 else f"{len(patterns)} patterns"
+    )
     tm = get_task_manager()
     task = tm.create_task(
         name=f"Pitfalls Analysis ({pattern_label})",

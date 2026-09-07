@@ -22,9 +22,10 @@ from agents.agent_auto_assignment.tools import (
     TOOL_DEFINITIONS,
     TOOL_HANDLERS,
 )
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     extract_message_content,
     accumulate_usage,
@@ -173,7 +174,7 @@ def _build_user_prompt(entities: List[dict], relationships: List[dict]) -> str:
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     metadata: dict,
     ontology: dict,
@@ -199,8 +200,8 @@ def run_agent(
     total_items = len(entities) + len(relationships)
 
     logger.info(
-        "===== AUTO-ASSIGN AGENT START ===== endpoint=%s, entities=%d, relationships=%d, max_iter=%d",
-        endpoint_name,
+        "===== AUTO-ASSIGN AGENT START ===== llm=%s, entities=%d, relationships=%d, max_iter=%d",
+        target.describe(),
         len(entities),
         len(relationships),
         iteration_limit,
@@ -283,10 +284,8 @@ def run_agent(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=2048,

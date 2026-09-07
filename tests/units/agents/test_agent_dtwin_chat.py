@@ -78,7 +78,9 @@ class TestListEntityTypes:
             if request.url.path == "/dtwin/classes":
                 return httpx.Response(200, json={"success": True, "classes": []})
             # ontology/load or other calls: return empty ok
-            return httpx.Response(200, json={"success": True, "config": {"classes": [], "properties": []}})
+            return httpx.Response(
+                200, json={"success": True, "config": {"classes": [], "properties": []}}
+            )
 
         patch_client(handler)
         out = chat_tools.tool_list_entity_types(_ctx())
@@ -148,7 +150,9 @@ class TestListEntityTypesEnrichment:
                         ],
                     },
                 )
-            return httpx.Response(200, json={"success": True, "config": {"classes": [], "properties": []}})
+            return httpx.Response(
+                200, json={"success": True, "config": {"classes": [], "properties": []}}
+            )
 
         patch_client(handler)
         out = chat_tools.tool_list_entity_types(_ctx())
@@ -235,7 +239,9 @@ class TestDescribeEntity:
                         ],
                     },
                 )
-            return httpx.Response(200, json={"success": True, "config": {"classes": [], "properties": []}})
+            return httpx.Response(
+                200, json={"success": True, "config": {"classes": [], "properties": []}}
+            )
 
         patch_client(handler)
         out = chat_tools.tool_describe_entity(_ctx(), search="CUST1")
@@ -329,9 +335,7 @@ class TestQueryGraphql:
             )
 
         patch_client(handler)
-        chat_tools.tool_query_graphql(
-            _ctx(), query="{ hello }", variables={"x": 1}
-        )
+        chat_tools.tool_query_graphql(_ctx(), query="{ hello }", variables={"x": 1})
         assert captured["body"]["query"] == "{ hello }"
         assert captured["body"]["variables"] == {"x": 1}
 
@@ -414,7 +418,11 @@ class TestGetEntityContext:
                         "entity_uri": "https://ex/Customer/CUST1",
                         "entity_local_id": "CUST1",
                         "class_name": "Customer",
-                        "dataset": {"fullName": "main.crm.customers", "key_column": "id", "rows": []},
+                        "dataset": {
+                            "fullName": "main.crm.customers",
+                            "key_column": "id",
+                            "rows": [],
+                        },
                     },
                 )
             return httpx.Response(200, json={"success": True, "classes": []})
@@ -433,7 +441,9 @@ class TestGetEntityContext:
 
     def test_http_error_is_surfaced(self, patch_client):
         patch_client(lambda _r: httpx.Response(500, text="boom"))
-        out = chat_tools.tool_get_entity_context(_ctx(), entity_uri="https://ex/Customer/CUST1")
+        out = chat_tools.tool_get_entity_context(
+            _ctx(), entity_uri="https://ex/Customer/CUST1"
+        )
         assert "500" in out
         assert "boom" in out
 
@@ -467,7 +477,9 @@ class TestRequestEntityAction:
         patch_client(handler)
         ctx = _ctx()
         out = chat_tools.tool_request_entity_action(
-            ctx, entity_uri="https://ex/Customer/CUST1", action="main.ops.recompute_risk"
+            ctx,
+            entity_uri="https://ex/Customer/CUST1",
+            action="main.ops.recompute_risk",
         )
         assert captured["body"] == {
             "entity_uri": "https://ex/Customer/CUST1",
@@ -484,12 +496,18 @@ class TestRequestEntityAction:
     def test_backend_failure_does_not_set_pending(self, patch_client):
         patch_client(
             lambda _r: httpx.Response(
-                200, json={"success": False, "message": "No ontology class matches this entity URI"}
+                200,
+                json={
+                    "success": False,
+                    "message": "No ontology class matches this entity URI",
+                },
             )
         )
         ctx = _ctx()
         out = chat_tools.tool_request_entity_action(
-            ctx, entity_uri="https://ex/Customer/CUST1", action="main.ops.recompute_risk"
+            ctx,
+            entity_uri="https://ex/Customer/CUST1",
+            action="main.ops.recompute_risk",
         )
         assert ctx.pending_action is None
         assert "No ontology class matches" in out
@@ -498,7 +516,9 @@ class TestRequestEntityAction:
         patch_client(lambda _r: httpx.Response(500, text="boom"))
         ctx = _ctx()
         out = chat_tools.tool_request_entity_action(
-            ctx, entity_uri="https://ex/Customer/CUST1", action="main.ops.recompute_risk"
+            ctx,
+            entity_uri="https://ex/Customer/CUST1",
+            action="main.ops.recompute_risk",
         )
         assert "500" in out
         assert "boom" in out

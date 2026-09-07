@@ -29,6 +29,7 @@ from agents.agent_supervisor.complexity import ComplexityReport, assess
 from agents.tracing import trace_agent
 from back.core.agents.AgentClient import get_agent_client
 from back.core.logging import get_logger
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -85,7 +86,7 @@ class SupervisorEngine:
         task: str,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         metadata: dict,
         ontology: dict,
         engine_override: Optional[str] = None,
@@ -133,7 +134,7 @@ class SupervisorEngine:
                 result = run_engine(
                     host=host,
                     token=token,
-                    endpoint_name=endpoint_name,
+                    target=target,
                     client=client,
                     metadata=metadata,
                     ontology=ontology,
@@ -146,7 +147,7 @@ class SupervisorEngine:
                 result = agent.run_owl_generator(
                     host=host,
                     token=token,
-                    endpoint_name=endpoint_name,
+                    target=target,
                     base_uri=base_uri,
                     selected_tables=selected_tables or [],
                     metadata=metadata,

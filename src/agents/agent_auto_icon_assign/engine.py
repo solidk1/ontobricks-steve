@@ -23,9 +23,10 @@ from agents.agent_auto_icon_assign.tools import (
     TOOL_DEFINITIONS,
     TOOL_HANDLERS,
 )
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     extract_message_content,
     accumulate_usage,
@@ -149,7 +150,7 @@ def _parse_icons_from_text(text: str) -> Dict[str, str]:
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     entity_names: List[str],
     metadata: Optional[dict] = None,
     ontology: Optional[dict] = None,
@@ -160,8 +161,8 @@ def run_agent(
     Returns an AgentResult whose ``icons`` dict maps entity names to emojis.
     """
     logger.info(
-        "===== ICON AGENT START ===== endpoint=%s, %d entities",
-        endpoint_name,
+        "===== ICON AGENT START ===== llm=%s, %d entities",
+        target.describe(),
         len(entity_names),
     )
 
@@ -214,10 +215,8 @@ def run_agent(
         send_tools = TOOL_DEFINITIONS if (tools_supported and not is_last) else None
 
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 temperature=0.3,
@@ -234,10 +233,8 @@ def run_agent(
                 tools_supported = False
                 notify("Endpoint does not support tools – using direct generation…")
                 try:
-                    llm_response = call_serving_endpoint(
-                        host,
-                        token,
-                        endpoint_name,
+                    llm_response = call_chat_completion(
+                        target,
                         messages,
                         tools=None,
                         temperature=0.3,

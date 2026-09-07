@@ -26,6 +26,7 @@ from back.core.industry import (
 from back.core.w3c import OntologyGenerator, OntologyParser
 from back.core.w3c.owl import OntologyConflictDetector, ConflictReport
 from back.core.w3c.shacl.constants import QUALITY_CATEGORIES
+from shared.config.LLMTarget import LLMTarget
 
 if TYPE_CHECKING:
     from agents.agent_auto_icon_assign.engine import (
@@ -74,7 +75,7 @@ class Ontology:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         metadata: Dict[str, Any],
         guidelines: str = "",
         options: Optional[Dict[str, Any]] = None,
@@ -105,7 +106,7 @@ class Ontology:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             registry=dict(s.registry),
             metadata=metadata or {},
             guidelines=guidelines or "",
@@ -125,7 +126,7 @@ class Ontology:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         options: Optional[Dict[str, Any]] = None,
         guidelines: str = "",
         selected_docs: Optional[List[str]] = None,
@@ -152,7 +153,7 @@ class Ontology:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             registry=dict(s.registry),
             ontology_design=self.agent_ontology_context(connected_only=True),
             base_uri=base_uri,
@@ -227,7 +228,7 @@ class Ontology:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         entity_names: List[str],
         on_step: Optional[Callable[[str], None]] = None,
     ) -> "IconAssignAgentResult":
@@ -240,7 +241,7 @@ class Ontology:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             entity_names=entity_names,
             metadata=self._domain.catalog_metadata,
             ontology=self.agent_ontology_context(),

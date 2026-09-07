@@ -32,9 +32,10 @@ from agents.agent_business_rules_generator.tools import (
     TOOL_HANDLERS,
 )
 from agents.tools.context import ToolContext
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     extract_message_content,
     accumulate_usage,
@@ -224,7 +225,7 @@ def _strip_code_fences(text: str) -> str:
         if first_nl != -1:
             t = t[first_nl + 1 :]
         if t.rstrip().endswith("```"):
-            t = t.rstrip()[: -3]
+            t = t.rstrip()[:-3]
     return t.strip()
 
 
@@ -254,7 +255,9 @@ def _normalise_result(parsed: dict, result: AgentResult) -> None:
     """Copy the four rule lists from *parsed* onto *result* (defensive)."""
     for key in _RULE_KEYS:
         value = parsed.get(key, [])
-        rules = [r for r in value if isinstance(r, dict)] if isinstance(value, list) else []
+        rules = (
+            [r for r in value if isinstance(r, dict)] if isinstance(value, list) else []
+        )
         for r in rules:
             r.setdefault("enabled", True)
         setattr(result, key, rules)
@@ -318,9 +321,7 @@ def _drop_rules_with_unknown_refs(
             kept.append(rule)
         setattr(result, key, kept)
     if total_dropped:
-        notify(
-            f"Discarded {total_dropped} rule(s) referencing unknown ontology terms"
-        )
+        notify(f"Discarded {total_dropped} rule(s) referencing unknown ontology terms")
 
 
 def _build_user_prompt(base_uri: str, options: dict, guidelines: str) -> str:
@@ -344,7 +345,7 @@ def _build_user_prompt(base_uri: str, options: dict, guidelines: str) -> str:
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     registry: dict,
     ontology_design: dict,
     base_uri: str,
@@ -365,8 +366,8 @@ def run_agent(
     direct single-shot prompt.
     """
     logger.info(
-        "===== BUSINESS RULES AGENT START ===== endpoint=%s, base_uri=%s, docs=%s",
-        endpoint_name,
+        "===== BUSINESS RULES AGENT START ===== llm=%s, base_uri=%s, docs=%s",
+        target.describe(),
         base_uri,
         selected_docs,
     )
@@ -409,10 +410,8 @@ def run_agent(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=4096,
@@ -431,10 +430,8 @@ def run_agent(
                 tools_supported = False
                 notify("Endpoint does not support tools – using direct generation…")
                 try:
-                    llm_response = call_serving_endpoint(
-                        host,
-                        token,
-                        endpoint_name,
+                    llm_response = call_chat_completion(
+                        target,
                         messages,
                         tools=None,
                         max_tokens=4096,
@@ -444,7 +441,9 @@ def run_agent(
                     )
                 except Exception as inner:
                     result.error = f"LLM request failed: {inner}"
-                    logger.error("business_rules_agent: fallback call failed: %s", inner)
+                    logger.error(
+                        "business_rules_agent: fallback call failed: %s", inner
+                    )
                     return result
             else:
                 result.error = f"LLM request failed: {exc}"
@@ -464,7 +463,11 @@ def run_agent(
             return result
         except Exception as exc:  # pragma: no cover - defensive
             result.error = f"LLM request failed: {exc}"
-            logger.error("business_rules_agent: unexpected error at iter %d: %s", iteration + 1, exc)
+            logger.error(
+                "business_rules_agent: unexpected error at iter %d: %s",
+                iteration + 1,
+                exc,
+            )
             return result
 
         elapsed_ms = int((time.time() - t0) * 1000)
@@ -473,7 +476,9 @@ def run_agent(
         choices = llm_response.get("choices", [])
         if not choices:
             result.error = "No choices in LLM response"
-            logger.warning("business_rules_agent: empty choices at iter %d", iteration + 1)
+            logger.warning(
+                "business_rules_agent: empty choices at iter %d", iteration + 1
+            )
             return result
 
         message = choices[0].get("message", {})
@@ -487,7 +492,9 @@ def run_agent(
                 tool_id = tc.get("id", "")
                 raw_args = func.get("arguments", "{}")
                 try:
-                    arguments = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    arguments = (
+                        json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    )
                 except json.JSONDecodeError:
                     arguments = {}
 
@@ -509,7 +516,11 @@ def run_agent(
                 result.steps.append(
                     AgentStep(
                         step_type="tool_result",
-                        content=(tool_result[:500] + "…") if len(tool_result) > 500 else tool_result,
+                        content=(
+                            (tool_result[:500] + "…")
+                            if len(tool_result) > 500
+                            else tool_result
+                        ),
                         tool_name=tool_name,
                         duration_ms=tool_ms,
                     )
@@ -534,7 +545,8 @@ def run_agent(
             if _json_retries < 2:
                 _json_retries += 1
                 logger.warning(
-                    "business_rules_agent: could not parse JSON (retry %d)", _json_retries
+                    "business_rules_agent: could not parse JSON (retry %d)",
+                    _json_retries,
                 )
                 messages.append({"role": "assistant", "content": content})
                 messages.append(

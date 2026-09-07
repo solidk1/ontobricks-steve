@@ -3,7 +3,7 @@
 Mirrors the structure of ``test_relationship_generator.py``. The Critic is a
 narrow tool-calling ReAct loop terminated by ``submit_evaluation``. These
 tests exercise the loop's control flow with a *fake LLM* — a stub that
-replaces ``call_serving_endpoint`` at module level and returns canned
+replaces ``call_chat_completion`` at module level and returns canned
 responses on a per-call basis.
 
 No real HTTP, no real Databricks, no MLflow tracing.
@@ -32,6 +32,7 @@ from agents.agent_mapping_pge.evaluator.critic import (
     CriticStep,
     run_critic,
 )
+from tests.fixtures.llm import llm_target
 
 
 # =====================================================
@@ -79,8 +80,9 @@ class FakeLLM:
     def __call__(self, *args, **kwargs) -> dict:
         self.calls += 1
         msgs: Optional[List[dict]] = None
-        if len(args) >= 4 and isinstance(args[3], list):
-            msgs = args[3]
+        # ``call_chat_completion(target, messages, ...)`` — messages is arg #1.
+        if len(args) >= 2 and isinstance(args[1], list):
+            msgs = args[1]
         elif "messages" in kwargs:
             msgs = kwargs["messages"]
         if msgs is not None:
@@ -116,7 +118,7 @@ def no_sleep(monkeypatch):
 
 
 def _patch_llm(monkeypatch, fake: Callable[..., dict]) -> None:
-    monkeypatch.setattr(critic_mod, "call_serving_endpoint", fake)
+    monkeypatch.setattr(critic_mod, "call_chat_completion", fake)
 
 
 # =====================================================
@@ -255,7 +257,7 @@ def _run_entity_critic(
     return run_critic(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=client,
         item_kind=item_kind,
         item_uri=item_uri,
@@ -610,7 +612,7 @@ def test_user_prompt_distinguishes_entity_vs_relationship(monkeypatch, no_sleep)
     run_critic(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         item_kind="relationship",
         item_uri=_REL_URI,

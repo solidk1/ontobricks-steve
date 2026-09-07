@@ -93,7 +93,12 @@ PROPERTIES = [
     # Entity panel: no type, no range, domain as a name.
     {"name": "stationName", "uri": f"{NS}stationName", "domain": "Station"},
     # Untyped, but the range names an entity — a relationship.
-    {"name": "servesLine", "uri": f"{NS}servesLine", "domain": "Station", "range": "Line"},
+    {
+        "name": "servesLine",
+        "uri": f"{NS}servesLine",
+        "domain": "Station",
+        "range": "Line",
+    },
     # Belongs to no entity.
     {"name": "orphan", "uri": f"{NS}orphan", "domain": "", "range": "", "type": ""},
 ]
@@ -138,15 +143,13 @@ def _evaluate(body: str, category: str = "conformance"):
 
 def _resolve(class_name: str):
     """``{attributes, relationships}`` offered for *class_name*."""
-    return _evaluate(
-        f"""
+    return _evaluate(f"""
         const owned = dq._propertiesForClass({json.dumps(class_name)});
         return {{
             attributes: owned.filter(p => !p.isRelationship).map(p => p.name),
             relationships: owned.filter(p => p.isRelationship).map(p => p.name),
         }};
-        """
-    )
+        """)
 
 
 def _populate(class_name: str, category: str):
@@ -174,7 +177,11 @@ def _options(html: str) -> list[str]:
 
 class TestPropertiesForClass:
     def test_materialised_and_declared_attributes_are_merged(self):
-        assert set(_resolve("Customer")["attributes"]) == {"email", "status", "fullName"}
+        assert set(_resolve("Customer")["attributes"]) == {
+            "email",
+            "status",
+            "fullName",
+        }
 
     def test_inherited_attributes_are_offered(self):
         assert "fullName" in _resolve("Customer")["attributes"]
@@ -182,7 +189,10 @@ class TestPropertiesForClass:
 
     def test_attributes_known_only_as_top_level_properties(self):
         """The regression: Station has no dataProperties at all."""
-        assert set(_resolve("Station")["attributes"]) == {"platformCount", "stationName"}
+        assert set(_resolve("Station")["attributes"]) == {
+            "platformCount",
+            "stationName",
+        }
 
     def test_a_uri_domain_resolves_to_its_entity(self):
         assert "platformCount" in _resolve("Station")["attributes"]
@@ -245,7 +255,9 @@ class TestClassification:
         ],
     )
     def test_is_object_property(self, prop, expected):
-        assert _evaluate(f"return dq._isObjectProperty({json.dumps(prop)});") is expected
+        assert (
+            _evaluate(f"return dq._isObjectProperty({json.dumps(prop)});") is expected
+        )
 
     def test_a_typed_relationship_stays_a_relationship(self):
         assert _resolve("Customer")["relationships"] == ["hasOrder"]
@@ -280,7 +292,9 @@ class TestPropertySelect:
         assert result["label"] == "2. Relationship"
 
     def test_cardinality_does_not_offer_the_label_property(self):
-        assert "rdfs:label" not in _options(_populate("Customer", "cardinality")["html"])
+        assert "rdfs:label" not in _options(
+            _populate("Customer", "cardinality")["html"]
+        )
 
     def test_other_dimensions_offer_both(self):
         options = _options(_populate("Customer", "consistency")["html"])
@@ -293,10 +307,15 @@ class TestPropertySelect:
         assert "disabled" in html
 
     def test_an_entity_with_no_relationship_says_so(self):
-        assert "No relationship declared on Line" in _populate("Line", "cardinality")["html"]
+        assert (
+            "No relationship declared on Line"
+            in _populate("Line", "cardinality")["html"]
+        )
 
     def test_the_hint_is_absent_when_the_entity_has_properties(self):
-        assert "No attribute declared" not in _populate("Station", "conformance")["html"]
+        assert (
+            "No attribute declared" not in _populate("Station", "conformance")["html"]
+        )
 
     def test_no_entity_selected_shows_no_hint(self):
         assert "declared on" not in _populate("", "conformance")["html"]

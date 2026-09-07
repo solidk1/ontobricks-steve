@@ -4,6 +4,7 @@ import pytest
 
 from agents.agent_supervisor import mas as mas_mod
 from agents.agent_supervisor.engine import SupervisorEngine
+from tests.fixtures.llm import llm_target
 
 pytestmark = pytest.mark.unit
 
@@ -60,7 +61,7 @@ def test_invalid_task_raises(fake_client):
             task="nonsense",
             host="h",
             token="t",
-            endpoint_name="e",
+            target=llm_target("e"),
             metadata=_SIMPLE_MD,
             ontology=_SIMPLE_ONTO,
         )
@@ -71,7 +72,7 @@ def test_simple_domain_routes_to_simple_engine(fake_client):
         task="mapping",
         host="h",
         token="t",
-        endpoint_name="e",
+        target=llm_target("e"),
         metadata=_SIMPLE_MD,
         ontology=_SIMPLE_ONTO,
         client=object(),
@@ -86,7 +87,7 @@ def test_complex_domain_routes_to_pge_engine(fake_client):
         task="mapping",
         host="h",
         token="t",
-        endpoint_name="e",
+        target=llm_target("e"),
         metadata=_COMPLEX_MD,
         ontology=_COMPLEX_ONTO,
         client=object(),
@@ -100,7 +101,7 @@ def test_engine_override_forces_engine(fake_client):
         task="mapping",
         host="h",
         token="t",
-        endpoint_name="e",
+        target=llm_target("e"),
         metadata=_COMPLEX_MD,
         ontology=_COMPLEX_ONTO,
         engine_override="simple",
@@ -117,7 +118,7 @@ def test_ontology_task_uses_single_engine(fake_client):
         task="ontology",
         host="h",
         token="t",
-        endpoint_name="e",
+        target=llm_target("e"),
         metadata=_COMPLEX_MD,
         ontology=_COMPLEX_ONTO,
         base_uri="http://x#",
@@ -139,7 +140,7 @@ def test_engine_failure_is_surfaced(monkeypatch):
         task="mapping",
         host="h",
         token="t",
-        endpoint_name="e",
+        target=llm_target("e"),
         metadata=_SIMPLE_MD,
         ontology=_SIMPLE_ONTO,
         client=object(),

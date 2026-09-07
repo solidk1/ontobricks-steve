@@ -31,9 +31,7 @@ def script() -> str:
 
 
 class TestTheTypeSelector:
-    @pytest.mark.parametrize(
-        "task_type", ["build", "cohort", "analytics", "reasoning"]
-    )
+    @pytest.mark.parametrize("task_type", ["build", "cohort", "analytics", "reasoning"])
     def test_every_backend_type_has_a_radio(self, template, task_type):
         assert 'name="scheduleType" id="scheduleType' in template
         assert f'value="{task_type}"' in template
@@ -59,7 +57,7 @@ class TestPerTypeFieldGroups:
             assert f'data-phase="{phase}"' in template, f"no toggle for '{phase}'"
 
     def test_reasoning_offers_both_materialise_targets(self, template):
-        assert 'schedule-type-reasoning' in template
+        assert "schedule-type-reasoning" in template
         assert 'id="scheduleMaterializeGraph"' in template
         assert 'id="scheduleMaterializeDelta"' in template
         assert 'id="scheduleMaterializeTable"' in template
@@ -67,8 +65,8 @@ class TestPerTypeFieldGroups:
     def test_analytics_warns_about_the_run_length(self, template):
         """A run submits a Databricks job and blocks its worker, so the
         interval floor of 2 minutes is not a sane choice here."""
-        assert 'schedule-type-analytics' in template
-        analytics_block = template.split('schedule-type-analytics')[1][:600]
+        assert "schedule-type-analytics" in template
+        analytics_block = template.split("schedule-type-analytics")[1][:600]
         assert "interval" in analytics_block.lower()
 
 
@@ -82,9 +80,9 @@ class TestTheScriptIsTypeDriven:
 
     def test_it_reads_one_endpoint(self, script):
         assert "const API = '/settings/schedules'" in script
-        assert "cohort-schedules" not in script, (
-            "the cohort-only endpoints were removed from the router"
-        )
+        assert (
+            "cohort-schedules" not in script
+        ), "the cohort-only endpoints were removed from the router"
 
     def test_the_target_travels_as_a_query_parameter(self, script):
         assert "'?target=' + encodeURIComponent(targetKey)" in script

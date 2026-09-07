@@ -21,10 +21,12 @@ def _fn(source: str, name: str) -> str:
     """
     header = "function " + name
     start = source.index(header)
-    rest = source[start + len(header):]
-    ends = [i for i in (rest.find("\n    function "),
-                        rest.find("\n    window.")) if i != -1]
+    rest = source[start + len(header) :]
+    ends = [
+        i for i in (rest.find("\n    function "), rest.find("\n    window.")) if i != -1
+    ]
     return rest[: min(ends)] if ends else rest
+
 
 pytestmark = pytest.mark.unit
 
@@ -93,27 +95,38 @@ class TestAssetsAreSplitOut:
 
 class TestTabStripIsThreeTabs:
     REMOVED = (
-        "atab-btn-pagerank", "atab-pagerank",
-        "atab-btn-betweenness", "atab-betweenness",
-        "atab-btn-degree", "atab-degree",
-        "atab-btn-closeness", "atab-closeness",
-        "atab-btn-clustering", "atab-clustering",
+        "atab-btn-pagerank",
+        "atab-pagerank",
+        "atab-btn-betweenness",
+        "atab-betweenness",
+        "atab-btn-degree",
+        "atab-degree",
+        "atab-btn-closeness",
+        "atab-closeness",
+        "atab-btn-clustering",
+        "atab-clustering",
     )
 
     @pytest.mark.parametrize("marker", REMOVED)
     def test_per_metric_tabs_are_gone(self, panel, marker):
         assert marker not in panel
 
-    @pytest.mark.parametrize("marker", (
-        "atab-btn-dashboard", "atab-dashboard",
-        "atab-btn-health", "atab-health",
-        "atab-btn-insights", "atab-insights",
-    ))
+    @pytest.mark.parametrize(
+        "marker",
+        (
+            "atab-btn-dashboard",
+            "atab-dashboard",
+            "atab-btn-health",
+            "atab-health",
+            "atab-btn-insights",
+            "atab-insights",
+        ),
+    )
     def test_the_three_surviving_tabs_are_present(self, panel, marker):
         assert marker in panel
 
     def test_dashboard_is_the_default_tab(self, panel):
-        strip = panel[panel.index('id="analyticsTabs"'):]
+        strip = panel[panel.index('id="analyticsTabs"') :]
         strip = strip[: strip.index("</ul>")]
         assert strip.count("nav-link active") == 1
         dashboard_at = strip.index("atab-btn-dashboard")
@@ -126,7 +139,7 @@ class TestTabStripIsThreeTabs:
     def test_the_strip_does_not_re_apply_baked_in_utilities(self, panel):
         # class= sits before id= on the <ul>, so the slice has to start at the
         # opening tag or the class list is never examined.
-        strip = panel[panel.rindex("<ul", 0, panel.index('id="analyticsTabs"')):]
+        strip = panel[panel.rindex("<ul", 0, panel.index('id="analyticsTabs"')) :]
         strip = strip[: strip.index(">")]
         for banned in ("px-3", "pt-2", "pt-3", "bg-white", "font-size"):
             assert banned not in strip
@@ -134,7 +147,7 @@ class TestTabStripIsThreeTabs:
 
 class TestDashboardShell:
     def test_the_dashboard_pane_holds_the_strip_and_ranking_containers(self, panel):
-        pane = panel[panel.index('id="atab-dashboard"'):]
+        pane = panel[panel.index('id="atab-dashboard"') :]
         pane = pane[: pane.index('id="atab-health"')]
         assert 'id="analyticsDistStrip"' in pane
         assert 'id="analyticsRankingCard"' in pane
@@ -143,19 +156,27 @@ class TestDashboardShell:
 
 class TestKpiRowUsesTheSharedTile:
     def test_kpi_tiles_use_the_ob_kpi_tile_component(self, panel):
-        row = panel[panel.index('id="analyticsStatsRow"'):]
+        row = panel[panel.index('id="analyticsStatsRow"') :]
         row = row[: row.index('id="analyticsDistStrip"')]
         assert "ob-kpi-tile" in row
 
     def test_the_hand_rolled_tile_markup_is_gone(self, panel):
-        row = panel[panel.index('id="analyticsStatsRow"'):]
+        row = panel[panel.index('id="analyticsStatsRow"') :]
         row = row[: row.index('id="analyticsDistStrip"')]
         assert "border-0 bg-light" not in row
 
-    @pytest.mark.parametrize("stat_id", (
-        "aStatNodes", "aStatEdges", "aStatComponents",
-        "aStatAvgDegree", "aStatDensity", "aStatElapsed", "aStatGraphNodes",
-    ))
+    @pytest.mark.parametrize(
+        "stat_id",
+        (
+            "aStatNodes",
+            "aStatEdges",
+            "aStatComponents",
+            "aStatAvgDegree",
+            "aStatDensity",
+            "aStatElapsed",
+            "aStatGraphNodes",
+        ),
+    )
     def test_every_stat_id_survives_the_rebuild(self, panel, stat_id):
         """_renderAnalyticsData writes to these by id."""
         assert stat_id in panel
@@ -171,29 +192,29 @@ class TestTheKpiStripLinesUpWithTheTabs:
     """
 
     def test_the_strip_is_a_grid_not_a_bootstrap_row(self, panel):
-        row = panel[panel.index('id="analyticsStatsRow"') - 200:]
+        row = panel[panel.index('id="analyticsStatsRow"') - 200 :]
         row = row[: row.index('id="analyticsTabs"')]
         assert "analytics-kpi-strip" in row
         assert "row g-2" not in row
         assert "col-lg-2" not in row, "column wrappers are gone with the row"
 
     def test_the_strip_carries_the_same_right_inset_as_the_tabs(self, css):
-        block = css[css.index(".analytics-kpi-strip {"):]
+        block = css[css.index(".analytics-kpi-strip {") :]
         block = block[: block.index("}")]
         assert "margin-right: 12px" in block
 
     def test_the_inset_matches_what_ob_tab_content_uses(self):
         """If the shared 12px ever changes, this pairing has to change with it."""
-        main_css = (
-            REPO_ROOT / "src/front/static/global/css/main.css"
-        ).read_text(encoding="utf-8")
-        block = main_css[main_css.index(".ob-tab-content {"):]
+        main_css = (REPO_ROOT / "src/front/static/global/css/main.css").read_text(
+            encoding="utf-8"
+        )
+        block = main_css[main_css.index(".ob-tab-content {") :]
         block = block[: block.index("}")]
         assert "margin-right: 12px" in block
 
     def test_the_tracks_can_shrink_below_their_content(self, css):
         """Bare 1fr means minmax(auto, 1fr) and would floor the track widths."""
-        block = css[css.index(".analytics-kpi-strip {"):]
+        block = css[css.index(".analytics-kpi-strip {") :]
         block = block[: block.index("}")]
         assert "repeat(6, minmax(0, 1fr))" in block
 
@@ -202,7 +223,7 @@ class TestTheKpiStripLinesUpWithTheTabs:
         """col-6 / col-md-4 / col-lg-2 gave 2 / 3 / 6 tiles across."""
         query = f"@media (max-width: {breakpoint_px})"
         assert query in css
-        block = css[css.index(query):]
+        block = css[css.index(query) :]
         block = block[: block.index("\n}")]
         assert f"repeat({tracks}, minmax(0, 1fr))" in block
         assert "analytics-kpi-strip" in block
@@ -216,14 +237,13 @@ class TestDistributionStrip:
     def test_the_metric_table_lists_all_five_in_display_order(self, js):
         """PageRank was absent from the old _METRICS list because its tab held a
         table, not a chart. The strip charts all five."""
-        table = js[js.index("_ALL_METRICS = ["):]
+        table = js[js.index("_ALL_METRICS = [") :]
         table = table[: table.index("];")]
         keys = re.findall(r"key:\s*'(\w+)'", table)
-        assert keys == ["pagerank", "betweenness", "degree",
-                        "closeness", "clustering"]
+        assert keys == ["pagerank", "betweenness", "degree", "closeness", "clustering"]
 
     def test_every_metric_in_the_table_has_a_colour_and_an_icon(self, js):
-        table = js[js.index("_ALL_METRICS = ["):]
+        table = js[js.index("_ALL_METRICS = [") :]
         table = table[: table.index("];")]
         assert len(re.findall(r"color:", table)) == 5
         assert len(re.findall(r"icon:", table)) == 5
@@ -246,7 +266,7 @@ class TestDistributionStrip:
         # The guard must return before any chart is constructed.
         guard_at = fn.index("!dist.bins")
         assert guard_at < fn.index("new Chart")
-        between = fn[guard_at:fn.index("new Chart")]
+        between = fn[guard_at : fn.index("new Chart")]
         assert "return" in between
 
     def test_tiles_are_buttons_so_selection_is_keyboard_reachable(self, js):
@@ -263,7 +283,8 @@ class TestDistributionStrip:
         must not present the median as an exact figure."""
         fn = _fn(js, "_renderDistributionStrip")
         caption_line = next(
-            line for line in fn.splitlines()
+            line
+            for line in fn.splitlines()
             if "caption.innerHTML" in line and "median" in line.lower()
         )
         assert re.search(r"median\s+(&asymp;|~)", caption_line), (
@@ -332,9 +353,9 @@ class TestLogScaleToggle:
         """Bar heights stop being proportional to counts; an unlabelled log
         chart misleads."""
         fn = _fn(js, "_renderDistributionStrip")
-        assert re.search(r"_logScale \?[^\n]*<em>log</em>", fn), (
-            "the caption must name the log scale, not merely read the flag"
-        )
+        assert re.search(
+            r"_logScale \?[^\n]*<em>log</em>", fn
+        ), "the caption must name the log scale, not merely read the flag"
 
 
 class TestInterpretPayloadExcludesDistributions:
@@ -345,7 +366,7 @@ class TestInterpretPayloadExcludesDistributions:
         """The body of window.analyticsInterpret, which is an assigned
         expression rather than a declaration, so _fn does not apply."""
         start = js.index("window.analyticsInterpret")
-        rest = js[start + 25:]
+        rest = js[start + 25 :]
         end = rest.find("\n    window.")
         return rest if end == -1 else rest[:end]
 
@@ -366,8 +387,10 @@ class TestInterpretPayloadExcludesDistributions:
         """Without the reason, a later reader restores the field to 'give the
         agent more context' and trips the eval gate unknowingly."""
         body = self._interpret(js)
-        near = body[body.index("delete payload.distributions") - 400:
-                    body.index("delete payload.distributions")]
+        near = body[
+            body.index("delete payload.distributions")
+            - 400 : body.index("delete payload.distributions")
+        ]
         assert "eval" in near.lower()
         assert "metrics_payload" in near or "prompt" in near.lower()
 
@@ -380,7 +403,7 @@ class TestScopeIsAskedForAtLaunch:
     @staticmethod
     def _modal(panel: str) -> str:
         start = panel.index('id="analyticsScopeModal"')
-        return panel[start: panel.index("Metric explanation modal", start)]
+        return panel[start : panel.index("Metric explanation modal", start)]
 
     @staticmethod
     def _toolbar(panel: str) -> str:
@@ -419,12 +442,12 @@ class TestScopeIsAskedForAtLaunch:
 
     def test_the_scope_is_read_before_the_modal_is_dismissed(self, js):
         """Reading the select after hiding risks Bootstrap having reset it."""
-        body = js[js.index("window.analyticsCompute"):]
+        body = js[js.index("window.analyticsCompute") :]
         body = body[: body.index("\n    window.")]
         assert body.index("_getSelectedTypes()") < body.index(".hide()")
 
     def test_the_run_sends_the_scope_that_was_picked(self, js):
-        body = js[js.index("window.analyticsCompute"):]
+        body = js[js.index("window.analyticsCompute") :]
         body = body[: body.index("\n    window.")]
         assert "class_filter: requested" in body
 
@@ -440,7 +463,7 @@ class TestResultScopeDescribesWhatIsDisplayed:
         """Without the else-null, a full-graph re-run keeps advertising the
         previous run's entity type."""
         start = js.index("_resultScope = (meta.class_filter")
-        assert ": null" in js[start: start + 200]
+        assert ": null" in js[start : start + 200]
 
     def test_the_subtitle_reads_the_result_scope(self, js):
         fn = _fn(js, "_renderAnalyticsData")
@@ -456,8 +479,11 @@ class TestResultScopeDescribesWhatIsDisplayed:
     def test_nothing_but_the_run_request_reads_the_live_select(self, js):
         """_getSelectedTypes is the request being composed; anything that
         describes the displayed result must use _resultScope."""
-        readers = [ln for ln in js.splitlines()
-                   if "_getSelectedTypes()" in ln and "function" not in ln]
+        readers = [
+            ln
+            for ln in js.splitlines()
+            if "_getSelectedTypes()" in ln and "function" not in ln
+        ]
         assert len(readers) == 1, readers
         assert "requested" in readers[0]
 
@@ -476,7 +502,7 @@ class TestAllFiveTilesStayVisible:
     def _rule(css: str, selector: str) -> str:
         """The declaration block following a selector."""
         start = css.index(selector)
-        return css[start: css.index("}", start)]
+        return css[start : css.index("}", start)]
 
     def test_the_five_column_track_can_shrink_below_the_canvas_width(self, css):
         """A bare `1fr` is minmax(auto, 1fr), so the canvas's 300px intrinsic
@@ -500,8 +526,8 @@ class TestAllFiveTilesStayVisible:
         assert "nth-child(n + 3)" in css
         first = css.index("nth-child(-n + 2)")
         rest = css.index("nth-child(n + 3)")
-        assert "span 3" in css[first: first + 120]
-        assert "span 2" in css[rest: rest + 120]
+        assert "span 3" in css[first : first + 120]
+        assert "span 2" in css[rest : rest + 120]
 
     def test_the_two_column_wrap_is_gone(self, css):
         """The rule that produced the 2 + 2 + 1 wrap."""
@@ -563,7 +589,7 @@ class TestElapsedIsHumanReadable:
         tracker = (REPO_ROOT / "src/front/static/global/js/task-tracker.js").read_text(
             encoding="utf-8"
         )
-        body = tracker[tracker.index("function formatSeconds"):]
+        body = tracker[tracker.index("function formatSeconds") :]
         body = body[: body.index("\nfunction ")]
         assert "m ${remSec}s" in body
         assert "h ${remMin}m" in body

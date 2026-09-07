@@ -63,9 +63,9 @@ def test_operators_match_the_decision_table_vocabulary():
 
 def test_existence_operators_hide_the_value_input():
     body = _method_body(CONDITIONS_JS, "_rowHtml")
-    assert "isExistence ? 'd-none' : ''" in body, (
-        "a row whose operator takes no value must hide its value input"
-    )
+    assert (
+        "isExistence ? 'd-none' : ''" in body
+    ), "a row whose operator takes no value must hide its value input"
 
 
 def test_relationship_only_offers_existence_operators():
@@ -76,18 +76,18 @@ def test_relationship_only_offers_existence_operators():
 
 def test_collected_rows_keep_dom_alignment():
     body = _method_body(CONDITIONS_JS, "collect")
-    assert ".filter(" not in body, (
-        "collect must keep incomplete rows so remove indexes stay aligned"
-    )
+    assert (
+        ".filter(" not in body
+    ), "collect must keep incomplete rows so remove indexes stay aligned"
 
 
 def test_conditions_are_limited_to_conformance_and_consistency():
     source = DATAQUALITY_JS.read_text(encoding="utf-8")
     assert "CONDITION_CATEGORIES: ['conformance', 'consistency']" in source
     body = _method_body(DATAQUALITY_JS, "_renderConditions")
-    assert "_conditionsSupported" in body, (
-        "the IF block must be hidden for unsupported dimensions"
-    )
+    assert (
+        "_conditionsSupported" in body
+    ), "the IF block must be hidden for unsupported dimensions"
 
 
 def test_saved_conditions_drop_incomplete_rows():

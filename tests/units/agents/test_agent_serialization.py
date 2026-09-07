@@ -13,12 +13,22 @@ class TestSerializeAgentSteps:
 
     def test_agent_step_objects(self):
         steps = [
-            AgentStep(step_type="tool_call", content="call data", tool_name="get_data", duration_ms=100),
+            AgentStep(
+                step_type="tool_call",
+                content="call data",
+                tool_name="get_data",
+                duration_ms=100,
+            ),
             AgentStep(step_type="output", content="done"),
         ]
         result = serialize_agent_steps(steps)
         assert len(result) == 2
-        assert result[0] == {"type": "tool_call", "tool": "get_data", "content": "call data", "ms": 100}
+        assert result[0] == {
+            "type": "tool_call",
+            "tool": "get_data",
+            "content": "call data",
+            "ms": 100,
+        }
         assert result[1] == {"type": "output", "tool": "", "content": "done", "ms": 0}
 
     def test_plain_objects_with_attributes(self):
@@ -31,7 +41,14 @@ class TestSerializeAgentSteps:
 
         steps = [FakeStep("tool_result", "result text", "my_tool", 250)]
         result = serialize_agent_steps(steps)
-        assert result == [{"type": "tool_result", "tool": "my_tool", "content": "result text", "ms": 250}]
+        assert result == [
+            {
+                "type": "tool_result",
+                "tool": "my_tool",
+                "content": "result text",
+                "ms": 250,
+            }
+        ]
 
     def test_missing_attributes_default_to_empty(self):
         class Bare:

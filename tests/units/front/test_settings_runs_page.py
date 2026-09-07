@@ -84,7 +84,8 @@ class TestBuildAnalyticsIsGone:
         even be offered the sidebar entry — which is also what keeps the old
         wart from coming back, where the entry showed but its fetches 403'd."""
         runs = next(
-            i for i in _menu_items("settings", "settings-automation")
+            i
+            for i in _menu_items("settings", "settings-automation")
             if i["id"] == "runs"
         )
         assert runs["admin_only"] is True
@@ -140,7 +141,8 @@ class TestRunsSection:
         html = _html(client, "/settings")
         tags = _tags(html)
         active_panes = [
-            i for i in ("srtab-build", "srtab-analytics")
+            i
+            for i in ("srtab-build", "srtab-analytics")
             if "active" in (_find(tags, id_=i).get("class") or "")
         ]
         assert active_panes == ["srtab-build"]
@@ -179,8 +181,8 @@ class TestRunsSection:
     def test_both_tables_name_a_domain_column(self, client):
         """The column that makes this page different from the per-domain one."""
         html = _html(client, "/settings")
-        section = html[html.index('id="runs-section"'):]
-        build = section[section.index('id="srBuildTableBody"'):]
+        section = html[html.index('id="runs-section"') :]
+        build = section[section.index('id="srBuildTableBody"') :]
         assert section.count(">Domain<") >= 2
         assert ">Domain<" in section[: section.index('id="srBuildTableBody"')]
         assert ">Domain<" in build
@@ -189,7 +191,7 @@ class TestRunsSection:
         """Version is a column here, as on the Knowledge Graph page — a
         dropdown would be meaningless while All domains is selected."""
         html = _html(client, "/settings")
-        section = html[html.index('id="runs-section"'):]
+        section = html[html.index('id="runs-section"') :]
         assert "VersionFilter" not in section
 
 
@@ -199,12 +201,12 @@ class TestDomainFilter:
         assert _find(_tags(html), id_="settingsRunsDomain") is not None
 
     def test_all_domains_is_the_first_option_and_submits_empty(self, client):
-        """"All domains" has to bind to no folder at all, so its value must be
+        """ "All domains" has to bind to no folder at all, so its value must be
         empty rather than a sentinel string the backend would treat as a
         domain name."""
         html = _html(client, "/settings")
-        select = html[html.index('id="settingsRunsDomain"'):]
-        first_option = select[select.index("<option"): select.index("</select>")]
+        select = html[html.index('id="settingsRunsDomain"') :]
+        first_option = select[select.index("<option") : select.index("</select>")]
         assert 'value=""' in first_option
         assert "All domains" in first_option
 
@@ -228,7 +230,7 @@ class TestPagination:
         whose page size can then only be changed by reloading — and on a tab
         that always fits one page, never at all."""
         html = _html(client, "/settings")
-        section = html[html.index('id="runs-section"'):]
+        section = html[html.index('id="runs-section"') :]
 
         rows_select = section.index(f'id="{prefix}PageSize"')
         controls = section.index(f'id="{prefix}PagingControls"')
@@ -285,7 +287,7 @@ class TestPagination:
         invite a click that pages nothing, and renderPagination() — which
         normally owns the footer's final state — never runs on this path."""
         body = _load_tab_body()
-        slice_ = body[body.index(branch):]
+        slice_ = body[body.index(branch) :]
         if branch == "if (!data.success)":
             slice_ = slice_[: slice_.index("catch (err)")]
 
@@ -294,7 +296,7 @@ class TestPagination:
     @pytest.mark.parametrize("prefix", ["srBuild", "srAnalytics"])
     def test_page_size_offers_25_50_100(self, client, prefix):
         html = _html(client, "/settings")
-        select = html[html.index(f'id="{prefix}PageSize"'):]
+        select = html[html.index(f'id="{prefix}PageSize"') :]
         options = select[: select.index("</select>")]
         for size in ("25", "50", "100"):
             assert f'value="{size}"' in options
@@ -413,9 +415,9 @@ class TestSharedRenderer:
     def test_the_shared_module_is_served_on_all_three_pages(self, client):
         for path in ("/settings", "/dtwin/", "/domain"):
             html = _html(client, path)
-            assert any("runs-render.js" in src for src in _script_srcs(html)), (
-                f"runs-render.js missing from {path}"
-            )
+            assert any(
+                "runs-render.js" in src for src in _script_srcs(html)
+            ), f"runs-render.js missing from {path}"
 
 
 class TestSettingsRunsScript:

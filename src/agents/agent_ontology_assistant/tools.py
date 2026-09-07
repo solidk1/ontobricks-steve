@@ -689,9 +689,18 @@ _SET_INHERITANCE_DEF = {
 # Pitfalls that do not require ML (sentence-transformers) — fast and safe to
 # run inside the agent loop after every mutation.
 _NON_ML_PATTERNS = [
-    "P1.1", "P1.2", "P1.3",
-    "P2.1", "P2.2", "P2.3", "P2.4", "P2.5", "P2.6",
-    "P3.1", "P3.2", "P3.3",
+    "P1.1",
+    "P1.2",
+    "P1.3",
+    "P2.1",
+    "P2.2",
+    "P2.3",
+    "P2.4",
+    "P2.5",
+    "P2.6",
+    "P3.1",
+    "P3.2",
+    "P3.3",
     "P4.1",
 ]
 
@@ -736,18 +745,22 @@ def tool_check_pitfalls(ctx: ToolContext, *, patterns: list = None, **_kwargs) -
                 }
                 total += count
 
-        return json.dumps({
-            "total_issues": total,
-            "checked_patterns": patterns,
-            "issues": issues,
-            "status": "clean" if total == 0 else "issues_found",
-        })
+        return json.dumps(
+            {
+                "total_issues": total,
+                "checked_patterns": patterns,
+                "issues": issues,
+                "status": "clean" if total == 0 else "issues_found",
+            }
+        )
 
     except ImportError as exc:
-        return json.dumps({
-            "error": f"Pitfall detection dependencies not installed: {exc}",
-            "hint": "Install with: pip install .[pitfalls]",
-        })
+        return json.dumps(
+            {
+                "error": f"Pitfall detection dependencies not installed: {exc}",
+                "hint": "Install with: pip install .[pitfalls]",
+            }
+        )
     except Exception as exc:
         logger.exception("tool_check_pitfalls failed: %s", exc)
         return json.dumps({"error": f"Pitfall check failed: {exc}"})

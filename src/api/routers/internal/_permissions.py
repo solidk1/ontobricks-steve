@@ -35,10 +35,7 @@ def filter_visible_domains(
     if not user_role or user_role == ROLE_ADMIN:
         return list(entries)
 
-    email = (
-        getattr(request.state, "user_email", "")
-        or _identity(request).email
-    )
+    email = getattr(request.state, "user_email", "") or _identity(request).email
     if not email:
         return list(entries)
 

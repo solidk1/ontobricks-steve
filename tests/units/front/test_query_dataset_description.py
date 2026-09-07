@@ -31,7 +31,9 @@ def test_sigmagraph_details_renders_dataset_section_with_preview():
     assert "bi bi-table" in js
     assert "Preview rows" in js
     assert "openDatasetPreviewModal" in js
-    assert "entityMapping.dataset" in js or "entityMapping && entityMapping.dataset" in js
+    assert (
+        "entityMapping.dataset" in js or "entityMapping && entityMapping.dataset" in js
+    )
 
 
 def test_sigmagraph_context_menu_has_dataset_preview():

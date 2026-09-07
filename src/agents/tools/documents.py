@@ -55,7 +55,9 @@ def _extract_binary_document(ctx: ToolContext, file_path: str) -> Optional[str]:
     the caller falls back. Parsed text is cached on the context per agent run.
     """
     if not getattr(ctx, "warehouse_id", ""):
-        logger.info("read_document: no SQL warehouse configured — skipping binary parse")
+        logger.info(
+            "read_document: no SQL warehouse configured — skipping binary parse"
+        )
         return None
 
     cache = getattr(ctx, _DOC_PARSE_CACHE_ATTR, None)
@@ -129,7 +131,9 @@ def _doc_payload(filename: str, content: str, parsed_with: Optional[str] = None)
             _MAX_DOC_CHARS,
             _MAX_DOC_CHARS,
         )
-        content = content[:_MAX_DOC_CHARS] + f"\n\n[…truncated, {original_len} total chars]"
+        content = (
+            content[:_MAX_DOC_CHARS] + f"\n\n[…truncated, {original_len} total chars]"
+        )
     logger.info(
         "tool_read_document: '%s' read OK — %d chars, truncated=%s%s",
         filename,

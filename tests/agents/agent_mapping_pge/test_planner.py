@@ -2,7 +2,7 @@
 
 The Planner is a tool-calling ReAct loop terminated by ``submit_source_model``.
 These tests exercise the loop's control flow with a *fake LLM* — a stub that
-replaces ``call_serving_endpoint`` at module level and returns canned tool-
+replaces ``call_chat_completion`` at module level and returns canned tool-
 call responses on a per-call basis.
 
 No real HTTP, no real Databricks, no MLflow tracing. The tracing decorator
@@ -37,6 +37,7 @@ from agents.agent_mapping_pge.planner import (
     PlannerStep,
     run_planner,
 )
+from tests.fixtures.llm import llm_target
 
 
 # =====================================================
@@ -73,7 +74,7 @@ def _llm_response(
 
 
 class FakeLLM:
-    """A stub for ``call_serving_endpoint`` that returns canned responses.
+    """A stub for ``call_chat_completion`` that returns canned responses.
 
     The list is consumed front-to-back, one response per call. If a test
     exhausts the list, the stub raises — that's almost always a test bug
@@ -117,8 +118,8 @@ def no_sleep(monkeypatch):
 
 
 def _patch_llm(monkeypatch, fake: Callable[..., dict]) -> None:
-    """Replace the planner's reference to ``call_serving_endpoint``."""
-    monkeypatch.setattr(planner_mod, "call_serving_endpoint", fake)
+    """Replace the planner's reference to ``call_chat_completion``."""
+    monkeypatch.setattr(planner_mod, "call_chat_completion", fake)
 
 
 # =====================================================
@@ -202,7 +203,7 @@ def test_planner_terminates_on_submit_source_model(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,  # not used in this scenario
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),
@@ -266,7 +267,7 @@ def test_planner_multi_step_then_submit(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),
@@ -339,7 +340,7 @@ def test_planner_invalid_source_model_does_not_terminate(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),
@@ -378,7 +379,7 @@ def test_planner_text_without_terminal_fails(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),
@@ -413,7 +414,7 @@ def test_planner_exhausts_iteration_budget(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),
@@ -457,7 +458,7 @@ def test_planner_records_steps(monkeypatch, no_sleep):
     result = run_planner(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         metadata=_minimal_metadata(),
         ontology=_minimal_ontology(),

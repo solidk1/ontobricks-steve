@@ -150,7 +150,11 @@ def _run_query(
 
 
 def tool_sample_table(
-    ctx: ToolContext, *, full_name: str = "", n: Any = _SAMPLE_TABLE_DEFAULT_N, **_kwargs
+    ctx: ToolContext,
+    *,
+    full_name: str = "",
+    n: Any = _SAMPLE_TABLE_DEFAULT_N,
+    **_kwargs,
 ) -> str:
     """Return N random sample rows from ``full_name`` so the agent can see
     real values (not just column types). ``n`` is capped at 100.
@@ -263,9 +267,7 @@ def tool_column_value_overlap(
     if err is not None:
         return json.dumps({"success": False, "error": err})
     if not rows:
-        return json.dumps(
-            {"success": False, "error": "overlap query returned no rows"}
-        )
+        return json.dumps({"success": False, "error": "overlap query returned no rows"})
 
     row = rows[0]
     from_distinct = int(row.get("from_distinct_count", 0) or 0)
@@ -371,9 +373,7 @@ def tool_normalized_value_overlap(
     if err is not None:
         return json.dumps({"success": False, "error": err})
     if not rows:
-        return json.dumps(
-            {"success": False, "error": "overlap query returned no rows"}
-        )
+        return json.dumps({"success": False, "error": "overlap query returned no rows"})
 
     row = rows[0]
     from_distinct = int(row.get("from_distinct_count", 0) or 0)
@@ -488,9 +488,7 @@ def tool_submit_source_model(
 
     logger.info("tool_submit_source_model: validating candidate model")
     if model is None or not isinstance(model, dict):
-        return json.dumps(
-            {"success": False, "error": "model must be a JSON object"}
-        )
+        return json.dumps({"success": False, "error": "model must be a JSON object"})
 
     try:
         source_model = SourceModel.from_dict(model)

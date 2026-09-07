@@ -1,7 +1,7 @@
 """Engine-level tests for ``agents.agent_cohort.engine`` (Stage 2).
 
 We don't talk to a real LLM serving endpoint -- instead we patch
-``call_serving_endpoint`` to return a scripted sequence of responses
+``call_chat_completion`` to return a scripted sequence of responses
 that drive the agent through:
 
   user prompt
@@ -25,7 +25,7 @@ import pytest
 
 from agents.agent_cohort import engine as cohort_engine
 from agents.agent_cohort import tools as cohort_tools
-
+from tests.fixtures.llm import llm_target
 
 _ONT_PAYLOAD = {
     "success": True,
@@ -159,12 +159,12 @@ def patch_client(monkeypatch):
 
 class TestRunAgent:
     def test_full_round_trip_returns_validated_rule(self, patch_client):
-        with patch.object(cohort_engine, "call_serving_endpoint") as mock_llm:
+        with patch.object(cohort_engine, "call_chat_completion") as mock_llm:
             mock_llm.side_effect = _llm_responses()
             result = cohort_engine.run_agent(
                 host="https://test.databricks.com",
                 token="tok",
-                endpoint_name="dbx-llm",
+                target=llm_target("dbx-llm"),
                 base_url="http://loopback.invalid",
                 domain_name="consulting_demo",
                 registry_params={
@@ -186,7 +186,10 @@ class TestRunAgent:
 
         tool_call_steps = [s for s in result.steps if s.step_type == "tool_call"]
         tool_result_steps = [s for s in result.steps if s.step_type == "tool_result"]
-        assert {s.tool_name for s in tool_call_steps} == {"list_classes", "propose_rule"}
+        assert {s.tool_name for s in tool_call_steps} == {
+            "list_classes",
+            "propose_rule",
+        }
         assert len(tool_result_steps) == 2
 
         # Token usage is summed across iterations.
@@ -229,12 +232,12 @@ class TestRunAgent:
             },
         ]
 
-        with patch.object(cohort_engine, "call_serving_endpoint") as mock_llm:
+        with patch.object(cohort_engine, "call_chat_completion") as mock_llm:
             mock_llm.side_effect = responses
             result = cohort_engine.run_agent(
                 host="https://test.databricks.com",
                 token="tok",
-                endpoint_name="dbx-llm",
+                target=llm_target("dbx-llm"),
                 base_url="http://loopback.invalid",
                 domain_name="consulting_demo",
                 registry_params={},
@@ -248,12 +251,12 @@ class TestRunAgent:
 
     def test_llm_failure_is_reported(self):
         with patch.object(
-            cohort_engine, "call_serving_endpoint", side_effect=RuntimeError("boom")
+            cohort_engine, "call_chat_completion", side_effect=RuntimeError("boom")
         ):
             result = cohort_engine.run_agent(
                 host="https://test.databricks.com",
                 token="tok",
-                endpoint_name="dbx-llm",
+                target=llm_target("dbx-llm"),
                 base_url="http://loopback.invalid",
                 domain_name="consulting_demo",
                 registry_params={},

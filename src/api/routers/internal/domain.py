@@ -468,9 +468,7 @@ async def save_domain_to_uc(
     actor_email = getattr(request.state, "user_email", "") or request.headers.get(
         "x-forwarded-email", ""
     )
-    return p.save_domain_to_uc(
-        p.build_registry_service(), actor_email=actor_email
-    )
+    return p.save_domain_to_uc(p.build_registry_service(), actor_email=actor_email)
 
 
 @router.post("/load-from-uc")
@@ -516,9 +514,7 @@ async def load_domain_from_uc(
 
     p = Domain(domain, settings)
     try:
-        result = p.load_domain_from_uc(
-            p.build_registry_service(), domain_name, version
-        )
+        result = p.load_domain_from_uc(p.build_registry_service(), domain_name, version)
     except Exception:
         # Load raised after we freed the previous lock — restore it so a failed
         # switch does not orphan the user's lock on the domain they came from.
@@ -592,7 +588,9 @@ async def list_build_runs(
     """List build runs recorded for the loaded domain (newest-first)."""
     domain = get_domain(session_mgr)
     p = Domain(domain, settings)
-    return p.list_build_runs_result(p.build_registry_service(), version=version, limit=limit)
+    return p.list_build_runs_result(
+        p.build_registry_service(), version=version, limit=limit
+    )
 
 
 @router.get("/audit-trail")
@@ -654,9 +652,7 @@ async def set_version_status(
     ):
         from back.objects.registry.lockmgt import EditLockService
 
-        EditLockService.force_release(
-            session_mgr, settings, domain_name, version
-        )
+        EditLockService.force_release(session_mgr, settings, domain_name, version)
     return result
 
 
@@ -696,9 +692,7 @@ async def acquire_edit_lock(
     except Exception:  # noqa: BLE001
         data = {}
     force = bool(data.get("force"))
-    return EditLockService.acquire(
-        request, session_mgr, settings, force=force
-    )
+    return EditLockService.acquire(request, session_mgr, settings, force=force)
 
 
 @router.post("/edit-lock/release")

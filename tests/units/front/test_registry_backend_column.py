@@ -14,7 +14,9 @@ def test_registry_browse_has_backend_column_after_uri():
     source = _source()
     start = source.index("async function loadRegistryDomains")
     # Next top-level async function after the domain list renderer.
-    end = source.index("async function ", start + len("async function loadRegistryDomains"))
+    end = source.index(
+        "async function ", start + len("async function loadRegistryDomains")
+    )
     body = source[start:end]
 
     uri_idx = body.index(">URI</th>")
@@ -22,7 +24,7 @@ def test_registry_browse_has_backend_column_after_uri():
     desc_idx = body.index(">Description</th>")
     assert uri_idx < backend_idx < desc_idx
     assert "d.graph_backend" in body
-    assert "colspan=\"6\"" in body
+    assert 'colspan="6"' in body
     assert "Lakebase" in body
     assert "Lakehouse" in body
     assert "Neo4j" in body

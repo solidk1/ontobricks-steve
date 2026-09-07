@@ -71,7 +71,9 @@ def _run_checks(dimensions, rules, shapes=None, config=None):
         _HARNESS.replace("__SOURCE__", json.dumps(str(DQ_EXEC_JS)))
         .replace("__DIMENSIONS__", json.dumps(dimensions))
         .replace("__RULES__", json.dumps(rules))
-        .replace("__SHAPES__", json.dumps(shapes if shapes is not None else [{"id": "s1"}]))
+        .replace(
+            "__SHAPES__", json.dumps(shapes if shapes is not None else [{"id": "s1"}])
+        )
         .replace(
             "__CONFIG__",
             json.dumps(

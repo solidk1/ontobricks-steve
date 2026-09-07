@@ -5,9 +5,11 @@ import pytest
 from unittest.mock import patch, MagicMock
 from dataclasses import asdict
 
+from shared.config.LLMTarget import LLMTarget
+
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     extract_message_content,
     accumulate_usage,
@@ -24,7 +26,10 @@ class TestAgentStep:
 
     def test_tool_call_step(self):
         step = AgentStep(
-            step_type="tool_call", content="result", tool_name="get_ontology", duration_ms=42
+            step_type="tool_call",
+            content="result",
+            tool_name="get_ontology",
+            duration_ms=42,
         )
         assert step.tool_name == "get_ontology"
         assert step.duration_ms == 42
@@ -32,28 +37,44 @@ class TestAgentStep:
     def test_is_dataclass(self):
         step = AgentStep(step_type="output", content="x")
         d = asdict(step)
-        assert d == {"step_type": "output", "content": "x", "tool_name": "", "duration_ms": 0}
+        assert d == {
+            "step_type": "output",
+            "content": "x",
+            "tool_name": "",
+            "duration_ms": 0,
+        }
 
 
-class TestCallServingEndpoint:
+TARGET = LLMTarget(base_url="https://llm.example/v1", api_key="tok", model="m1")
+
+
+class TestCallChatCompletion:
     @patch("agents.engine_base.call_llm_with_retry")
-    def test_builds_url_and_calls(self, mock_retry):
+    def test_posts_to_the_targets_completions_url(self, mock_retry):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"choices": [{"message": {"content": "hi"}}]}
         mock_retry.return_value = mock_resp
 
-        result = call_serving_endpoint(
-            "https://host.databricks.com",
-            "tok",
-            "my-endpoint",
-            [{"role": "user", "content": "hello"}],
-        )
+        result = call_chat_completion(TARGET, [{"role": "user", "content": "hello"}])
 
         mock_retry.assert_called_once()
         call_args = mock_retry.call_args
-        assert "my-endpoint/invocations" in call_args[0][0]
+        assert call_args[0][0] == "https://llm.example/v1/chat/completions"
         assert call_args[0][1]["Authorization"] == "Bearer tok"
         assert result == {"choices": [{"message": {"content": "hi"}}]}
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_payload_always_names_the_model(self, mock_retry):
+        mock_retry.return_value = MagicMock(json=lambda: {})
+        call_chat_completion(TARGET, [])
+        assert mock_retry.call_args[0][2]["model"] == "m1"
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_omits_authorization_for_a_keyless_provider(self, mock_retry):
+        mock_retry.return_value = MagicMock(json=lambda: {})
+        keyless = LLMTarget(base_url="http://localhost:11434/v1", api_key="", model="m")
+        call_chat_completion(keyless, [])
+        assert "Authorization" not in mock_retry.call_args[0][1]
 
     @patch("agents.engine_base.call_llm_with_retry")
     def test_includes_tools_when_provided(self, mock_retry):
@@ -62,13 +83,7 @@ class TestCallServingEndpoint:
         mock_retry.return_value = mock_resp
 
         tools = [{"type": "function", "function": {"name": "get_data"}}]
-        call_serving_endpoint(
-            "https://host.databricks.com/",
-            "tok",
-            "ep",
-            [],
-            tools=tools,
-        )
+        call_chat_completion(TARGET, [], tools=tools)
 
         payload = mock_retry.call_args[0][2]
         assert payload["tools"] == tools
@@ -79,19 +94,19 @@ class TestCallServingEndpoint:
         mock_resp.json.return_value = {}
         mock_retry.return_value = mock_resp
 
-        call_serving_endpoint("https://h", "t", "ep", [])
+        call_chat_completion(TARGET, [])
         payload = mock_retry.call_args[0][2]
         assert "tools" not in payload
 
     @patch("agents.engine_base.call_llm_with_retry")
-    def test_strips_trailing_slash(self, mock_retry):
+    def test_never_doubles_a_slash_in_the_url(self, mock_retry):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {}
         mock_retry.return_value = mock_resp
 
-        call_serving_endpoint("https://host.com/", "t", "ep", [])
+        call_chat_completion(TARGET, [])
         url = mock_retry.call_args[0][0]
-        assert "//serving" not in url
+        assert "//chat" not in url
 
 
 class TestDispatchTool:

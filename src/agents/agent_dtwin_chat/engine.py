@@ -5,7 +5,7 @@ Runs one turn of a multi-tool conversation: the LLM can iteratively call
 the knowledge-graph tools defined in :mod:`agents.agent_dtwin_chat.tools`
 until it produces a final natural-language answer.
 
-The engine shares the ``call_serving_endpoint`` / ``dispatch_tool`` /
+The engine shares the ``call_chat_completion`` / ``dispatch_tool`` /
 ``accumulate_usage`` helpers defined in :mod:`agents.engine_base`, so it
 behaves identically to the Ontology Assistant (same retry logic,
 tracing, OpenAI-compatible schema).
@@ -21,10 +21,11 @@ from typing import Callable, Dict, List, Optional
 from back.core.logging import get_logger
 from agents.agent_dtwin_chat.tools import TOOL_DEFINITIONS, TOOL_HANDLERS
 from agents.tools.context import ToolContext
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
     accumulate_usage,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
 )
 from agents.tracing import trace_agent
@@ -187,7 +188,7 @@ LINKS TO THE KNOWLEDGE GRAPH (VERY IMPORTANT)
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     base_url: str,
     domain_name: str,
     registry_params: dict,
@@ -202,7 +203,8 @@ def run_agent(
     """Run one turn of the Graph Chat agent.
 
     Args:
-        host, token, endpoint_name: Databricks serving-endpoint target
+        host, token: Databricks credentials, used by the document tools.
+        target: Resolved OpenAI-compatible LLM endpoint.
             used to issue LLM chat completions.
         base_url: Loopback OntoBricks URL, e.g. ``http://localhost:8000``.
         domain_name: Currently selected domain (from session).
@@ -222,8 +224,8 @@ def run_agent(
         on_step: Optional progress callback (unused but kept for parity).
     """
     logger.info(
-        "===== DTWIN CHAT START ===== endpoint=%s, domain=%s, base_url=%s",
-        endpoint_name,
+        "===== DTWIN CHAT START ===== llm=%s, domain=%s, base_url=%s",
+        target.describe(),
         domain_name,
         base_url,
     )
@@ -267,10 +269,8 @@ def run_agent(
             on_step(f"Iteration {iteration + 1}...")
 
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=2048,
@@ -280,9 +280,7 @@ def run_agent(
             )
         except Exception as exc:
             error_msg = f"LLM request failed: {exc}"
-            logger.error(
-                "dtwin_chat: %s at iteration %d", error_msg, iteration + 1
-            )
+            logger.error("dtwin_chat: %s at iteration %d", error_msg, iteration + 1)
             result.error = error_msg
             return _finalize_result(result, ctx)
 
@@ -312,9 +310,7 @@ def run_agent(
 
                 try:
                     arguments = (
-                        json.loads(raw_args)
-                        if isinstance(raw_args, str)
-                        else raw_args
+                        json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     )
                 except json.JSONDecodeError:
                     arguments = {}

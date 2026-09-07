@@ -72,9 +72,7 @@ _GET_ONTOLOGY_DESIGN_DEF = {
     },
 }
 
-TOOL_DEFINITIONS: List[dict] = [
-    _GET_ONTOLOGY_DESIGN_DEF
-] + DOCUMENT_TOOL_DEFINITIONS
+TOOL_DEFINITIONS: List[dict] = [_GET_ONTOLOGY_DESIGN_DEF] + DOCUMENT_TOOL_DEFINITIONS
 
 TOOL_HANDLERS: Dict[str, Callable] = {
     "get_ontology_design": tool_get_ontology_design,

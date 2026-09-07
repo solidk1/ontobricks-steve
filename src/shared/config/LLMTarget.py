@@ -1,27 +1,33 @@
-"""Resolution of the LLM endpoint an agent should call.
+"""The LLM endpoint OntoBricks calls.
 
-Every OntoBricks agent reached its model through one hardcoded line::
+One provider shape, one credential, one URL::
 
-    url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
+    POST {ONTOBRICKS_LLM_BASE_URL}/chat/completions
+    Authorization: Bearer {ONTOBRICKS_LLM_API_KEY}
+    {"model": "{ONTOBRICKS_LLM_MODEL}", "messages": [...], ...}
 
-That shape is Databricks-only, and it was the last hard Databricks dependency in
-the agent layer.  Databricks serving endpoints already speak the OpenAI
-chat-completions request and response shape, so only two things actually differ
-between providers: the URL, and whether the model name travels in the body.
+That is the whole contract. Any OpenAI-compatible provider works — OpenAI, Azure
+OpenAI, vLLM, Ollama, LiteLLM, a Bedrock gateway — and **Databricks is one of
+them, not a special case**: Foundation Model APIs serve the OpenAI shape at
+``{workspace}/serving-endpoints``, which is the documented ``base_url`` for the
+OpenAI SDK, with the serving-endpoint name as the model.
 
-:class:`LLMTarget` owns both differences and nothing else.  It is pure
-configuration resolution — no I/O, no retries, no tracing — so the transport in
-``agents/engine_base.py`` keeps its single responsibility of posting a payload.
+**Nothing is inferred and nothing falls back.** An earlier revision of this file
+resolved either an external provider *or* a Databricks preset at
+``{host}/serving-endpoints/{model}/invocations``, choosing between them by
+whichever happened to be configured. That meant two URL shapes, two credential
+sources, and a provider selected as a side effect of unrelated settings — so a
+workspace configured for Unity Catalog reads silently became the model provider,
+and a typo'd base URL silently changed which model answered. Absent
+configuration is now an error that names the variable to set.
 
-**Provenance decides the style, not the hostname.**  Sniffing for
-``*.databricks.com`` would break on custom DNS, private workspaces and
-proxies, and would silently pick the wrong credential.  Instead: if
-``ONTOBRICKS_LLM_BASE_URL`` is set, the caller wants an OpenAI-compatible
-provider; otherwise the caller's ``(host, token, endpoint_name)`` triple is a
-Databricks workspace.  There is no third knob to get wrong.
+The one layering that remains is deliberate and not a fallback:
+``ONTOBRICKS_LLM_MODEL`` is the declared default, and a domain may select a
+different model from ``ONTOBRICKS_LLM_MODELS``. Both are explicit operator
+choices; neither invents a provider or a credential.
 
-See ``.planning/agents/engine_base/SPEC.md`` for the contract this implements
-and ``tests/eval/datasets/engine_base/`` for the cases that pin it down.
+See ``.planning/agents/engine_base/SPEC.md`` for the contract and
+``tests/eval/datasets/engine_base/`` for the cases that pin it down.
 """
 
 from __future__ import annotations
@@ -34,11 +40,6 @@ from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Databricks Foundation Model API — ``{host}/serving-endpoints/{model}/invocations``.
-STYLE_DATABRICKS = "databricks"
-#: Any OpenAI-compatible provider — ``{base_url}/chat/completions``.
-STYLE_OPENAI = "openai"
-
 ENV_BASE_URL = "ONTOBRICKS_LLM_BASE_URL"
 ENV_API_KEY = "ONTOBRICKS_LLM_API_KEY"
 ENV_MODEL = "ONTOBRICKS_LLM_MODEL"
@@ -48,22 +49,17 @@ _CHAT_PATH = "/chat/completions"
 
 
 def _env(name: str) -> str:
-    """Read *name*, treating whitespace-only as unset.
-
-    A blank override must not silently switch providers: an empty
-    ``ONTOBRICKS_LLM_BASE_URL`` in a container manifest is a mistake, not a
-    request to leave Databricks.
-    """
+    """Read *name*, treating whitespace-only as unset."""
     return (os.getenv(name) or "").strip()
 
 
 def _normalise_base(raw: str) -> str:
-    """Strip whitespace, trailing slashes, and a trailing ``/chat/completions``.
+    """Strip trailing slashes and a trailing ``/chat/completions``.
 
-    Users paste the endpoint they were given, which is usually the full
-    completions URL. Appending the path again yields
-    ``…/v1/chat/completions/chat/completions`` and a 404 that reads as if the
-    provider were at fault.
+    Input normalisation, not a fallback: operators paste the endpoint they were
+    handed, which is usually the full completions URL. Appending the path again
+    gives ``…/v1/chat/completions/chat/completions`` and a 404 that reads as if
+    the provider were broken.
     """
     base = raw.strip().rstrip("/")
     if base.lower().endswith(_CHAT_PATH):
@@ -73,136 +69,85 @@ def _normalise_base(raw: str) -> str:
 
 @dataclass(frozen=True)
 class LLMTarget:
-    """Where to POST a chat completion, and in which dialect.
-
-    For :data:`STYLE_DATABRICKS`, ``base_url`` is the workspace host and
-    ``model`` is the serving-endpoint name — the endpoint name occupies the
-    model slot because that is exactly what it is on the Foundation Model API.
-    """
+    """A resolved OpenAI-compatible chat-completions endpoint."""
 
     base_url: str
     api_key: str
     model: str
-    api_style: str
 
     # ---------------------------------------------------------------- request
 
     def completions_url(self) -> str:
-        """The full URL to POST to."""
-        if self.api_style == STYLE_DATABRICKS:
-            return f"{self.base_url}/serving-endpoints/{self.model}/invocations"
+        """The URL to POST to. There is only one."""
         return f"{self.base_url}{_CHAT_PATH}"
 
     def headers(self) -> dict[str, str]:
         """Request headers, omitting ``Authorization`` when there is no key.
 
-        Unauthenticated local providers (Ollama, a bare vLLM server) reject a
-        ``Bearer`` header with no token, and ``Bearer `` against Databricks
-        returns a 403 that gives no hint the token was simply absent.
+        A self-hosted provider (Ollama, a bare vLLM) rejects a ``Bearer`` header
+        carrying nothing, and against a key-checking provider ``Bearer `` returns
+        a 401 that gives no hint the credential was simply absent. Sending no
+        header is the correct request for a keyless endpoint.
         """
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    def payload_extras(self) -> dict[str, str]:
-        """Body fields the dialect requires beyond ``messages``.
-
-        The Databricks invocations URL names the endpoint, so ``model`` is
-        redundant there; an OpenAI-compatible POST without it is a 400.
-        """
-        if self.api_style == STYLE_OPENAI:
-            return {"model": self.model}
-        return {}
-
     def describe(self) -> str:
         """A log-safe identification of this target. Never includes the key."""
-        return f"{self.api_style}:{self.base_url} model={self.model}"
+        return f"{self.base_url} model={self.model}"
 
     # --------------------------------------------------------------- factories
 
     @staticmethod
-    def external_configured() -> bool:
-        """True when an OpenAI-compatible provider is configured explicitly."""
+    def is_configured() -> bool:
+        """True when a provider is configured. Nothing else implies one."""
         return bool(_env(ENV_BASE_URL))
 
-    @classmethod
-    def from_env(cls, model_hint: str = "") -> LLMTarget | None:
-        """Build an external target from the environment, or ``None`` if unset.
-
-        *model_hint* is the caller's ``endpoint_name``.  Using it as the model
-        when :data:`ENV_MODEL` is unset keeps the existing Domain Settings LLM
-        dropdown meaningful on an external deployment — it becomes a model
-        picker instead of a serving-endpoint picker.
-        """
-        base = _env(ENV_BASE_URL)
-        if not base:
-            return None
-        model = _env(ENV_MODEL) or (model_hint or "").strip()
-        if not model:
-            raise ValidationError(
-                f"No LLM model configured. Set {ENV_MODEL}, or select one in "
-                "Domain Settings."
-            )
-        return cls(
-            base_url=_normalise_base(base),
-            api_key=_env(ENV_API_KEY),
-            model=model,
-            api_style=STYLE_OPENAI,
-        )
-
-    @classmethod
-    def for_databricks(cls, host: str, token: str, endpoint_name: str) -> LLMTarget:
-        """Build the Databricks Foundation Model API preset."""
-        clean_host = (host or "").strip().rstrip("/")
-        if not clean_host:
-            raise ValidationError(
-                "Databricks credentials not configured, and no " f"{ENV_BASE_URL} set."
-            )
-        endpoint = (endpoint_name or "").strip()
-        if not endpoint:
-            raise ValidationError(
-                "No LLM serving endpoint configured. Please set it in Domain "
-                "Settings."
-            )
-        return cls(
-            base_url=clean_host,
-            api_key=(token or "").strip(),
-            model=endpoint,
-            api_style=STYLE_DATABRICKS,
-        )
-
-    @classmethod
-    def resolve(
-        cls, host: str = "", token: str = "", endpoint_name: str = ""
-    ) -> LLMTarget:
-        """Pick a target: an explicit external provider wins over Databricks.
-
-        Databricks may still be fully configured for Unity Catalog reads and
-        the Delta engine while the LLM lives elsewhere, so the presence of a
-        workspace host must not drag the model call back onto the workspace.
-        """
-        external = cls.from_env(model_hint=endpoint_name)
-        if external is not None:
-            logger.debug("LLM target resolved to %s", external.describe())
-            return external
-        target = cls.for_databricks(host, token, endpoint_name)
-        logger.debug("LLM target resolved to %s", target.describe())
-        return target
-
-    # ------------------------------------------------------------------- UI
-
     @staticmethod
-    def picker_models() -> list[str]:
-        """Models to offer in the Domain Settings dropdown on an external setup.
+    def models() -> list[str]:
+        """Models an operator has declared, for the Domain Settings picker.
 
-        Returns ``[]`` on a Databricks deployment, where the dropdown is
-        populated from the workspace's serving-endpoints API instead.
+        ``ONTOBRICKS_LLM_MODELS`` if given, else the single default. Most
+        OpenAI-compatible providers have no listing endpoint worth querying, so
+        the set of offered models is declared rather than discovered.
         """
-        if not LLMTarget.external_configured():
-            return []
         listed = [m.strip() for m in _env(ENV_MODELS).split(",") if m.strip()]
         if listed:
             return listed
         single = _env(ENV_MODEL)
         return [single] if single else []
+
+    @classmethod
+    def from_env(cls, model: str = "") -> LLMTarget:
+        """Build the target, raising when it is not fully configured.
+
+        Args:
+            model: The domain's selected model. Empty means "use the declared
+                default", :data:`ENV_MODEL`.
+
+        Raises:
+            ValidationError: naming the variable that is missing. No provider,
+                credential or model is ever derived from anything else.
+        """
+        base = _env(ENV_BASE_URL)
+        if not base:
+            raise ValidationError(
+                f"No LLM provider configured. Set {ENV_BASE_URL} to an "
+                "OpenAI-compatible base URL (for Databricks Foundation Model "
+                "APIs that is https://<workspace>/serving-endpoints)."
+            )
+        chosen = (model or "").strip() or _env(ENV_MODEL)
+        if not chosen:
+            raise ValidationError(
+                f"No LLM model configured. Set {ENV_MODEL}, or select one in "
+                "Domain Settings."
+            )
+        target = cls(
+            base_url=_normalise_base(base),
+            api_key=_env(ENV_API_KEY),
+            model=chosen,
+        )
+        logger.debug("LLM target: %s", target.describe())
+        return target

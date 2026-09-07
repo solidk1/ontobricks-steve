@@ -3,9 +3,7 @@
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SHARED_PANELS_JS = (
-    REPO_ROOT / "src/front/static/ontology/js/ontology-shared-panels.js"
-)
+SHARED_PANELS_JS = REPO_ROOT / "src/front/static/ontology/js/ontology-shared-panels.js"
 
 
 def _source() -> str:
@@ -47,5 +45,7 @@ def test_description_has_right_aligned_uc_metadata_button():
     start = source.index("function loadDatasetDescriptionFromDataSource")
     body = source[start : start + 2200]
     assert "match.comment || match.description" in body
-    assert "onDatasetDescriptionChange" in body or "sharedPanelDataset.description" in body
+    assert (
+        "onDatasetDescriptionChange" in body or "sharedPanelDataset.description" in body
+    )
     assert "Data Sources" in body

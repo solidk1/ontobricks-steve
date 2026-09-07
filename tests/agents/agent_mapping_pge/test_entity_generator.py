@@ -2,7 +2,7 @@
 
 The Generator is a narrow tool-calling ReAct loop terminated by
 ``submit_entity_mapping``. These tests exercise the loop's control flow with
-a *fake LLM* — a stub that replaces ``call_serving_endpoint`` at module
+a *fake LLM* — a stub that replaces ``call_chat_completion`` at module
 level and returns canned tool-call responses on a per-call basis.
 
 No real HTTP, no real Databricks, no MLflow tracing.
@@ -29,6 +29,7 @@ from agents.agent_mapping_pge.generators.entity import (
     EntityGenStep,
     run_entity_generator,
 )
+from tests.fixtures.llm import llm_target
 
 
 # =====================================================
@@ -76,12 +77,12 @@ class FakeLLM:
 
     def __call__(self, *args, **kwargs) -> dict:
         self.calls += 1
-        # ``call_serving_endpoint(host, token, endpoint, messages, ...)`` —
-        # the messages list is positional arg #3 (zero-indexed). Capture
-        # defensively in case the call site changes to kwargs.
+        # ``call_chat_completion(target, messages, ...)`` — the messages
+        # list is positional arg #1. Capture defensively in case the call
+        # site changes to kwargs.
         msgs: Optional[List[dict]] = None
-        if len(args) >= 4 and isinstance(args[3], list):
-            msgs = args[3]
+        if len(args) >= 2 and isinstance(args[1], list):
+            msgs = args[1]
         elif "messages" in kwargs:
             msgs = kwargs["messages"]
         if msgs is not None:
@@ -119,7 +120,7 @@ def no_sleep(monkeypatch):
 
 
 def _patch_llm(monkeypatch, fake: Callable[..., dict]) -> None:
-    monkeypatch.setattr(entity_mod, "call_serving_endpoint", fake)
+    monkeypatch.setattr(entity_mod, "call_chat_completion", fake)
 
 
 # =====================================================
@@ -203,7 +204,7 @@ def test_terminates_on_submit(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -271,7 +272,7 @@ def test_validates_sql_then_submits(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -318,7 +319,7 @@ def test_unmapped_attributes_round_trip(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -346,7 +347,7 @@ def test_unmapped_attributes_round_trip(monkeypatch, no_sleep):
     result2 = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -372,7 +373,7 @@ def test_text_without_terminal_fails(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -415,7 +416,7 @@ def test_exhausts_iteration_budget(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -452,7 +453,7 @@ def test_retry_hint_surfaces_in_user_prompt(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -490,7 +491,7 @@ def test_system_prompt_treats_canonical_value_as_sql_expression(monkeypatch, no_
     run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -522,7 +523,7 @@ def test_system_prompt_mandates_union_for_cross_source(monkeypatch, no_sleep):
     run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -581,7 +582,7 @@ def test_wrong_class_uri_submission_does_not_terminate(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),
@@ -642,7 +643,7 @@ def test_records_steps(monkeypatch, no_sleep):
     result = run_entity_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_class=_ontology_class(),
         source_model_slice=_source_model_slice(),

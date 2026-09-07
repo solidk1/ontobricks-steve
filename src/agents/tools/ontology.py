@@ -33,7 +33,7 @@ def tool_get_ontology(ctx: ToolContext, **_kwargs) -> str:
 
     # Build a lookup of user-excluded attributes per entity URI from existing mappings.
     excl_by_uri: dict = {}
-    for m in (ctx.entity_mappings or []):
+    for m in ctx.entity_mappings or []:
         excl = m.get("excluded_attributes") or []
         if excl:
             excl_by_uri[m.get("ontology_class", "")] = set(excl)

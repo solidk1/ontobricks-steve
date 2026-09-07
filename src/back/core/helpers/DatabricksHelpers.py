@@ -2,12 +2,14 @@ import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import Any, Callable, Dict, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
 import back.core.databricks as _databricks
-from back.core.errors import ValidationError
 from back.core.logging import get_logger
 from shared.config.constants import DEFAULT_BASE_URI
+
+if TYPE_CHECKING:
+    from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -137,7 +139,9 @@ class DatabricksHelpers:
                 if wid:
                     return wid
             except Exception as exc:
-                logger.debug("Could not read lakehouse warehouse from engine config: %s", exc)
+                logger.debug(
+                    "Could not read lakehouse warehouse from engine config: %s", exc
+                )
 
         return DatabricksHelpers.resolve_warehouse_id(domain, settings)
 
@@ -197,8 +201,10 @@ class DatabricksHelpers:
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
         registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
 
-        if not host or not registry_cfg.get("catalog") or not registry_cfg.get(
-            "schema"
+        if (
+            not host
+            or not registry_cfg.get("catalog")
+            or not registry_cfg.get("schema")
         ):
             return True
 
@@ -234,8 +240,10 @@ class DatabricksHelpers:
 
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
         registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
-        if not host or not registry_cfg.get("catalog") or not registry_cfg.get(
-            "schema"
+        if (
+            not host
+            or not registry_cfg.get("catalog")
+            or not registry_cfg.get("schema")
         ):
             return env_default
 
@@ -357,7 +365,10 @@ class DatabricksHelpers:
         """Return SQL credentials for triple-store builds (Delta-aware warehouse)."""
         from back.core.graphdb.GraphDBFactory import GraphDBFactory
 
-        if GraphDBFactory._resolve_triple_store_backend(domain, settings) == "databricks":
+        if (
+            GraphDBFactory._resolve_triple_store_backend(domain, settings)
+            == "databricks"
+        ):
             return DatabricksHelpers.get_delta_databricks_credentials(domain, settings)
         return DatabricksHelpers.get_databricks_credentials(domain, settings)
 
@@ -414,29 +425,27 @@ class DatabricksHelpers:
         return _databricks.normalize_host(host), token
 
     @staticmethod
-    def require_serving_llm(
-        domain,
-        settings,
-    ) -> Tuple[str, str, str]:
-        """Validate that an LLM is reachable, returning ``(host, token, model)``.
+    def require_serving_llm(domain, settings) -> Tuple[str, str, "LLMTarget"]:
+        """Resolve the LLM target, plus the Databricks credentials tools need.
 
-        The decision is delegated to :class:`shared.config.LLMTarget`, so a
-        route can never admit a request that the transport would then refuse.
+        Two independent concerns, returned together only because every agent
+        call site needs both:
 
-        When an external provider is configured the Databricks credentials stop
-        being a precondition — but they are still *returned*, possibly empty,
-        because agent tools use them for Unity Catalog reads independently of
-        where the model lives.
+        - ``host`` / ``token`` — the Databricks connector, used by the document
+          tools for the Files API and Unity Catalog. May be empty; a tool that
+          needs them fails with its own message.
+        - the :class:`~shared.config.LLMTarget` — where the model lives. Comes
+          from ``ONTOBRICKS_LLM_*`` and nowhere else. A configured workspace is
+          not an LLM provider.
 
-        Raises :class:`ValidationError`.
+        Raises :class:`ValidationError` naming the missing variable, rather than
+        guessing a provider from whatever happens to be configured.
         """
         from shared.config.LLMTarget import LLMTarget
 
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
-        if not LLMTarget.external_configured() and not (host and token):
-            raise ValidationError("Databricks credentials not configured")
-        endpoint = (domain.info or {}).get("llm_endpoint", "") or ""
-        return host, token, LLMTarget.resolve(host, token, endpoint).model
+        model = (domain.info or {}).get("llm_endpoint", "") or ""
+        return host, token, LLMTarget.from_env(model)
 
 
 def effective_uc_version_path(domain) -> str:

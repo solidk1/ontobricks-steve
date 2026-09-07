@@ -54,7 +54,9 @@ def tool_submit_entity_mapping(
     id_column = _strip_backticks(id_column)
     label_column = _strip_backticks(label_column)
     if attribute_mappings:
-        attribute_mappings = {k: _strip_backticks(v) for k, v in attribute_mappings.items()}
+        attribute_mappings = {
+            k: _strip_backticks(v) for k, v in attribute_mappings.items()
+        }
 
     logger.info("tool_submit_entity_mapping: '%s' (uri=%s)", class_name, class_uri)
     if not class_uri or not sql_query:
@@ -112,14 +114,18 @@ def tool_submit_entity_mapping(
 
     raw_attr_mappings = attribute_mappings or {}
     if declared_attrs:
-        filtered_mappings = {k: v for k, v in raw_attr_mappings.items() if k in declared_attrs}
+        filtered_mappings = {
+            k: v for k, v in raw_attr_mappings.items() if k in declared_attrs
+        }
     else:
         # Entity has no ontology attributes — discard anything the LLM may have invented.
         filtered_mappings = {}
 
     # Honour user-excluded attributes: remove them even if the agent tried to map them.
     if existing_excl:
-        filtered_mappings = {k: v for k, v in filtered_mappings.items() if k not in existing_excl}
+        filtered_mappings = {
+            k: v for k, v in filtered_mappings.items() if k not in existing_excl
+        }
 
     if len(filtered_mappings) < len(raw_attr_mappings):
         discarded = set(raw_attr_mappings) - set(filtered_mappings)
@@ -355,7 +361,7 @@ MAPPING_TOOL_DEFINITIONS: List[dict] = [
                         "description": (
                             "Ontology attributes you intentionally did NOT map to a column, "
                             "each with a one-sentence reason. Use this to satisfy the "
-                            'no-silent-drops invariant. Preferred shape: '
+                            "no-silent-drops invariant. Preferred shape: "
                             '[{"name": "apgarScore", "reason": "absent from source table"}]. '
                             "Bare strings are also accepted but discouraged."
                         ),

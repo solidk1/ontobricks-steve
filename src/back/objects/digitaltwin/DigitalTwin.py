@@ -25,6 +25,7 @@ from back.core.w3c.shacl.constants import (
 from back.objects.digitaltwin.constants import RDF_TYPE, RDFS_LABEL
 from back.objects.digitaltwin.models import DomainSnapshot
 from back.objects.session import get_domain
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -3090,7 +3091,7 @@ class DigitalTwin:
         payload: Dict[str, Any],
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         base_url: str = "",
         session_cookies: Optional[Dict[str, str]] = None,
         session_headers: Optional[Dict[str, str]] = None,
@@ -3112,7 +3113,7 @@ class DigitalTwin:
         result = run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             metrics_payload=payload,
             base_url=base_url,
             domain_name=domain_name,

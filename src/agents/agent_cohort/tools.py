@@ -155,11 +155,13 @@ def tool_list_classes(ctx: ToolContext, **_kwargs) -> str:
         uri = c.get("uri") or c.get("iri") or ""
         if not uri:
             continue
-        out.append({
-            "uri": uri,
-            "label": _pick_label(c),
-            "data_property_count": len(c.get("dataProperties") or []),
-        })
+        out.append(
+            {
+                "uri": uri,
+                "label": _pick_label(c),
+                "data_property_count": len(c.get("dataProperties") or []),
+            }
+        )
     return _ok({"count": len(out), "classes": out})
 
 
@@ -216,15 +218,17 @@ def tool_list_properties_of(
         if not uri or uri in seen_data:
             return
         seen_data.add(uri)
-        data_props.append({
-            "uri": uri,
-            "label": _pick_label(p),
-            "name": p.get("name") or p.get("localName") or extract_local_name(uri),
-            "datatype": p.get("range") or p.get("datatype") or "",
-            "inherited": bool(p.get("inherited")),
-            "uri_synthesised": not (p.get("uri") or p.get("iri") or p.get("id")),
-            "source": source,
-        })
+        data_props.append(
+            {
+                "uri": uri,
+                "label": _pick_label(p),
+                "name": p.get("name") or p.get("localName") or extract_local_name(uri),
+                "datatype": p.get("range") or p.get("datatype") or "",
+                "inherited": bool(p.get("inherited")),
+                "uri_synthesised": not (p.get("uri") or p.get("iri") or p.get("id")),
+                "source": source,
+            }
+        )
 
     for p in cls.get("dataProperties") or []:
         _push_data(p, source="class")
@@ -270,14 +274,16 @@ def tool_list_properties_of(
         for entry in object_props:
             entry["domain_unknown"] = True
 
-    return _ok({
-        "class_uri": class_uri,
-        "class_label": _pick_label(cls),
-        "data_properties": data_props,
-        "object_properties": object_props,
-        "object_properties_domain_unknown": domain_unknown,
-        "base_uri": base_uri,
-    })
+    return _ok(
+        {
+            "class_uri": class_uri,
+            "class_label": _pick_label(cls),
+            "data_properties": data_props,
+            "object_properties": object_props,
+            "object_properties_domain_unknown": domain_unknown,
+            "base_uri": base_uri,
+        }
+    )
 
 
 def tool_count_class_members(
@@ -306,10 +312,12 @@ def tool_count_class_members(
     if not data.get("success"):
         return _error(data.get("message") or "class-stats returned no data")
 
-    return _ok({
-        "class_uri": class_uri,
-        "instance_count": data.get("count", 0),
-    })
+    return _ok(
+        {
+            "class_uri": class_uri,
+            "instance_count": data.get("count", 0),
+        }
+    )
 
 
 def tool_sample_values_of(
@@ -355,12 +363,14 @@ def tool_sample_values_of(
     if not data.get("success"):
         return _error(data.get("message") or "sample-values returned no data")
 
-    return _ok({
-        "class_uri": class_uri,
-        "property_uri": property_uri,
-        "values": data.get("values", []),
-        "truncated": bool(data.get("truncated")),
-    })
+    return _ok(
+        {
+            "class_uri": class_uri,
+            "property_uri": property_uri,
+            "values": data.get("values", []),
+            "truncated": bool(data.get("truncated")),
+        }
+    )
 
 
 def tool_propose_rule(ctx: ToolContext, *, rule: dict | None = None, **_kwargs) -> str:
@@ -387,13 +397,15 @@ def tool_propose_rule(ctx: ToolContext, *, rule: dict | None = None, **_kwargs) 
 
     canonical = obj.to_dict()
     ctx.metadata["proposed_rule"] = canonical
-    return _ok({
-        "valid": True,
-        "rule_id": canonical.get("id"),
-        "class_uri": canonical.get("class_uri"),
-        "links": len(canonical.get("links") or []),
-        "compatibility": len(canonical.get("compatibility") or []),
-    })
+    return _ok(
+        {
+            "valid": True,
+            "rule_id": canonical.get("id"),
+            "class_uri": canonical.get("class_uri"),
+            "links": len(canonical.get("links") or []),
+            "compatibility": len(canonical.get("compatibility") or []),
+        }
+    )
 
 
 def tool_dry_run(ctx: ToolContext, *, rule: dict | None = None, **_kwargs) -> str:
@@ -427,16 +439,20 @@ def tool_dry_run(ctx: ToolContext, *, rule: dict | None = None, **_kwargs) -> st
     clusters = data.get("clusters") or []
     head = []
     for c in clusters[:_DRY_RUN_PREVIEW_CLUSTERS]:
-        head.append({
-            "id": c.get("id"),
-            "size": c.get("size") or len(c.get("members") or []),
-            "idx": c.get("idx"),
-        })
-    return _ok({
-        "stats": data.get("stats") or {},
-        "cluster_count": len(clusters),
-        "head": head,
-    })
+        head.append(
+            {
+                "id": c.get("id"),
+                "size": c.get("size") or len(c.get("members") or []),
+                "idx": c.get("idx"),
+            }
+        )
+    return _ok(
+        {
+            "stats": data.get("stats") or {},
+            "cluster_count": len(clusters),
+            "head": head,
+        }
+    )
 
 
 # =====================================================

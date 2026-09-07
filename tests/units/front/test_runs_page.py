@@ -36,7 +36,11 @@ _ANALYTICS_JS = Path("src/front/static/query/js/query-analytics.js")
 
 def _analytics_partial() -> str:
     """Markup plus behaviour: the History tab's traces could be in either."""
-    return _ANALYTICS.read_text(encoding="utf-8") + "\n" + _ANALYTICS_JS.read_text(encoding="utf-8")
+    return (
+        _ANALYTICS.read_text(encoding="utf-8")
+        + "\n"
+        + _ANALYTICS_JS.read_text(encoding="utf-8")
+    )
 
 
 class TestRunsTabs:
@@ -73,11 +77,13 @@ class TestRunsTabs:
         tags = _tags(html)
 
         active_buttons = [
-            i for i in ("rtab-btn-build", "rtab-btn-analytics")
+            i
+            for i in ("rtab-btn-build", "rtab-btn-analytics")
             if "active" in (_find(tags, id_=i).get("class") or "")
         ]
         active_panes = [
-            i for i in ("rtab-build", "rtab-analytics")
+            i
+            for i in ("rtab-build", "rtab-analytics")
             if "active" in (_find(tags, id_=i).get("class") or "")
         ]
 
@@ -135,7 +141,7 @@ class TestRunsPartial:
         """With no filter, rows from several versions interleave, so each
         row has to say which version it came from."""
         html = _html(client, "/dtwin/")
-        analytics = html[html.index("analyticsRunsTableWrapper"):]
+        analytics = html[html.index("analyticsRunsTableWrapper") :]
         for header in ("Scope", "Version", "Nodes", "Edges", "Components", "Density"):
             assert f">{header}<" in analytics
 
@@ -183,9 +189,9 @@ class TestAnalyticsModal:
         assert modal is not None
         label_id = modal.get("aria-labelledby")
         assert label_id, "analyticsRunDetailsModal is missing aria-labelledby"
-        assert _find(tags, id_=label_id) is not None, (
-            f"aria-labelledby='{label_id}' points to an id that does not exist on the page"
-        )
+        assert (
+            _find(tags, id_=label_id) is not None
+        ), f"aria-labelledby='{label_id}' points to an id that does not exist on the page"
 
 
 _PERMISSIONS_CSS = Path("src/front/static/global/css/permissions.css")
@@ -280,8 +286,8 @@ class TestRunsScript:
                 f"{metric} column must dash out on a failed run, not print "
                 "the stored zero"
             )
-        assert 'failed ? dash : esc((Number(run.avg_degree)' in body
-        assert 'failed ? dash : esc((Number(run.density)' in body
+        assert "failed ? dash : esc((Number(run.avg_degree)" in body
+        assert "failed ? dash : esc((Number(run.density)" in body
 
     def test_runs_loaded_flag_is_not_latched_unconditionally(self):
         """_runsLoaded must reflect whether the loads actually succeeded, not
@@ -308,12 +314,12 @@ class TestRunsScript:
             "loadDomainRuns() latches _runsLoaded unconditionally — a "
             "failed load will never be retried on re-entry"
         )
-        assert re.search(r"=\s*await\s+_loadBuildRuns\(\)", body) is not None, (
-            "_loadBuildRuns()'s return value must be captured"
-        )
-        assert re.search(r"=\s*await\s+_loadAnalyticsRuns\(\)", body) is not None, (
-            "_loadAnalyticsRuns()'s return value must be captured"
-        )
+        assert (
+            re.search(r"=\s*await\s+_loadBuildRuns\(\)", body) is not None
+        ), "_loadBuildRuns()'s return value must be captured"
+        assert (
+            re.search(r"=\s*await\s+_loadAnalyticsRuns\(\)", body) is not None
+        ), "_loadAnalyticsRuns()'s return value must be captured"
         assert re.search(r"_runsLoaded\s*=\s*\w+\s*&&\s*\w+\s*;", body) is not None, (
             "_runsLoaded must be set from the AND of both loaders' success "
             "results, not latched regardless of outcome"
@@ -334,17 +340,19 @@ class TestRunsScript:
             )
             assert match is not None, f"{name} function not found"
             body = match.group(1)
-            error_branch = body[body.index("if (!data.success)"): body.index("catch (err)")]
-            catch_branch = body[body.index("catch (err)"):]
-            assert "return false;" in error_branch, (
-                f"{name}'s `!data.success` branch must return false"
-            )
-            assert "return false;" in catch_branch, (
-                f"{name}'s catch block must return false"
-            )
-            assert "return true;" in body, (
-                f"{name} must return true on a successful load"
-            )
+            error_branch = body[
+                body.index("if (!data.success)") : body.index("catch (err)")
+            ]
+            catch_branch = body[body.index("catch (err)") :]
+            assert (
+                "return false;" in error_branch
+            ), f"{name}'s `!data.success` branch must return false"
+            assert (
+                "return false;" in catch_branch
+            ), f"{name}'s catch block must return false"
+            assert (
+                "return true;" in body
+            ), f"{name} must return true on a successful load"
 
 
 # =====================================================

@@ -44,7 +44,7 @@ class TestUnavailableCellsAreDashed:
 
     def test_dash_branch_returns_before_formatting_a_number(self, table_fn):
         """The dash must short-circuit, not fall through to ``toFixed``."""
-        cell = table_fn[table_fn.index("function cell(key)"):]
+        cell = table_fn[table_fn.index("function cell(key)") :]
         cell = cell[: cell.index("\n            }")]
         dash_at = cell.index("&mdash;")
         tofixed_at = cell.index("toFixed(4)")
@@ -71,7 +71,9 @@ class TestRankingFallsBackWhenPagerankIsMissing:
     def test_sort_uses_the_chosen_key_not_a_hard_coded_pagerank(self, table_fn):
         # A literal `.pagerank` in the comparator would defeat the fallback.
         sort_line = next(
-            line for line in table_fn.splitlines() if ".sort(" in line and "allNodes" in line
+            line
+            for line in table_fn.splitlines()
+            if ".sort(" in line and "allNodes" in line
         )
         assert "rankBy" in sort_line
         assert ".pagerank" not in sort_line
@@ -86,14 +88,14 @@ class TestTableNote:
         assert "function _setPagerankTableNote" in html
 
     def test_note_explains_all_three_conditions(self, html):
-        fn = html[html.index("function _setPagerankTableNote"):]
+        fn = html[html.index("function _setPagerankTableNote") :]
         fn = fn[: fn.index("function _renderPagerankTable")]
         assert "Ranked by" in fn
         assert "did not compute" in fn
         assert "sampled estimate" in fn
 
     def test_note_hides_itself_when_everything_is_exact(self, html):
-        fn = html[html.index("function _setPagerankTableNote"):]
+        fn = html[html.index("function _setPagerankTableNote") :]
         fn = fn[: fn.index("function _renderPagerankTable")]
         assert "if (!parts.length)" in fn
         assert "classList.add('d-none')" in fn
@@ -109,12 +111,12 @@ class TestChartNoticesStillPresent:
     def test_unavailable_metric_copy_names_the_depth_cap_remedy(self, html):
         # Job is the only path; the notice must name the depth-cap remedy and
         # not suggest an in-memory escape hatch that no longer exists.
-        block = html[html.index("Not computed for this graph."):][:1400]
+        block = html[html.index("Not computed for this graph.") :][:1400]
         assert re.search(r"depth cap", block)
         assert "Raise the analytics job" in block
 
     def test_no_in_memory_escape_hatch_in_unavailable_notice(self, html):
         # "Pick an Entity Type above to analyse a subgraph in memory" was the
         # pre-Lakeflow-only escape hatch.  It is false now and must be gone.
-        block = html[html.index("Not computed for this graph."):][:1400]
+        block = html[html.index("Not computed for this graph.") :][:1400]
         assert "analyse a subgraph in memory" not in block

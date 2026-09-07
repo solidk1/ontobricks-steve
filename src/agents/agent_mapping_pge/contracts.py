@@ -12,7 +12,6 @@ No LLM code lives here; this is a pure-data module.
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Dict, List, Optional
 
-
 # =====================================================
 # SourceModel — Planner output
 # =====================================================
@@ -88,9 +87,7 @@ class CanonicalId:
     def from_dict(cls, data: Dict[str, Any]) -> "CanonicalId":
         return cls(
             ontology_class=data["ontology_class"],
-            canonical_column_per_table=dict(
-                data.get("canonical_column_per_table", {})
-            ),
+            canonical_column_per_table=dict(data.get("canonical_column_per_table", {})),
             format_note=data.get("format_note", ""),
         )
 
@@ -194,9 +191,7 @@ class SourceModel:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SourceModel":
         return cls(
-            table_roles=[
-                TableRole.from_dict(t) for t in data.get("table_roles", [])
-            ],
+            table_roles=[TableRole.from_dict(t) for t in data.get("table_roles", [])],
             canonical_ids=[
                 CanonicalId.from_dict(c) for c in data.get("canonical_ids", [])
             ],

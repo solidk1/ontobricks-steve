@@ -7,7 +7,7 @@ auto-mapping (~5 classes/chunk with cool-downs → ~22 chunks) past the scenario
 budget. The guard asks the model — bounded — to consolidate to the core
 entities before accepting.
 
-``call_serving_endpoint`` is patched to return scripted Turtle answers so the
+``call_chat_completion`` is patched to return scripted Turtle answers so the
 guard runs without a live endpoint. The pitfall/quality loop is disabled via
 ``options={"generation_max_iterations": 0, "owl_eval_max_rounds": 0}`` to isolate the class-cap guard.
 """
@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from agents.agent_owl_generator import engine as owl_engine
-
+from tests.fixtures.llm import llm_target
 
 _CRM_GUIDELINE = (
     "Generate a simple ontology for a Customer Relationship Management (CRM) "
@@ -46,12 +46,12 @@ def _run(responses, options=None):
     opts = {"generation_max_iterations": 0, "owl_eval_max_rounds": 0}
     if options:
         opts.update(options)
-    with patch.object(owl_engine, "call_serving_endpoint") as mock_llm:
+    with patch.object(owl_engine, "call_chat_completion") as mock_llm:
         mock_llm.side_effect = responses
         return owl_engine.run_agent(
             host="https://test.databricks.com",
             token="tok",
-            endpoint_name="dbx-llm",
+            target=llm_target("dbx-llm"),
             registry={"catalog": "main", "schema": "ob", "volume": "documents"},
             metadata={"tables": []},
             guidelines=_CRM_GUIDELINE,

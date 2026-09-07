@@ -3,7 +3,7 @@
 Mirrors the structure of ``test_entity_generator.py``. The Generator is a
 narrow tool-calling ReAct loop terminated by ``submit_relationship_mapping``.
 These tests exercise the loop's control flow with a *fake LLM* — a stub that
-replaces ``call_serving_endpoint`` at module level and returns canned
+replaces ``call_chat_completion`` at module level and returns canned
 responses on a per-call basis.
 
 No real HTTP, no real Databricks, no MLflow tracing.
@@ -32,6 +32,7 @@ from agents.agent_mapping_pge.generators.relationship import (
     RelationshipGenStep,
     run_relationship_generator,
 )
+from tests.fixtures.llm import llm_target
 
 
 # =====================================================
@@ -80,8 +81,9 @@ class FakeLLM:
     def __call__(self, *args, **kwargs) -> dict:
         self.calls += 1
         msgs: Optional[List[dict]] = None
-        if len(args) >= 4 and isinstance(args[3], list):
-            msgs = args[3]
+        # ``call_chat_completion(target, messages, ...)`` — messages is arg #1.
+        if len(args) >= 2 and isinstance(args[1], list):
+            msgs = args[1]
         elif "messages" in kwargs:
             msgs = kwargs["messages"]
         if msgs is not None:
@@ -117,7 +119,7 @@ def no_sleep(monkeypatch):
 
 
 def _patch_llm(monkeypatch, fake: Callable[..., dict]) -> None:
-    monkeypatch.setattr(rel_mod, "call_serving_endpoint", fake)
+    monkeypatch.setattr(rel_mod, "call_chat_completion", fake)
 
 
 # =====================================================
@@ -218,7 +220,7 @@ def test_terminates_on_submit(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -283,7 +285,7 @@ def test_validates_sql_then_submits(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -322,7 +324,7 @@ def test_text_without_terminal_fails(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -367,7 +369,7 @@ def test_exhausts_iteration_budget(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -408,7 +410,7 @@ def test_retry_hint_surfaces_in_user_prompt(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -450,7 +452,7 @@ def test_system_prompt_mandates_dangling_edge_self_check(monkeypatch, no_sleep):
     run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -489,7 +491,7 @@ def test_system_prompt_teaches_reproducing_derived_id_expression(monkeypatch, no
     run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -525,7 +527,7 @@ def test_system_prompt_teaches_shared_coverage_table_rule(monkeypatch, no_sleep)
     run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -586,7 +588,7 @@ def test_wrong_property_uri_submission_does_not_terminate(monkeypatch, no_sleep)
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -656,7 +658,7 @@ def test_records_steps(monkeypatch, no_sleep):
     result = run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=FakeClient(),
         ontology_property=_ontology_property(),
         source_entity_mapping=_source_entity_mapping(),
@@ -722,7 +724,7 @@ def test_user_prompt_includes_source_and_target_id_columns(monkeypatch, no_sleep
     run_relationship_generator(
         host="https://x",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=None,
         ontology_property=_ontology_property(),
         source_entity_mapping=src_em,

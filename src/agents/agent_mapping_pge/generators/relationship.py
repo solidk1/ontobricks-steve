@@ -37,7 +37,7 @@ import requests
 
 from back.core.logging import get_logger
 from agents.engine_base import (
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     accumulate_usage,
 )
@@ -55,6 +55,7 @@ from agents.tools.sql import (
     SQL_TOOL_HANDLERS,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -88,17 +89,13 @@ _SUBMIT_RELATIONSHIP_DEF: dict = MAPPING_TOOL_DEFINITIONS_BY_NAME[
 ]
 
 TOOL_DEFINITIONS: List[dict] = (
-    SQL_TOOL_DEFINITIONS
-    + [SAMPLE_TABLE_DEF]
-    + [_SUBMIT_RELATIONSHIP_DEF]
+    SQL_TOOL_DEFINITIONS + [SAMPLE_TABLE_DEF] + [_SUBMIT_RELATIONSHIP_DEF]
 )
 
 TOOL_HANDLERS: Dict[str, Callable] = {
     **SQL_TOOL_HANDLERS,
     "sample_table": tool_sample_table,
-    "submit_relationship_mapping": MAPPING_TOOL_HANDLERS[
-        "submit_relationship_mapping"
-    ],
+    "submit_relationship_mapping": MAPPING_TOOL_HANDLERS["submit_relationship_mapping"],
 }
 
 
@@ -284,9 +281,7 @@ def _summarise_entity_mapping(em: dict, side: str) -> List[str]:
     relationship task and is intentionally omitted to keep the prompt tight.
     """
     em = em or {}
-    class_uri = (
-        em.get("ontology_class") or em.get("class_uri") or em.get("class") or ""
-    )
+    class_uri = em.get("ontology_class") or em.get("class_uri") or em.get("class") or ""
     id_column = em.get("id_column", "")
     sql_query = em.get("sql_query", "")
     return [
@@ -355,9 +350,7 @@ def _build_user_prompt(
         )
 
     prop_uri = ontology_property.get("uri", "")
-    prop_label = (
-        ontology_property.get("label") or ontology_property.get("name", "")
-    )
+    prop_label = ontology_property.get("label") or ontology_property.get("name", "")
     prop_comment = ontology_property.get("comment", "") or ""
     prop_domain = ontology_property.get("domain", "") or ""
     prop_range = ontology_property.get("range", "") or ""
@@ -386,7 +379,9 @@ def _build_user_prompt(
         for j in joins:
             parts.append(_format_join(j))
     else:
-        parts.append("  (none surfaced by the Planner — fall back to a single-table SELECT if possible)")
+        parts.append(
+            "  (none surfaced by the Planner — fall back to a single-table SELECT if possible)"
+        )
 
     if candidates:
         parts.append("")
@@ -435,7 +430,7 @@ def _build_user_prompt(
 def run_relationship_generator(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     *,
     ontology_property: dict,
@@ -455,9 +450,9 @@ def run_relationship_generator(
     terminal ``submit_relationship_mapping`` tool.
 
     Args:
-        host: Databricks workspace URL.
-        token: Bearer token for the serving endpoint.
-        endpoint_name: Foundation Model serving endpoint name.
+        host: Databricks workspace URL (document tools).
+        token: Databricks bearer token (document tools).
+        target: Resolved OpenAI-compatible LLM endpoint.
         client: Databricks SQL client (must expose ``execute_query(sql)``).
         ontology_property: Full dict for the SINGLE property to map (uri,
             label, comment, domain, range).
@@ -482,17 +477,16 @@ def run_relationship_generator(
     iteration_limit = max_iterations if max_iterations is not None else MAX_ITERATIONS
 
     property_uri = (ontology_property or {}).get("uri", "")
-    property_label = (
-        (ontology_property or {}).get("label")
-        or (ontology_property or {}).get("name", "")
-    )
+    property_label = (ontology_property or {}).get("label") or (
+        ontology_property or {}
+    ).get("name", "")
     n_joins = len(((source_model_slice or {}).get("relevant_joins") or []))
     n_candidates = len(((source_model_slice or {}).get("candidate_tables") or []))
 
     logger.info(
-        "===== RELATIONSHIP GENERATOR START ===== endpoint=%s, property=%s (%s), "
+        "===== RELATIONSHIP GENERATOR START ===== llm=%s, property=%s (%s), "
         "joins=%d, candidate_tables=%d, retry_hint=%s, max_iter=%d",
-        endpoint_name,
+        target.describe(),
         property_label,
         property_uri,
         n_joins,
@@ -579,10 +573,8 @@ def run_relationship_generator(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=_MAX_TOKENS,
@@ -676,7 +668,9 @@ def run_relationship_generator(
                     duration_ms=elapsed_ms,
                 )
             )
-            result.error = "relationship generator produced text without submitting mapping"
+            result.error = (
+                "relationship generator produced text without submitting mapping"
+            )
             result.iterations = current_iteration
             result.usage = total_usage
             notify(
@@ -689,9 +683,7 @@ def run_relationship_generator(
             "RelationshipGenerator iteration %d: processing %d tool call(s): [%s]",
             current_iteration,
             len(tool_calls),
-            ", ".join(
-                tc.get("function", {}).get("name", "?") for tc in tool_calls
-            ),
+            ", ".join(tc.get("function", {}).get("name", "?") for tc in tool_calls),
         )
         messages.append(message)
 
@@ -784,8 +776,7 @@ def run_relationship_generator(
                     parsed = {}
                 if parsed.get("success") is True:
                     matched = any(
-                        m.get("property") == property_uri
-                        for m in ctx.relationships
+                        m.get("property") == property_uri for m in ctx.relationships
                     )
                     if matched:
                         terminal_success = True
@@ -861,9 +852,7 @@ def run_relationship_generator(
                 total_usage["prompt_tokens"],
                 total_usage["completion_tokens"],
             )
-            notify(
-                f"Mapping for {property_label or property_uri} complete!", pct=100
-            )
+            notify(f"Mapping for {property_label or property_uri} complete!", pct=100)
             return result
 
     # Budget exhausted without a successful submit.

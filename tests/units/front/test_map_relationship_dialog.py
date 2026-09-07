@@ -33,13 +33,16 @@ def test_label_gets_default_focus():
     # Bootstrap's modal focus-trap grabs focus once the shown transition
     # completes, overriding a synchronous .focus() called right after
     # .show(). Must wait for 'shown.bs.modal' instead.
-    assert "modalEl.addEventListener('shown.bs.modal', () => {\n            labelInput.focus();" in block
+    assert (
+        "modalEl.addEventListener('shown.bs.modal', () => {\n            labelInput.focus();"
+        in block
+    )
     # autofocus belongs to the Label input, not the ID input.
     label_tag_start = block.index('id="mapRelationshipLabel"')
-    label_tag_end = block.index('>', label_tag_start)
+    label_tag_end = block.index(">", label_tag_start)
     assert "autofocus" in block[label_tag_start:label_tag_end]
     name_tag_start = block.index('id="mapRelationshipName"')
-    name_tag_end = block.index('>', name_tag_start)
+    name_tag_end = block.index(">", name_tag_start)
     assert "autofocus" not in block[name_tag_start:name_tag_end]
 
 
@@ -49,7 +52,10 @@ def test_id_mirrors_label_until_manually_edited():
     assert "labelInput.addEventListener('input'" in block
     assert "if (idManuallyEdited) return;" in block
     assert "columnToCamelCase(labelInput.value)" in block
-    assert "nameInput.addEventListener('input', () => {\n            idManuallyEdited = true;" in block
+    assert (
+        "nameInput.addEventListener('input', () => {\n            idManuallyEdited = true;"
+        in block
+    )
 
 
 def test_id_uniqueness_validated_and_blocks_create():
@@ -62,7 +68,10 @@ def test_id_uniqueness_validated_and_blocks_create():
 
 def test_resolve_returns_name_and_label_object():
     block = _dialog_block()
-    assert "resolve({ name: nameInput.value.trim(), label: labelInput.value.trim() });" in block
+    assert (
+        "resolve({ name: nameInput.value.trim(), label: labelInput.value.trim() });"
+        in block
+    )
 
 
 def test_create_relationship_from_map_uses_global_uniqueness_and_label():
@@ -70,5 +79,8 @@ def test_create_relationship_from_map_uses_global_uniqueness_and_label():
     start = js.index("async function createRelationshipFromMap(")
     end = js.index("\n}\n", start) + 3
     block = js[start:end]
-    assert "OntologyState.config.properties.find(p => p.name === relationshipName);" in block
+    assert (
+        "OntologyState.config.properties.find(p => p.name === relationshipName);"
+        in block
+    )
     assert "label: relationshipLabel" in block

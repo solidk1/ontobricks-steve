@@ -85,9 +85,10 @@ class TestCssGates:
 class TestJsGuards:
     def test_unmap_all_refuses_when_cannot_edit(self):
         js = INFO_JS.read_text(encoding="utf-8")
-        assert "canEditOntology" in js.split("async function confirmResetMappings")[1][
-            :500
-        ]
+        assert (
+            "canEditOntology"
+            in js.split("async function confirmResetMappings")[1][:500]
+        )
 
     def test_build_refuses_when_cannot_edit(self):
         js = SYNC_JS.read_text(encoding="utf-8")

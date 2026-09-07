@@ -43,8 +43,13 @@ def test_action_picker_disables_functions_without_exactly_one_param():
 def test_actions_state_is_saved_and_hydrated():
     js = PANELS_JS.read_text(encoding="utf-8")
     assert "let sharedPanelActions = []" in js
-    assert "sharedPanelActions = cls.actions ? JSON.parse(JSON.stringify(cls.actions)) : []" in js
-    assert "actions: sharedPanelActions.length > 0 ? sharedPanelActions : undefined" in js
+    assert (
+        "sharedPanelActions = cls.actions ? JSON.parse(JSON.stringify(cls.actions)) : []"
+        in js
+    )
+    assert (
+        "actions: sharedPanelActions.length > 0 ? sharedPanelActions : undefined" in js
+    )
     assert "onActionDescriptionChange" in js
     assert "removeSharedEntityAction" in js
 

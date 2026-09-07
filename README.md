@@ -135,34 +135,50 @@ The last admin cannot be revoked.
 
 ### LLM provider
 
-Agents and SQL Wizard reach their model through one resolver,
-`shared/config/LLMTarget.py`. With nothing configured they use the **Databricks
-Foundation Model API** — the model is chosen per-domain in Domain Settings and
-called at `{DATABRICKS_HOST}/serving-endpoints/{model}/invocations`. That is the
-preset, not a requirement.
+Agents and SQL Wizard call exactly one kind of endpoint:
 
-Point them at any OpenAI-compatible `/chat/completions` provider instead:
-
-```bash
-ONTOBRICKS_LLM_BASE_URL=https://api.openai.com/v1 \
-ONTOBRICKS_LLM_API_KEY=sk-... \
-ONTOBRICKS_LLM_MODEL=gpt-4o-mini \
-python run.py
+```
+POST {ONTOBRICKS_LLM_BASE_URL}/chat/completions
+Authorization: Bearer {ONTOBRICKS_LLM_API_KEY}
+{"model": "{ONTOBRICKS_LLM_MODEL}", "messages": [...]}
 ```
 
-Databricks can stay configured for Unity Catalog reads and the Delta engine
-while the model call goes elsewhere — an explicit `ONTOBRICKS_LLM_BASE_URL`
-always wins, because provenance decides the provider rather than a guess at the
-hostname. Omit `ONTOBRICKS_LLM_API_KEY` for an unauthenticated local server
-(Ollama, a bare vLLM): no `Authorization` header is sent at all, which is what
-those reject a bogus one for. `ONTOBRICKS_LLM_MODEL` is optional — without it
-the model selected in Domain Settings is used, so the existing picker keeps
-working as a model picker. `ONTOBRICKS_LLM_MODELS` (comma-separated) populates
-that picker, since most providers have no endpoint listing to enumerate.
+Any OpenAI-compatible provider works, and **Databricks is one of them rather than
+a special case** — Foundation Model APIs serve that shape at
+`https://<workspace>/serving-endpoints`, with the serving-endpoint name as the
+model:
 
-Verified providers and the URL each resolves to are enumerated in
-`tests/eval/datasets/engine_base/baseline.jsonl`, which the test suite asserts
-against on every run.
+```bash
+# OpenAI
+ONTOBRICKS_LLM_BASE_URL=https://api.openai.com/v1 \
+ONTOBRICKS_LLM_API_KEY=sk-... \
+ONTOBRICKS_LLM_MODEL=gpt-4o-mini python run.py
+
+# Databricks Foundation Model API
+ONTOBRICKS_LLM_BASE_URL=https://<workspace>/serving-endpoints \
+ONTOBRICKS_LLM_API_KEY=<pat> \
+ONTOBRICKS_LLM_MODEL=databricks-claude-sonnet-4 python run.py
+
+# Ollama / bare vLLM — omit the key; a Bearer header carrying nothing is rejected
+ONTOBRICKS_LLM_BASE_URL=http://localhost:11434/v1 \
+ONTOBRICKS_LLM_MODEL=llama3.2 python run.py
+```
+
+**Nothing is inferred and nothing falls back.** A configured Databricks workspace
+is not an LLM provider: it stays connected for Unity Catalog reads, the Delta
+engine and document uploads, while the model call requires
+`ONTOBRICKS_LLM_BASE_URL`. Leave it unset and AI features fail with an error
+naming the variable — they do not quietly reach for the workspace, and there is
+no endpoint auto-discovery picking whichever model happens to be ready.
+
+`ONTOBRICKS_LLM_MODEL` is the declared default. `ONTOBRICKS_LLM_MODELS`
+(comma-separated) populates the Domain Settings picker so a domain can select a
+different one; most providers have no listing endpoint worth querying, so the
+choices are declared rather than discovered.
+
+Every provider above, and the URL each resolves to, is pinned in
+`tests/eval/datasets/engine_base/baseline.jsonl`, which the suite asserts on
+every run.
 
 ### Graph analytics job (optional)
 

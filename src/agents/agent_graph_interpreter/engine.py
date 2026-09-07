@@ -22,10 +22,11 @@ from back.core.logging import get_logger
 from back.core.helpers import URIHelpers
 from agents.agent_graph_interpreter.tools import TOOL_DEFINITIONS, TOOL_HANDLERS
 from agents.tools.context import ToolContext
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
     accumulate_usage,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
 )
 from agents.tracing import trace_agent
@@ -136,15 +137,17 @@ def _build_user_message(payload: Dict[str, Any]) -> str:
     top_rows = []
     for uri, m in top_nodes:
         label = node_labels.get(uri, URIHelpers.extract_local_name(uri))
-        top_rows.append({
-            "uri": uri,
-            "label": label,
-            "pagerank": round(m.get("pagerank", 0), 6),
-            "degree": round(m.get("degree", 0), 6),
-            "betweenness": round(m.get("betweenness", 0), 6),
-            "closeness": round(m.get("closeness", 0), 6),
-            "clustering": round(m.get("clustering", 0), 6),
-        })
+        top_rows.append(
+            {
+                "uri": uri,
+                "label": label,
+                "pagerank": round(m.get("pagerank", 0), 6),
+                "degree": round(m.get("degree", 0), 6),
+                "betweenness": round(m.get("betweenness", 0), 6),
+                "closeness": round(m.get("closeness", 0), 6),
+                "clustering": round(m.get("clustering", 0), 6),
+            }
+        )
 
     zero_metrics = [
         key
@@ -227,7 +230,7 @@ def _parse_sections(content: str) -> List[Dict[str, Any]]:
     end = text.rfind("}")
     if start != -1 and end > start:
         try:
-            return json.loads(text[start:end + 1]).get("sections", [])
+            return json.loads(text[start : end + 1]).get("sections", [])
         except (json.JSONDecodeError, AttributeError):
             pass
 
@@ -239,7 +242,7 @@ def _parse_sections(content: str) -> List[Dict[str, Any]]:
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     metrics_payload: Dict[str, Any],
     base_url: str,
     domain_name: str,
@@ -250,7 +253,8 @@ def run_agent(
     """Run one interpretation turn for a metrics payload.
 
     Args:
-        host, token, endpoint_name: Databricks serving-endpoint credentials.
+        host, token: Databricks credentials, used by the document tools.
+        target: Resolved OpenAI-compatible LLM endpoint.
         metrics_payload: The full JSON returned by ``/dtwin/metrics/compute``
             plus an optional ``class_filter`` list.
         base_url: Loopback OntoBricks URL, e.g. ``http://localhost:8000``.
@@ -260,8 +264,8 @@ def run_agent(
         on_step: Optional progress callback.
     """
     logger.info(
-        "===== GRAPH INTERPRETER START ===== endpoint=%s domain=%s",
-        endpoint_name,
+        "===== GRAPH INTERPRETER START ===== llm=%s domain=%s",
+        target.describe(),
         domain_name,
     )
 
@@ -289,10 +293,8 @@ def run_agent(
             on_step(f"Iteration {iteration + 1}…")
 
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=2048,
@@ -302,7 +304,9 @@ def run_agent(
             )
         except Exception as exc:
             error_msg = f"LLM request failed: {exc}"
-            logger.error("graph_interpreter: %s at iteration %d", error_msg, iteration + 1)
+            logger.error(
+                "graph_interpreter: %s at iteration %d", error_msg, iteration + 1
+            )
             result.error = error_msg
             return result
 
@@ -328,9 +332,7 @@ def run_agent(
 
                 try:
                     arguments = (
-                        json.loads(raw_args)
-                        if isinstance(raw_args, str)
-                        else raw_args
+                        json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     )
                 except json.JSONDecodeError:
                     arguments = {}
@@ -350,23 +352,30 @@ def run_agent(
 
                 t0 = time.time()
                 tool_result = dispatch_tool(
-                    TOOL_HANDLERS, ctx, tool_name, arguments,
+                    TOOL_HANDLERS,
+                    ctx,
+                    tool_name,
+                    arguments,
                     trace_name=_TRACE_NAME,
                 )
                 tool_elapsed = int((time.time() - t0) * 1000)
 
-                result.steps.append(AgentStep(
-                    step_type="tool_result",
-                    content=tool_result[:500],
-                    tool_name=tool_name,
-                    duration_ms=tool_elapsed,
-                ))
+                result.steps.append(
+                    AgentStep(
+                        step_type="tool_result",
+                        content=tool_result[:500],
+                        tool_name=tool_name,
+                        duration_ms=tool_elapsed,
+                    )
+                )
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "content": tool_result,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": tool_result,
+                    }
+                )
         else:
             result.success = True
             result.sections = _parse_sections(content)

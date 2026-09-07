@@ -57,7 +57,9 @@ def test_never_auto_confirms_or_treats_typed_yes_as_confirmation():
 
 
 def test_pending_action_card_has_dedicated_css_rules():
-    css = (REPO_ROOT / "src/front/static/query/css/query-chat.css").read_text(encoding="utf-8")
+    css = (REPO_ROOT / "src/front/static/query/css/query-chat.css").read_text(
+        encoding="utf-8"
+    )
     assert ".graph-chat-pending-action" in css
     assert ".graph-chat-pending-action-confirm" in css
     assert ".graph-chat-pending-action-cancel" in css
@@ -77,10 +79,18 @@ def _build_pending_action_card_model(pending):
         return None
     return {
         "token": token,
-        "entityLabel": str(pending.get("entity_label") or pending.get("entity_uri") or "this entity"),
+        "entityLabel": str(
+            pending.get("entity_label") or pending.get("entity_uri") or "this entity"
+        ),
         "action": str(pending.get("action") or "action"),
-        "description": str(pending["description"]) if pending.get("description") else "",
-        "expiresInSec": pending.get("expires_in_sec") if isinstance(pending.get("expires_in_sec"), (int, float)) else None,
+        "description": (
+            str(pending["description"]) if pending.get("description") else ""
+        ),
+        "expiresInSec": (
+            pending.get("expires_in_sec")
+            if isinstance(pending.get("expires_in_sec"), (int, float))
+            else None
+        ),
     }
 
 

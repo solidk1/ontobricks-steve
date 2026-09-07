@@ -5,8 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
-from agents.agent_dtwin_chat.engine import AgentResult, normalize_reply_content, run_agent
+from agents.agent_dtwin_chat.engine import (
+    AgentResult,
+    normalize_reply_content,
+    run_agent,
+)
 from agents.tools.context import ToolContext
+from tests.fixtures.llm import llm_target
 
 _PENDING_ACTION = {
     "token": "tok",
@@ -53,7 +58,7 @@ def _fake_dispatch(_handlers, ctx, _tool_name, _arguments, *, trace_name=""):
 def _run_with_scripted_llm(llm_side_effect):
     with (
         patch(
-            "agents.agent_dtwin_chat.engine.call_serving_endpoint",
+            "agents.agent_dtwin_chat.engine.call_chat_completion",
             side_effect=llm_side_effect,
         ),
         patch(
@@ -64,7 +69,7 @@ def _run_with_scripted_llm(llm_side_effect):
         return run_agent(
             host="https://example.invalid",
             token="token",
-            endpoint_name="endpoint",
+            target=llm_target("endpoint"),
             base_url="http://localhost:8000",
             domain_name="main",
             registry_params={},

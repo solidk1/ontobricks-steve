@@ -23,10 +23,11 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from agents.agent_cohort.tools import TOOL_DEFINITIONS, TOOL_HANDLERS
+from shared.config.LLMTarget import LLMTarget
 from agents.engine_base import (
     AgentStep,
     accumulate_usage,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
 )
 from agents.tools.context import ToolContext
@@ -142,7 +143,7 @@ RULES
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     base_url: str,
     domain_name: str,
     registry_params: dict,
@@ -161,8 +162,8 @@ def run_agent(
     :attr:`ToolContext.metadata`).
     """
     logger.info(
-        "===== COHORT AGENT START ===== endpoint=%s, domain=%s, base_url=%s",
-        endpoint_name,
+        "===== COHORT AGENT START ===== llm=%s, domain=%s, base_url=%s",
+        target.describe(),
         domain_name,
         base_url,
     )
@@ -200,10 +201,8 @@ def run_agent(
             on_step(f"Iteration {iteration + 1}...")
 
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=2048,
@@ -213,9 +212,7 @@ def run_agent(
             )
         except Exception as exc:
             error_msg = f"LLM request failed: {exc}"
-            logger.error(
-                "cohort_agent: %s at iteration %d", error_msg, iteration + 1
-            )
+            logger.error("cohort_agent: %s at iteration %d", error_msg, iteration + 1)
             result.error = error_msg
             return result
 
@@ -245,9 +242,7 @@ def run_agent(
 
                 try:
                     arguments = (
-                        json.loads(raw_args)
-                        if isinstance(raw_args, str)
-                        else raw_args
+                        json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     )
                 except json.JSONDecodeError:
                     arguments = {}
@@ -296,9 +291,7 @@ def run_agent(
             result.success = True
             result.reply = content
             result.proposed_rule = ctx.metadata.get("proposed_rule")
-            result.steps.append(
-                AgentStep(step_type="output", content=content[:500])
-            )
+            result.steps.append(AgentStep(step_type="output", content=content[:500]))
             logger.info(
                 "===== COHORT AGENT DONE ===== iterations=%d, has_rule=%s",
                 result.iterations,

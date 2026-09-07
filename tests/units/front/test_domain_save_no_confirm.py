@@ -10,7 +10,7 @@ def test_domain_save_skips_confirmation_modal():
     js = NAVBAR_JS.read_text(encoding="utf-8")
     assert "async function domainSave()" in js
     assert "await doDomainSave()" in js
-    assert "id=\"domainSaveModal\"" not in js
+    assert 'id="domainSaveModal"' not in js
     assert "btnConfirmSave" not in js
 
 

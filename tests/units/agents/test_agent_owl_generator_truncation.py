@@ -5,7 +5,7 @@ accepted a length-truncated LLM response as the final ontology: the cut-off
 Turtle failed to parse in every RDF syntax downstream and landed an empty
 ontology (0 classes), which the generation wizard polled on until timeout.
 
-``call_serving_endpoint`` is patched to return scripted responses carrying a
+``call_chat_completion`` is patched to return scripted responses carrying a
 ``finish_reason`` so we can drive the guard without a live endpoint. The
 generation-quality (pitfall) loop is disabled via
 ``options={"generation_max_iterations": 0, "owl_eval_max_rounds": 0}`` so a
@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from agents.agent_owl_generator import engine as owl_engine
-
+from tests.fixtures.llm import llm_target
 
 # The exact guideline used by Ontology → Generate / scenario 1.
 _CRM_GUIDELINE = (
@@ -60,12 +60,12 @@ def _complete(turtle: str = _COMPLETE_TURTLE) -> dict:
 
 
 def _run(responses):
-    with patch.object(owl_engine, "call_serving_endpoint") as mock_llm:
+    with patch.object(owl_engine, "call_chat_completion") as mock_llm:
         mock_llm.side_effect = responses
         return owl_engine.run_agent(
             host="https://test.databricks.com",
             token="tok",
-            endpoint_name="dbx-llm",
+            target=llm_target("dbx-llm"),
             registry={"catalog": "main", "schema": "ob", "volume": "documents"},
             metadata={"tables": []},
             guidelines=_CRM_GUIDELINE,

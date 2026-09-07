@@ -138,9 +138,7 @@ def _docs_dir() -> str:
     """
     here = os.path.dirname(os.path.abspath(__file__))
     # here = <repo>/src/api/routers/internal
-    repo_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    )
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
     return os.path.join(repo_root, "documentation")
 
 
@@ -191,9 +189,7 @@ async def list_docs():
             {
                 "id": cat["id"],
                 "label": cat["label"],
-                "docs": [
-                    {"slug": d["slug"], "title": d["title"]} for d in cat["docs"]
-                ],
+                "docs": [{"slug": d["slug"], "title": d["title"]} for d in cat["docs"]],
             }
             for cat in _DOC_CATEGORIES
         ]
@@ -250,9 +246,7 @@ async def get_doc(slug: str):
             markdown = fh.read()
     except OSError as exc:
         logger.error("Failed to read help doc %s: %s", path, exc)
-        raise InfrastructureError(
-            "Failed to read doc", detail=str(exc)
-        ) from exc
+        raise InfrastructureError("Failed to read doc", detail=str(exc)) from exc
 
     return {
         "slug": doc["slug"],

@@ -19,9 +19,18 @@ logger = get_logger(__name__)
 
 # ── Pitfall patterns that don't require ML / SentenceTransformer ─────────────
 NON_ML_PATTERNS: List[str] = [
-    "P1.1", "P1.2", "P1.3",
-    "P2.1", "P2.2", "P2.3", "P2.4", "P2.5", "P2.6",
-    "P3.1", "P3.2", "P3.3",
+    "P1.1",
+    "P1.2",
+    "P1.3",
+    "P2.1",
+    "P2.2",
+    "P2.3",
+    "P2.4",
+    "P2.5",
+    "P2.6",
+    "P3.1",
+    "P3.2",
+    "P3.3",
     "P4.1",
 ]
 
@@ -87,7 +96,9 @@ def _suggest_p3_2_rename(prop_label: str, range_label: str) -> str:
 
 def _suggest_p3_3_rename(prop_label: str, domain_label: str) -> str:
     """Strip the domain class name from the start of the property name."""
-    stripped = re.sub(rf"(?i)^{re.escape(domain_label)}", "", prop_label, count=1).lstrip()
+    stripped = re.sub(
+        rf"(?i)^{re.escape(domain_label)}", "", prop_label, count=1
+    ).lstrip()
     # Lowercase first character
     if stripped and stripped != prop_label:
         return stripped[0].lower() + stripped[1:]
@@ -103,18 +114,26 @@ def _format_items(pid: str, items: list) -> List[str]:
             rng = it.get("range_label", "")
             suggestion = _suggest_p3_2_rename(prop, rng) if rng else prop
             if suggestion and suggestion != prop:
-                lines.append(f"  • rename `{prop}` → `{suggestion}` (removes range '{rng}' from end)")
+                lines.append(
+                    f"  • rename `{prop}` → `{suggestion}` (removes range '{rng}' from end)"
+                )
             else:
-                lines.append(f"  • `{prop}` — ends with range class '{rng}', choose a verb-only name")
+                lines.append(
+                    f"  • `{prop}` — ends with range class '{rng}', choose a verb-only name"
+                )
     elif pid == "P3.3":
         for it in items:
             prop = it.get("property_label", _item_label(it))
             dom = it.get("domain_label", "")
             suggestion = _suggest_p3_3_rename(prop, dom) if dom else prop
             if suggestion and suggestion != prop:
-                lines.append(f"  • rename `{prop}` → `{suggestion}` (removes domain '{dom}' from start)")
+                lines.append(
+                    f"  • rename `{prop}` → `{suggestion}` (removes domain '{dom}' from start)"
+                )
             else:
-                lines.append(f"  • `{prop}` — starts with domain class '{dom}', choose a verb-only name")
+                lines.append(
+                    f"  • `{prop}` — starts with domain class '{dom}', choose a verb-only name"
+                )
     elif pid == "P2.6":
         for it in items:
             p1 = it.get("p1_label", _item_label(it))
@@ -129,7 +148,12 @@ def _format_items(pid: str, items: list) -> List[str]:
                 lines.append(f"  • `{p1}`")
     elif pid in ("P1.1", "P1.2", "P1.3"):
         for it in items:
-            c1 = it.get("class_label") or it.get("child_label") or it.get("class_1_label") or _item_label(it)
+            c1 = (
+                it.get("class_label")
+                or it.get("child_label")
+                or it.get("class_1_label")
+                or _item_label(it)
+            )
             c2 = it.get("parent_label") or it.get("class_2_label") or ""
             lines.append(f"  • `{c1}`" + (f" ↔ `{c2}`" if c2 else ""))
     else:
@@ -139,6 +163,7 @@ def _format_items(pid: str, items: list) -> List[str]:
 
 
 # ── Tool implementation ───────────────────────────────────────────────────────
+
 
 def tool_check_owl_pitfalls(
     ctx: ToolContext,
@@ -169,16 +194,22 @@ def tool_check_owl_pitfalls(
             graph.parse(data=turtle_text, format="turtle")
         except Exception as parse_err:
             logger.warning("tool_check_owl_pitfalls: Turtle parse error: %s", parse_err)
-            return json.dumps({
-                "error": f"Invalid Turtle syntax: {parse_err}",
-                "is_clean": False,
-                "score": 0,
-            })
+            return json.dumps(
+                {
+                    "error": f"Invalid Turtle syntax: {parse_err}",
+                    "is_clean": False,
+                    "score": 0,
+                }
+            )
 
         metadata = {
             "classes": len(list(graph.subjects(RDF.type, OWL.Class))),
-            "object_properties": len(list(graph.subjects(RDF.type, OWL.ObjectProperty))),
-            "datatype_properties": len(list(graph.subjects(RDF.type, OWL.DatatypeProperty))),
+            "object_properties": len(
+                list(graph.subjects(RDF.type, OWL.ObjectProperty))
+            ),
+            "datatype_properties": len(
+                list(graph.subjects(RDF.type, OWL.DatatypeProperty))
+            ),
         }
 
         svc = PitfallsService()
@@ -201,26 +232,30 @@ def tool_check_owl_pitfalls(
                 metadata["object_properties"],
                 metadata["datatype_properties"],
             )
-            return json.dumps({
-                "score": score,
-                "is_clean": True,
-                "total_warnings": 0,
-                "warnings": [],
-                "fix_instruction": "",
-            })
+            return json.dumps(
+                {
+                    "score": score,
+                    "is_clean": True,
+                    "total_warnings": 0,
+                    "warnings": [],
+                    "fix_instruction": "",
+                }
+            )
 
         # Build structured warnings list — no cap on items
         warnings = []
         for pid, r in issues.items():
             raw_items = r.get("items") or []
             item_labels = [_item_label(it) for it in raw_items]
-            warnings.append({
-                "id": pid,
-                "title": r.get("title", pid),
-                "count": r["count"],
-                "items": item_labels,
-                "raw_items": raw_items,   # kept for fix_instruction generation below
-            })
+            warnings.append(
+                {
+                    "id": pid,
+                    "title": r.get("title", pid),
+                    "count": r["count"],
+                    "items": item_labels,
+                    "raw_items": raw_items,  # kept for fix_instruction generation below
+                }
+            )
 
         total = sum(w["count"] for w in warnings)
         logger.info(
@@ -250,17 +285,18 @@ def tool_check_owl_pitfalls(
 
         # Strip raw_items from the returned warnings (keeps the JSON lean)
         clean_warnings = [
-            {k: v for k, v in w.items() if k != "raw_items"}
-            for w in warnings
+            {k: v for k, v in w.items() if k != "raw_items"} for w in warnings
         ]
 
-        return json.dumps({
-            "score": score,
-            "is_clean": False,
-            "total_warnings": total,
-            "warnings": clean_warnings,
-            "fix_instruction": fix_instruction,
-        })
+        return json.dumps(
+            {
+                "score": score,
+                "is_clean": False,
+                "total_warnings": total,
+                "warnings": clean_warnings,
+                "fix_instruction": fix_instruction,
+            }
+        )
 
     except Exception as exc:
         logger.error("tool_check_owl_pitfalls: unexpected error: %s", exc)

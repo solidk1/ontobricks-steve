@@ -54,7 +54,9 @@ class TestTruncate:
 
 class TestSafeInputs:
     def test_excludes_secrets(self):
-        result = _safe_inputs({"token": "secret", "host": "https://h", "client": "obj", "name": "ok"})
+        result = _safe_inputs(
+            {"token": "secret", "host": "https://h", "client": "obj", "name": "ok"}
+        )
         assert "token" not in result
         assert "host" not in result
         assert "client" not in result

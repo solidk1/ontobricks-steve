@@ -102,12 +102,15 @@ def trace_llm(name: Optional[str] = None):
             with mlflow.start_span(
                 name=name or fn.__name__, span_type=SpanType.LLM
             ) as span:
+                target = kwargs.get("target") or (args[0] if args else None)
                 span.set_inputs(
                     {
-                        "endpoint": kwargs.get("endpoint_name")
-                        or (args[2] if len(args) > 2 else "?"),
+                        # describe() is log-safe: base URL and model, never the key.
+                        "endpoint": (
+                            target.describe() if hasattr(target, "describe") else "?"
+                        ),
                         "message_count": len(
-                            kwargs.get("messages") or (args[3] if len(args) > 3 else [])
+                            kwargs.get("messages") or (args[1] if len(args) > 1 else [])
                         ),
                     }
                 )

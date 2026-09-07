@@ -121,9 +121,7 @@ def evaluate_ontology(
     )
 
     uncovered_tables = [
-        t["name"]
-        for t in tables
-        if t["name"] not in footprint["covered_tables"]
+        t["name"] for t in tables if t["name"] not in footprint["covered_tables"]
     ]
     for tname in uncovered_tables:
         issues.append(

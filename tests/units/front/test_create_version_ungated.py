@@ -17,9 +17,7 @@ from back.objects.domain import Domain
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PERMISSIONS_CSS = REPO_ROOT / "src/front/static/global/css/permissions.css"
-VERSIONS_HTML = (
-    REPO_ROOT / "src/front/templates/partials/domain/_domain_versions.html"
-)
+VERSIONS_HTML = REPO_ROOT / "src/front/templates/partials/domain/_domain_versions.html"
 ACTIONS_JS = REPO_ROOT / "src/front/static/domain/js/domain-actions.js"
 VERSIONS_JS = REPO_ROOT / "src/front/static/domain/js/domain-versions.js"
 
@@ -45,17 +43,13 @@ class TestNewVersionUiNotGatedOnReadiness:
         html = VERSIONS_HTML.read_text(encoding="utf-8")
         assert 'id="btnAddVersion"' in html
         # No static disabled attribute on the New Version control.
-        btn = re.search(
-            r"<button[^>]*id=\"btnAddVersion\"[^>]*>", html, re.DOTALL
-        )
+        btn = re.search(r"<button[^>]*id=\"btnAddVersion\"[^>]*>", html, re.DOTALL)
         assert btn, "btnAddVersion button markup missing"
         assert "disabled" not in btn.group(0)
 
     def test_not_in_read_only_css_gate(self):
         """Branching from a PUBLISHED tip must stay clickable in the UI."""
-        assert not _gated(
-            PERMISSIONS_CSS.read_text(encoding="utf-8"), "#btnAddVersion"
-        )
+        assert not _gated(PERMISSIONS_CSS.read_text(encoding="utf-8"), "#btnAddVersion")
 
     def test_domain_actions_keeps_new_version_enabled(self):
         js = ACTIONS_JS.read_text(encoding="utf-8")
@@ -115,9 +109,7 @@ class TestCreateVersionBackendIgnoresReadiness:
         import importlib
 
         domain_module = importlib.import_module("back.objects.domain.Domain")
-        monkeypatch.setattr(
-            domain_module, "invalidate_registry_cache", lambda: None
-        )
+        monkeypatch.setattr(domain_module, "invalidate_registry_cache", lambda: None)
 
         result = Domain(domain).create_new_domain_version(svc)
         assert result["success"] is True

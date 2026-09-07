@@ -205,3 +205,145 @@ F-rule (real-bug) findings, which stayed at 67. Two `from back.core.helpers impo
 get_databricks_host_and_token` imports orphaned by the `_require_llm` extraction
 were removed by line number; the pre-existing violations in the same files were
 left alone.
+
+---
+
+# P6 revision — one generic endpoint, no fallbacks
+
+## Context
+
+Feedback on the first P6 commit: *"remove all the fallbacks, make it a generic URL
+and API key for openai compatible models."*
+
+The first revision made the transport provider-agnostic but kept a Databricks
+preset — `{host}/serving-endpoints/{model}/invocations` — and picked between it
+and an external provider by whichever happened to be configured. Two URL shapes,
+two credential sources, and a provider selected as a side effect of unrelated
+settings. A workspace configured for Unity Catalog reads silently became the model
+provider, and a typo'd base URL silently changed which model answered.
+
+Now there is one shape:
+
+```
+POST {ONTOBRICKS_LLM_BASE_URL}/chat/completions
+Authorization: Bearer {ONTOBRICKS_LLM_API_KEY}
+{"model": "{ONTOBRICKS_LLM_MODEL}", "messages": [...]}
+```
+
+**Databricks becomes one provider among many rather than a special case.**
+Foundation Model APIs serve that shape at `{workspace}/serving-endpoints` — the
+documented `base_url` for the OpenAI SDK — with the serving-endpoint name as the
+model. So a Databricks deployment is configured exactly like OpenAI or vLLM.
+
+## What was removed
+
+1. **`LLMTarget.for_databricks()` and the `api_style` field.** No second dialect,
+   no branching on which one to speak.
+2. **`LLMTarget.resolve()`'s precedence rule.** There is nothing to choose
+   between. `from_env()` either builds a target or raises naming the variable.
+3. **The model fallback to `endpoint_name`.** The caller's model is now an
+   explicit override of a declared default, not the tail of a chain.
+4. **`_auto_discover_llm_endpoint` in `dtwin.py` — 73 lines.** It asked the
+   workspace serving-endpoints API to guess a model and took whichever was READY
+   first: Databricks-only, non-deterministic as the workspace changed, and it hid
+   an unconfigured deployment behind an arbitrary choice.
+5. **`SQLWizardService`'s dual path**, and its `/api/2.0/serving-endpoints`
+   listing call. Models are declared in `ONTOBRICKS_LLM_MODELS` now.
+6. **The Databricks-credentials precondition on LLM routes.** A workspace is not
+   an LLM provider.
+
+## The deferred rename is done
+
+The first commit kept `call_serving_endpoint(host, token, endpoint_name, …)` to
+avoid churn and recorded the rename as a follow-up. Removing the preset forces it:
+the function no longer accepts a host or a token, so the signature had to change
+and the old name became a lie.
+
+`call_chat_completion(target, …)`, with `endpoint_name: str` → `target: LLMTarget`
+across 11 engines, `AgentClient`, three domain objects, four routes and 12 test
+modules — 15 identically-shaped call sites, done by script with assertions.
+
+**`host`/`token` stay on the engine signatures, deliberately.** Investigating
+first showed `agents/tools/documents.py` uses `ctx.host`/`ctx.token` for the
+Databricks Files API. They are *connector* credentials, not the LLM's — and
+conflating those two roles is exactly what made the old design look natural. The
+change separates them: `host`/`token` for Unity Catalog and document uploads,
+`target` for the model.
+
+Two things were checked before touching and correctly left alone:
+
+- **`agent_supervisor/mas.py`'s `endpoint_name`** is a Databricks Multi-Agent
+  Supervisor *agent-endpoint* name, not an LLM model. Renaming it would have been
+  wrong.
+- **`_State` in `agent_mapping_pge/engine.py`** holds `client` and a callback, so
+  it is never serialised and can carry an `LLMTarget` directly.
+
+## What is NOT a fallback, and stays
+
+Three behaviours could be mistaken for the ones removed. Each is deliberate, is
+documented in `LLMTarget`, and has dataset rows:
+
+- **`ONTOBRICKS_LLM_MODEL` as a declared default** that a domain may override.
+  Explicit config layering, not a chain — and dropping it would kill the Domain
+  Settings model picker, a real feature.
+- **Omitting `Authorization` when no key is set.** The correct request for Ollama
+  and a bare vLLM, which reject a `Bearer` carrying nothing; and `Bearer ` against
+  a key-checking provider returns a 401 that hides the real cause.
+- **Stripping a trailing `/chat/completions` from a pasted base URL.** Input
+  normalisation. Doubling it produces a 404 that blames the provider.
+
+## Interface changes (breaking)
+
+- MLflow `ResponsesAgent` `custom_inputs`: `endpoint_name` → `model`, and the
+  provider now comes from the serving container's environment rather than the
+  request payload. A credential does not belong in `custom_inputs`.
+- `POST /mapping/wizard/generate-sql`: body field `endpoint_name` → `model`, with
+  the frontend updated to match.
+- Any deployment relying on implicit Databricks LLM resolution must now set
+  `ONTOBRICKS_LLM_BASE_URL` / `_API_KEY` / `_MODEL`. This is the point: it fails
+  with an error naming the variable instead of guessing.
+
+## Modified files
+
+- `src/shared/config/LLMTarget.py` (rewritten — 213 → 168 lines)
+- `src/agents/engine_base.py`, `src/agents/tracing.py`
+- 11 engine modules + `agent_supervisor/{engine,responses_agent}.py`
+  + `agent_ontology_assistant/{responses_agent,log_model}.py`
+- `src/back/core/agents/AgentClient.py`
+- `src/back/core/sqlwizard/SQLWizardService.py`
+- `src/back/core/helpers/DatabricksHelpers.py`
+- `src/back/objects/{mapping/Mapping,ontology/Ontology,digitaltwin/DigitalTwin}.py`
+- `src/api/routers/internal/{dtwin,ontology,mapping}.py`
+- `src/front/static/mapping/js/mapping-shared.js`
+- `tests/fixtures/llm.py` (new), `tests/eval/judges/contract.py`,
+  `tests/eval/run_engine_base.py`, `tests/eval/datasets/engine_base/*.jsonl`
+- 12 test modules; `tests/units/front/test_frontend_canonical_values.py`
+- `.planning/agents/engine_base/SPEC.md`, `.env.example`, `README.md`
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **4925 passed, 299 skipped,
+5 deselected**. No failures.
+
+Eval: 26 cases, `url_exact` 26/26, `auth_header_exact` 26/26, `payload_shape`
+26/26, `no_secret_leak` 26/26, **aggregate 0.9000** vs a 0.90 threshold.
+`live_smoke` still **not run** — scored zero, not skipped. The Databricks CLI
+profile now authenticates, but the gateway reachable from this machine is
+`/ai-gateway/anthropic`, an Anthropic-protocol proxy, not an OpenAI-shaped
+`/chat/completions` endpoint, and no external provider key is configured.
+
+End-to-end over real HTTP against a local OpenAI-compatible server, with every
+`DATABRICKS_*` variable deleted: 6/6 — path not doubled, no `Authorization` when
+keyless, model from the declared default, tools passed through, content extracted,
+and `ValidationError` naming `ONTOBRICKS_LLM_BASE_URL` when only a workspace is
+configured.
+
+ruff: **F-rule (real-bug) findings identical to HEAD at 67**; total 4705 → 4699,
+six fewer. The F-rule delta check earned its keep: it caught **8 `F821 undefined
+name`** the mechanical rename left in `mapping.py` and `ontology.py` — code paths
+the 4925 tests do not cover. Tests alone would have shipped those.
+
+New guard: `TestLLMRequestFieldNames` asserts the JS request field and the route
+that reads it agree — the P3d hazard, where one side of an HTTP boundary changes
+and a one-sided test suite stays green. Verified by re-injecting the regression
+(2 failures) and reverting.

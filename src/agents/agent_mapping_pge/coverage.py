@@ -171,9 +171,7 @@ def full_entity_order(
     concrete, abstract = classify(
         ontology, source_model, synthesized_uris=synthesized_uris
     )
-    planned = (
-        list(source_model.mapping_plan.entity_order) if source_model else []
-    )
+    planned = list(source_model.mapping_plan.entity_order) if source_model else []
 
     ordered: List[str] = []
     seen: Set[str] = set()
@@ -236,9 +234,7 @@ def full_relationship_order(
     rel_uris = [r.get("uri") or r.get("name") for r in rels]
     rel_uris = [u for u in rel_uris if u]
 
-    planned = (
-        list(source_model.mapping_plan.relationship_order) if source_model else []
-    )
+    planned = list(source_model.mapping_plan.relationship_order) if source_model else []
     ordered: List[str] = []
     seen: Set[str] = set()
     for uri in planned + rel_uris:

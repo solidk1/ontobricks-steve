@@ -40,6 +40,7 @@ from agents.agent_mapping_pge.evaluator.critic import CriticResult
 from agents.agent_mapping_pge.generators.entity import EntityGenResult
 from agents.agent_mapping_pge.generators.relationship import RelationshipGenResult
 from agents.agent_mapping_pge.planner import PlannerResult
+from tests.fixtures.llm import llm_target
 
 
 # =====================================================
@@ -434,7 +435,7 @@ def _run(client: Any, **overrides) -> AgentResult:
     kwargs = dict(
         host="https://test",
         token="t",
-        endpoint_name="ep",
+        target=llm_target("ep"),
         client=client,
         metadata={},
         ontology=_ontology(),

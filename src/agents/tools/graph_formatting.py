@@ -18,9 +18,7 @@ from back.core.w3c.rdf_utils import uri_local_name
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 
-DEFAULT_ACTION_INVOKE_HINT = (
-    "call request_entity_action(entity_uri, action) to propose one (UI confirmation required)"
-)
+DEFAULT_ACTION_INVOKE_HINT = "call request_entity_action(entity_uri, action) to propose one (UI confirmation required)"
 
 
 # ── URI helpers ───────────────────────────────────────────────────────────
@@ -104,7 +102,9 @@ def _format_entity_block(
         elif is_label_predicate(pred):
             labels.append(obj)
         elif is_uri(obj):
-            relationships.append((_resolve_uri_label(pred, ontology_labels), local_name(obj)))
+            relationships.append(
+                (_resolve_uri_label(pred, ontology_labels), local_name(obj))
+            )
         else:
             attributes.append((_resolve_uri_label(pred, ontology_labels), obj))
 
@@ -112,7 +112,7 @@ def _format_entity_block(
     # Excluding rdf:type and label predicates (those are class/label assertions,
     # not meaningful "X is related to this entity" relationships).
     inbound: list[tuple[str, str]] = []
-    for t in (inbound_triples or []):
+    for t in inbound_triples or []:
         pred = t.get("predicate", "")
         subj = t.get("subject", "")
         if pred in (RDF_TYPE, RDFS_LABEL):
@@ -170,12 +170,16 @@ def format_class_context_block(
     if dataset and dataset.get("fullName"):
         key_col = dataset.get("key_column")
         if key_col:
-            lines.append(f"  Dataset: {dataset['fullName']}  (key: {key_col} = '{local_id}')")
+            lines.append(
+                f"  Dataset: {dataset['fullName']}  (key: {key_col} = '{local_id}')"
+            )
             lines.append(
                 "    → call get_entity_context(fetch_dataset_rows=True) to retrieve rows"
             )
         else:
-            lines.append(f"  Dataset: {dataset['fullName']}  (key_column not configured)")
+            lines.append(
+                f"  Dataset: {dataset['fullName']}  (key_column not configured)"
+            )
         purpose = (dataset.get("description") or "").strip()
         if purpose:
             lines.append(f"  Description: {purpose}")
@@ -376,15 +380,19 @@ def format_find_response(
 
     parts.append("── Matching Entities ──")
     for uri in seed_uris:
-        parts.append(_format_entity_block(
-            uri,
-            by_subject.get(uri, []),
-            inbound_triples=by_object.get(uri, []),
-            ontology_labels=ontology_labels,
-        ))
+        parts.append(
+            _format_entity_block(
+                uri,
+                by_subject.get(uri, []),
+                inbound_triples=by_object.get(uri, []),
+                ontology_labels=ontology_labels,
+            )
+        )
         if class_actions:
             triples_for_uri = by_subject.get(uri, [])
-            type_uris = [t["object"] for t in triples_for_uri if t["predicate"] == RDF_TYPE]
+            type_uris = [
+                t["object"] for t in triples_for_uri if t["predicate"] == RDF_TYPE
+            ]
             for type_uri in type_uris:
                 if type_uri in class_actions:
                     ctx = format_class_context_block(
@@ -400,7 +408,11 @@ def format_find_response(
     if related_uris:
         parts.append("── Related Entities (neighbors) ──")
         for uri in related_uris:
-            parts.append(_format_entity_block(uri, by_subject.get(uri, []), ontology_labels=ontology_labels))
+            parts.append(
+                _format_entity_block(
+                    uri, by_subject.get(uri, []), ontology_labels=ontology_labels
+                )
+            )
             parts.append("")
 
     if total > len(triples):
@@ -429,9 +441,7 @@ def _format_graphql_entity(lines: list[str], entity: dict, indent: int = 0) -> N
                 if lines[-1].endswith("---"):
                     lines.pop()
             else:
-                lines.append(
-                    f"{prefix}{key}: {', '.join(str(v) for v in value)}"
-                )
+                lines.append(f"{prefix}{key}: {', '.join(str(v) for v in value)}")
         elif isinstance(value, dict):
             lines.append(f"{prefix}{key}:")
             _format_graphql_entity(lines, value, indent=indent + 4)
@@ -514,10 +524,14 @@ def format_sparql_rows(columns: Iterable[str], rows: Iterable[Iterable]) -> str:
                 widths[i] = max(widths[i], len(v))
 
     def _row_str(vals: list[str]) -> str:
-        return "| " + " | ".join(
-            vals[i].ljust(widths[i]) if i < len(widths) else vals[i]
-            for i in range(len(vals))
-        ) + " |"
+        return (
+            "| "
+            + " | ".join(
+                vals[i].ljust(widths[i]) if i < len(widths) else vals[i]
+                for i in range(len(vals))
+            )
+            + " |"
+        )
 
     header = _row_str(cols)
     sep = "|" + "|".join("-" * (w + 2) for w in widths) + "|"

@@ -39,6 +39,7 @@ AGENT_NAME = "graph_interpreter"
 
 # ── Judges (rule-based, no LLM required) ─────────────────────────────────────
 
+
 def judge_section_completeness(output: Dict[str, Any]) -> float:
     """All three sections must be present."""
     sections = {s.get("title", "") for s in output.get("sections", [])}
@@ -61,7 +62,9 @@ def judge_groundedness(output: Dict[str, Any], expected: Dict[str, Any]) -> floa
     return found / len(must_mention)
 
 
-def judge_does_not_invent(output: Dict[str, Any], example_input: Dict[str, Any]) -> float:
+def judge_does_not_invent(
+    output: Dict[str, Any], example_input: Dict[str, Any]
+) -> float:
     """Notable entities mentioned in the output must originate from the input payload."""
     constraints = example_input.get("expected", {}).get("constraints", [])
     if not any(c.get("kind") == "does_not_invent_entities" for c in constraints):
@@ -76,7 +79,9 @@ def judge_does_not_invent(output: Dict[str, Any], example_input: Dict[str, Any])
     return 1.0  # soft check: if top_pagerank is empty, any entity would be invented
 
 
-def judge_zero_metrics_mentioned(output: Dict[str, Any], example_input: Dict[str, Any]) -> float:
+def judge_zero_metrics_mentioned(
+    output: Dict[str, Any], example_input: Dict[str, Any]
+) -> float:
     """When expected.constraints contains `mentions_zero_metrics: true` and the
     input has non-empty `zero_metrics`, the output should acknowledge them."""
     constraints = example_input.get("expected", {}).get("constraints", [])
@@ -129,13 +134,12 @@ def score_example(
         "zero_metrics_mentioned": judge_zero_metrics_mentioned(output, example),
         "latency_s": elapsed_s,
     }
-    scores["weighted"] = sum(
-        scores[k] * w for k, w in _WEIGHTS.items() if k in scores
-    )
+    scores["weighted"] = sum(scores[k] * w for k, w in _WEIGHTS.items() if k in scores)
     return scores
 
 
 # ── Dry-run stub output (used when --dry-run is set) ─────────────────────────
+
 
 def _stub_output(example: Dict) -> Dict:
     """Return a perfect stub output that satisfies all rule-based judges."""
@@ -150,18 +154,30 @@ def _stub_output(example: Dict) -> Dict:
     if zero:
         key_body += " Note: {} metrics are zero for all nodes.".format(", ".join(zero))
 
-    items = [{"label": row["label"], "reason": "High PageRank score."} for row in top[:3]]
+    items = [
+        {"label": row["label"], "reason": "High PageRank score."} for row in top[:3]
+    ]
     return {
         "success": True,
         "sections": [
             {"title": "Key Findings", "body": key_body},
-            {"title": "Notable Entities", "items": items or [{"label": "N/A", "reason": "No entities found."}]},
-            {"title": "Recommendations", "items": ["Investigate top nodes further.", "Enrich isolated entities."]},
+            {
+                "title": "Notable Entities",
+                "items": items or [{"label": "N/A", "reason": "No entities found."}],
+            },
+            {
+                "title": "Recommendations",
+                "items": [
+                    "Investigate top nodes further.",
+                    "Enrich isolated entities.",
+                ],
+            },
         ],
     }
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def run(
     endpoint: Optional[str],
@@ -180,6 +196,7 @@ def run(
     print(f"Loaded {len(examples)} examples from {DATASET_PATH}")
 
     import yaml  # noqa: F401 — soft dep; pyyaml is in dev deps
+
     with open(THRESHOLDS_PATH) as f:
         thresholds = yaml.safe_load(f)
 
@@ -199,16 +216,20 @@ def run(
                     "Use --dry-run to validate without a live LLM."
                 )
             from agents.agent_graph_interpreter.engine import run_agent  # noqa: E402
+
             agent_result = run_agent(
                 host=host,
                 token=token,
                 endpoint_name=endpoint,
                 metrics_payload=ex["input"],
-                base_url="",       # not needed for interpret-only mode
+                base_url="",  # not needed for interpret-only mode
                 domain_name="eval",
                 session_cookies={},
             )
-            output = {"success": agent_result.success, "sections": agent_result.sections}
+            output = {
+                "success": agent_result.success,
+                "sections": agent_result.sections,
+            }
             elapsed = time.time() - t0
 
         scores = score_example(ex, output, elapsed)
@@ -229,6 +250,7 @@ def run(
     if mlflow_experiment and not dry_run:
         try:
             import mlflow
+
             mlflow.set_experiment(mlflow_experiment)
             with mlflow.start_run(run_name="baseline"):
                 mlflow.log_metric("aggregate_score", aggregate)
@@ -246,15 +268,27 @@ def run(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Eval harness — agent_graph_interpreter")
+    parser = argparse.ArgumentParser(
+        description="Eval harness — agent_graph_interpreter"
+    )
     parser.add_argument("--endpoint", default=os.getenv("ONTOBRICKS_LLM_ENDPOINT"))
     parser.add_argument("--host", default=os.getenv("DATABRICKS_HOST"))
     parser.add_argument("--token", default=os.getenv("DATABRICKS_TOKEN"))
-    parser.add_argument("--dry-run", action="store_true", default=True,
-                        help="Use stub outputs (no live LLM call). Default: True.")
-    parser.add_argument("--live", dest="dry_run", action="store_false",
-                        help="Make live LLM calls (requires --host/--token/--endpoint).")
-    parser.add_argument("--mlflow-experiment", default="/Shared/ontobricks/agents/graph_interpreter")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Use stub outputs (no live LLM call). Default: True.",
+    )
+    parser.add_argument(
+        "--live",
+        dest="dry_run",
+        action="store_false",
+        help="Make live LLM calls (requires --host/--token/--endpoint).",
+    )
+    parser.add_argument(
+        "--mlflow-experiment", default="/Shared/ontobricks/agents/graph_interpreter"
+    )
     args = parser.parse_args()
 
     score = run(

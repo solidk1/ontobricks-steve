@@ -1,6 +1,6 @@
 """Engine-level tests for ``agents.agent_business_rules_generator.engine``.
 
-We never talk to a real LLM serving endpoint -- ``call_serving_endpoint`` is
+We never talk to a real LLM serving endpoint -- ``call_chat_completion`` is
 patched to return a scripted sequence of responses that drive the agent
 through:
 
@@ -19,7 +19,7 @@ from unittest.mock import patch
 from agents.agent_business_rules_generator import engine as br_engine
 from agents.agent_business_rules_generator import tools as br_tools
 from agents.tools.context import ToolContext
-
+from tests.fixtures.llm import llm_target
 
 _ONTOLOGY_DESIGN = {
     "entities": [
@@ -33,8 +33,16 @@ _ONTOLOGY_DESIGN = {
         # strict "no invented terms" gate these must exist in the ontology.
         {"name": "Adult", "uri": "http://ex.org/Adult", "attributes": []},
         {"name": "LargeOrder", "uri": "http://ex.org/LargeOrder", "attributes": []},
-        {"name": "FrequentBuyer", "uri": "http://ex.org/FrequentBuyer", "attributes": []},
-        {"name": "LoyalCustomer", "uri": "http://ex.org/LoyalCustomer", "attributes": []},
+        {
+            "name": "FrequentBuyer",
+            "uri": "http://ex.org/FrequentBuyer",
+            "attributes": [],
+        },
+        {
+            "name": "LoyalCustomer",
+            "uri": "http://ex.org/LoyalCustomer",
+            "attributes": [],
+        },
     ],
     "relationships": [
         {"name": "placesOrder", "domain": "Customer", "range": "Order"},
@@ -58,7 +66,12 @@ _RULES_OUTPUT = {
             "row_logic": "and",
             "input_columns": [{"property": "balance", "label": "Balance"}],
             "output_column": {"property": "riskTier", "action": "set", "value": ""},
-            "rows": [{"conditions": [{"op": "gt", "value": "100000"}], "action_value": "high"}],
+            "rows": [
+                {
+                    "conditions": [{"op": "gt", "value": "100000"}],
+                    "action_value": "high",
+                }
+            ],
         }
     ],
     "sparql_rules": [
@@ -89,7 +102,10 @@ def _tool_call_response(name: str, arguments: str = "{}"):
                 "message": {
                     "content": "",
                     "tool_calls": [
-                        {"id": "tc1", "function": {"name": name, "arguments": arguments}}
+                        {
+                            "id": "tc1",
+                            "function": {"name": name, "arguments": arguments},
+                        }
                     ],
                 }
             }
@@ -106,12 +122,12 @@ def _text_response(content: str):
 
 
 def _run(responses):
-    with patch.object(br_engine, "call_serving_endpoint") as mock_llm:
+    with patch.object(br_engine, "call_chat_completion") as mock_llm:
         mock_llm.side_effect = responses
         return br_engine.run_agent(
             host="https://test.databricks.com",
             token="tok",
-            endpoint_name="dbx-llm",
+            target=llm_target("dbx-llm"),
             registry={"catalog": "main", "schema": "ob", "volume": "documents"},
             ontology_design=_ONTOLOGY_DESIGN,
             base_uri="http://ex.org/",
@@ -210,7 +226,9 @@ class TestRunAgent:
         assert names == ["AdultCustomer"]
 
     def test_missing_keys_yield_empty_lists(self):
-        result = _run([_text_response(json.dumps({"swrl_rules": _RULES_OUTPUT["swrl_rules"]}))])
+        result = _run(
+            [_text_response(json.dumps({"swrl_rules": _RULES_OUTPUT["swrl_rules"]}))]
+        )
         assert result.success is True
         assert len(result.swrl_rules) == 1
         assert result.decision_tables == []
@@ -219,12 +237,12 @@ class TestRunAgent:
 
     def test_llm_failure_is_reported(self):
         with patch.object(
-            br_engine, "call_serving_endpoint", side_effect=RuntimeError("boom")
+            br_engine, "call_chat_completion", side_effect=RuntimeError("boom")
         ):
             result = br_engine.run_agent(
                 host="h",
                 token="t",
-                endpoint_name="e",
+                target=llm_target("e"),
                 registry={},
                 ontology_design=_ONTOLOGY_DESIGN,
                 base_uri="http://ex.org/",

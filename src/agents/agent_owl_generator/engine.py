@@ -27,12 +27,13 @@ from agents.agent_owl_generator.tools import (
 from agents.tools.pitfalls import tool_check_owl_pitfalls
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     extract_message_content,
     accumulate_usage,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -300,6 +301,7 @@ If you detect a likely inconsistency or anti-pattern, correct it before output a
 # Internal helpers
 # =====================================================
 
+
 def _parse_pitfall_tool_result(tool_result_json: str) -> Optional[Dict]:
     """Parse the JSON returned by the check_owl_pitfalls tool.  Returns None on error."""
     try:
@@ -355,9 +357,7 @@ def _evaluate_ontology_stage(
             metrics,
         )
 
-        absolute_issues = [
-            i for i in issues if i.get("check") in _EVAL_ABSOLUTE_CHECKS
-        ]
+        absolute_issues = [i for i in issues if i.get("check") in _EVAL_ABSOLUTE_CHECKS]
         if not absolute_issues:
             logger.info(
                 "Iteration %d: ontology evaluator — no Tier-1 defects", iteration
@@ -438,7 +438,7 @@ def _build_user_prompt(
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     registry: dict,
     metadata: dict,
     guidelines: str,
@@ -459,8 +459,8 @@ def run_agent(
     function calling the engine falls back to a direct single-shot prompt.
     """
     logger.info(
-        "===== AGENT START ===== endpoint=%s, base_uri=%s",
-        endpoint_name,
+        "===== AGENT START ===== llm=%s, base_uri=%s",
+        target.describe(),
         base_uri,
     )
     logger.debug(
@@ -495,7 +495,9 @@ def run_agent(
     # Generation-quality loop configuration (from options with defaults).
     # The agent drives its own check_owl_pitfalls → fix loop; max_fix_rounds
     # is the Python-side budget cap after which we force a final text output.
-    max_fix_rounds = int(options.get("generation_max_iterations", _DEFAULT_MAX_FIX_ROUNDS))
+    max_fix_rounds = int(
+        options.get("generation_max_iterations", _DEFAULT_MAX_FIX_ROUNDS)
+    )
     max_classes = int(options.get("max_classes", _DEFAULT_MAX_CLASSES))
     max_eval_rounds = int(options.get("owl_eval_max_rounds", MAX_OWL_EVAL_ROUNDS))
     logger.info(
@@ -576,8 +578,8 @@ def run_agent(
 
     notify("Starting agent…")
     logger.info(
-        "Agent entering main loop — endpoint=%s, tables=%d, docs=%s, max_iterations=%d",
-        endpoint_name,
+        "Agent entering main loop — llm=%s, tables=%d, docs=%s, max_iterations=%d",
+        target.describe(),
         len(ctx.metadata.get("tables", [])),
         selected_docs,
         MAX_ITERATIONS,
@@ -587,9 +589,9 @@ def run_agent(
     # Agent loop
     # ------------------------------------------------------------------
     tools_supported = True
-    _owl_fix_rounds = 0        # pitfall-fix rounds consumed so far
-    _consolidate_rounds = 0    # over-generation consolidation rounds consumed
-    _owl_eval_rounds = 0       # Evaluator (Stage-1 PGE) retry rounds consumed
+    _owl_fix_rounds = 0  # pitfall-fix rounds consumed so far
+    _consolidate_rounds = 0  # over-generation consolidation rounds consumed
+    _owl_eval_rounds = 0  # Evaluator (Stage-1 PGE) retry rounds consumed
 
     for iteration in range(MAX_ITERATIONS):
         logger.info(
@@ -618,10 +620,8 @@ def run_agent(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=_GEN_MAX_TOKENS,
@@ -650,10 +650,8 @@ def run_agent(
                 tools_supported = False
                 notify("Endpoint does not support tools – using direct generation…")
                 try:
-                    llm_response = call_serving_endpoint(
-                        host,
-                        token,
-                        endpoint_name,
+                    llm_response = call_chat_completion(
+                        target,
                         messages,
                         tools=None,
                         max_tokens=_GEN_MAX_TOKENS,
@@ -844,16 +842,18 @@ def run_agent(
                         "re-emit it more concisely…"
                     )
                     messages.append({"role": "assistant", "content": content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "Your previous Turtle was cut off before it finished "
-                            "(output token limit). Re-emit the COMPLETE ontology, "
-                            "keeping every rdfs:comment to one short sentence. "
-                            "Output ONLY valid Turtle starting with @prefix — no "
-                            "prose, no code fences."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous Turtle was cut off before it finished "
+                                "(output token limit). Re-emit the COMPLETE ontology, "
+                                "keeping every rdfs:comment to one short sentence. "
+                                "Output ONLY valid Turtle starting with @prefix — no "
+                                "prose, no code fences."
+                            ),
+                        }
+                    )
                     continue
                 result.error = (
                     "LLM output was truncated (finish_reason=length) and could not "
@@ -891,8 +891,11 @@ def run_agent(
                     logger.warning(
                         "Iteration %d: ontology declares %d owl:Class (cap=%d) — "
                         "asking the agent to consolidate (round %d/%d)",
-                        iteration + 1, n_classes, max_classes,
-                        _consolidate_rounds, _MAX_CONSOLIDATE_ROUNDS,
+                        iteration + 1,
+                        n_classes,
+                        max_classes,
+                        _consolidate_rounds,
+                        _MAX_CONSOLIDATE_ROUNDS,
                     )
                     notify(
                         f"Ontology is over-detailed ({n_classes} classes) — asking "
@@ -900,19 +903,21 @@ def run_agent(
                         f"(≤{max_classes})…"
                     )
                     messages.append({"role": "assistant", "content": content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Your ontology declares {n_classes} classes — far more "
-                            f"than this domain needs. Consolidate to AT MOST "
-                            f"{max_classes} core classes: keep the real-world "
-                            "entities from the guidelines, merge near-duplicates, "
-                            "and DO NOT create a class per column or per attribute "
-                            "value (those are datatype properties, not classes). "
-                            "Re-emit the COMPLETE ontology as valid Turtle starting "
-                            "with @prefix — no prose, no code fences."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Your ontology declares {n_classes} classes — far more "
+                                f"than this domain needs. Consolidate to AT MOST "
+                                f"{max_classes} core classes: keep the real-world "
+                                "entities from the guidelines, merge near-duplicates, "
+                                "and DO NOT create a class per column or per attribute "
+                                "value (those are datatype properties, not classes). "
+                                "Re-emit the COMPLETE ontology as valid Turtle starting "
+                                "with @prefix — no prose, no code fences."
+                            ),
+                        }
+                    )
                     continue
 
             # ── External pitfall check (fast, no extra LLM call) ─────────────
@@ -930,19 +935,28 @@ def run_agent(
                         w["count"] for w in warnings if w["id"].startswith("P1.")
                     )
                     is_clean = pf_data.get("is_clean", False)
-                    round_status = "passed" if is_clean else (
-                        "challenged" if _owl_fix_rounds < max_fix_rounds
-                        else "max_rounds_reached"
+                    round_status = (
+                        "passed"
+                        if is_clean
+                        else (
+                            "challenged"
+                            if _owl_fix_rounds < max_fix_rounds
+                            else "max_rounds_reached"
+                        )
                     )
 
-                    result.iteration_summary.append({
-                        "round": _owl_fix_rounds,
-                        "score": score,
-                        "critical_count": critical_count,
-                        "pitfalls": pitfall_ids,
-                        "status": round_status,
-                    })
-                    notify(f"__iter__:{json.dumps({'round': _owl_fix_rounds, 'score': score, 'critical': critical_count, 'pitfalls': pitfall_ids, 'status': round_status, 'warnings': warnings})}")
+                    result.iteration_summary.append(
+                        {
+                            "round": _owl_fix_rounds,
+                            "score": score,
+                            "critical_count": critical_count,
+                            "pitfalls": pitfall_ids,
+                            "status": round_status,
+                        }
+                    )
+                    notify(
+                        f"__iter__:{json.dumps({'round': _owl_fix_rounds, 'score': score, 'critical': critical_count, 'pitfalls': pitfall_ids, 'status': round_status, 'warnings': warnings})}"
+                    )
 
                     if not is_clean and round_status == "challenged":
                         fix_instruction = pf_data.get("fix_instruction", "")
@@ -952,17 +966,21 @@ def run_agent(
                         )
                         logger.info(
                             "Iteration %d: pitfall check — score=%d, %d warning(s) → injecting fix",
-                            iteration + 1, score, len(warnings),
+                            iteration + 1,
+                            score,
+                            len(warnings),
                         )
                         messages.append({"role": "assistant", "content": content})
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                f"{fix_instruction}\n\n"
-                                "Output ONLY the corrected Turtle. "
-                                "Start with @prefix. No prose, no code fences."
-                            ),
-                        })
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"{fix_instruction}\n\n"
+                                    "Output ONLY the corrected Turtle. "
+                                    "Start with @prefix. No prose, no code fences."
+                                ),
+                            }
+                        )
                         continue  # next loop iteration asks the LLM to fix
 
                     if not is_clean:
@@ -974,8 +992,11 @@ def run_agent(
                         notify(f"Ontology is clean — score {score}/100 ✓")
                     logger.info(
                         "Iteration %d: pitfall check — score=%d, is_clean=%s, fix_round=%d/%d",
-                        iteration + 1, score, is_clean,
-                        _owl_fix_rounds, max_fix_rounds,
+                        iteration + 1,
+                        score,
+                        is_clean,
+                        _owl_fix_rounds,
+                        max_fix_rounds,
                     )
 
             # --------------------------------------------------------------
@@ -986,7 +1007,9 @@ def run_agent(
             # there's another iteration left, so a usable ontology is never
             # discarded by exhausting MAX_ITERATIONS.
             # --------------------------------------------------------------
-            eval_feedback = _evaluate_ontology_stage(content, ctx.metadata, iteration + 1)
+            eval_feedback = _evaluate_ontology_stage(
+                content, ctx.metadata, iteration + 1
+            )
             if (
                 eval_feedback
                 and max_eval_rounds > 0
@@ -1012,7 +1035,7 @@ def run_agent(
                     iteration + 1,
                     _owl_eval_rounds,
                 )
-                continue   # next iteration will produce corrected OWL
+                continue  # next iteration will produce corrected OWL
 
             # ── Accept this text as the final OWL ────────────────────────────
             result.success = True
@@ -1022,7 +1045,8 @@ def run_agent(
 
             final_score = (
                 result.iteration_summary[-1]["score"]
-                if result.iteration_summary else None
+                if result.iteration_summary
+                else None
             )
             logger.info(
                 "===== AGENT COMPLETE ===== iterations=%d, fix_rounds=%d, final_score=%s, "

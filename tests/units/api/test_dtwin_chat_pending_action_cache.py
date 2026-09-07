@@ -61,6 +61,19 @@ def _domain_with_action():
     return mock_domain
 
 
+@pytest.fixture(autouse=True)
+def _llm_configured(monkeypatch):
+    """Configure a provider for these route tests.
+
+    The routes no longer derive an LLM from the Databricks credentials they
+    monkeypatch, so without this the requests fail on the (correct) "no provider
+    configured" error before reaching the pending-action logic under test.
+    """
+    monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://llm.test/v1")
+    monkeypatch.setenv("ONTOBRICKS_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("ONTOBRICKS_LLM_MODEL", "test-model")
+
+
 def test_chat_does_not_clobber_pending_action_minted_during_run_agent(monkeypatch):
     shared_session: dict = {}
     mock_domain = _domain_with_action()

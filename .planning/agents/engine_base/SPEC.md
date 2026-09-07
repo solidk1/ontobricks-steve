@@ -19,13 +19,22 @@ url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
 
 That URL shape is Databricks-only. It is the last hard Databricks coupling in the agent
 layer: after the Apps and Lakebase work, OntoBricks runs on any container against any
-Postgres, but its agents still only speak to a Databricks workspace. This change makes the
-transport provider-agnostic — any OpenAI-compatible `/chat/completions` endpoint (OpenAI,
-Azure OpenAI, vLLM, Ollama, LiteLLM, Bedrock gateways) — and keeps **Databricks Foundation
-Model API as a preset**, not a requirement.
+Postgres, but its agents still only speak to a Databricks workspace. This change makes the transport
+provider-agnostic: one URL shape, one credential, one model field, for any
+OpenAI-compatible `/chat/completions` endpoint.
 
-Databricks serving endpoints already speak the OpenAI chat-completions request and response
-shape. Only two things differ: the URL and whether `model` travels in the body.
+**Databricks is one such provider, not a special case.** Foundation Model APIs serve the
+OpenAI shape at `{workspace}/serving-endpoints` — the documented `base_url` for the OpenAI
+SDK — with the serving-endpoint name as the model. So it is configured exactly like OpenAI,
+Azure OpenAI, vLLM, Ollama or a LiteLLM proxy.
+
+**Nothing is inferred and nothing falls back.** The first revision of this work kept a
+Databricks preset at `{host}/serving-endpoints/{model}/invocations` and chose between it and
+an external provider by whichever happened to be configured. That is two URL shapes, two
+credential sources, and a provider selected as a side effect of unrelated settings — so a
+workspace configured for Unity Catalog reads silently became the model provider, and a
+typo'd base URL silently changed which model answered. Absent configuration is now an error
+naming the variable to set.
 
 ## 2. Identity
 
@@ -33,7 +42,7 @@ shape. Only two things differ: the URL and whether `model` travels in the body.
 |---|---|
 | `agent_name` | *(none — shared infrastructure for all 11 engines)* |
 | `module_path` | `src/agents/engine_base.py`, `src/shared/config/LLMTarget.py` |
-| `model_endpoint` | Provider-agnostic. Databricks preset resolves `{host}/serving-endpoints/{model}/invocations`; external resolves `{ONTOBRICKS_LLM_BASE_URL}/chat/completions` |
+| `model_endpoint` | `{ONTOBRICKS_LLM_BASE_URL}/chat/completions`, always. No second shape. |
 | `temperature` | Unchanged (`0.1` production default; `_UNSUPPORTED_PARAMS` still strips it for models that reject it) |
 | `mlflow_experiment` | Unchanged — `ONTOBRICKS_MLFLOW_EXPERIMENT`, default `ontobricks-agents` |
 
@@ -41,13 +50,16 @@ shape. Only two things differ: the URL and whether `model` travels in the body.
 
 | Site | Change |
 |---|---|
-| `agents/engine_base.call_serving_endpoint` | URL/headers/body from `LLMTarget`; signature unchanged |
-| `back/core/sqlwizard/SQLWizardService.call_llm_endpoint` | Same URL was hardcoded a second time — now shares the resolver |
-| `back/core/helpers/DatabricksHelpers.require_serving_llm` | Stops demanding Databricks credentials when an external LLM is configured |
-| `api/routers/internal/dtwin._auto_discover_llm_endpoint` | Offers the configured external model(s) instead of an empty picker |
+| `agents/engine_base` | `call_serving_endpoint(host, token, endpoint_name, …)` → `call_chat_completion(target, …)` |
+| 11 engines + `AgentClient` + 3 domain objects | `endpoint_name: str` → `target: LLMTarget`; `host`/`token` stay, for the document tools only |
+| `back/core/sqlwizard/SQLWizardService` | The same URL was hardcoded a second time; dual path collapsed to one. `get_model_serving_endpoints` no longer calls the workspace API |
+| `back/core/helpers/DatabricksHelpers.require_serving_llm` | Returns `(host, token, LLMTarget)`; stops treating Databricks credentials as an LLM precondition |
+| `api/routers/internal/dtwin` | `_auto_discover_llm_endpoint` **deleted** (73 lines) — it asked the workspace to guess a model |
+| `front/static/mapping/js/mapping-shared.js` | Request field `endpoint_name` → `model` |
 
-The 11 engine `run_agent(host, token, endpoint_name, …)` signatures are **deliberately
-unchanged** — see §10.
+**`host`/`token` survive on the engine signatures on purpose.** `agents/tools/documents.py`
+uses `ctx.host`/`ctx.token` for the Databricks Files API, so they are the *connector*
+credentials, not the LLM's. Conflating the two is what made the old design look natural.
 
 ## 3. Tool surface
 
@@ -80,7 +92,7 @@ contract-shaped and checkable offline, with one live dimension that needs an end
 |---|---|---|---|---|
 | `url_exact` | exact-match on resolved URL per case | `1.00` | `0.35` | `contract` (rule-based) |
 | `auth_header_exact` | exact-match on `Authorization` header | `1.00` | `0.20` | `contract` (rule-based) |
-| `payload_shape` | `model` key present iff style is `openai` | `1.00` | `0.20` | `contract` (rule-based) |
+| `payload_shape` | `model` present in every request body | `1.00` | `0.20` | `contract` (rule-based) |
 | `no_secret_leak` | API key absent from all log records | `1.00` | `0.15` | `contract` (rule-based) |
 | `live_smoke` | one real round-trip returns non-empty content per configured provider | `1.00` | `0.10` | wall-clock + response parse |
 
@@ -93,20 +105,21 @@ as *not run* rather than assumed.
 
 | Symptom | Detection | Mitigation |
 |---|---|---|
-| Silent fallback: external configured but Databricks used (or vice versa) | `url_exact` — every dataset row asserts the full URL, so a mis-resolved style fails loudly | `LLMTarget.resolve` has one precedence rule (explicit external wins) and logs which style it chose, without the key |
-| `model` omitted on the OpenAI path | `payload_shape` | `payload_extras()` is derived from `api_style`, not written per-caller |
+| Silent fallback to a workspace that was only configured for Unity Catalog | `reg-no-silent-databricks-fallback` and `databricks-host-alone-does-not-configure-an-llm` both require a `ValidationError` | There is no Databricks code path left to fall back to |
+| `model` omitted from the body | `payload_shape` on all 26 rows | `call_chat_completion` writes `"model": target.model` unconditionally |
 | API key leaks into logs | `no_secret_leak` asserts on `caplog` records | Never log `api_key`; log `base_url` + `model` + style only |
 | Double `/v1/chat/completions` from a base URL that already ends in the path | `url_exact` rows cover `…/v1`, `…/v1/`, `…/v1/chat/completions` | `_normalise_base` strips a trailing `/chat/completions` |
-| Empty model picker on an external deployment, so no agent can start | Route test asserts the picker is non-empty | `ONTOBRICKS_LLM_MODELS` (optional CSV) feeds the picker; falls back to `_MODEL` |
+| Silently changed model because a workspace endpoint was auto-discovered | The discovery code is deleted; an unconfigured provider raises | Models are declared in `ONTOBRICKS_LLM_MODELS`, never discovered |
+| Frontend still sends a field the route stopped reading | `TestLLMRequestFieldNames` in `tests/units/front/test_frontend_canonical_values.py` | Guard verified by re-injecting the regression |
 | Keyless local provider (Ollama/vLLM) rejected for want of a token | Dataset row with `api_key=""` | `headers()` omits `Authorization` entirely when no key is set |
 
 ## 7. Eval dataset
 
-- **Baseline:** `tests/eval/datasets/engine_base/baseline.jsonl` — 24 transport-contract
-  cases. Each row is a `(env, host, token, endpoint_name)` input and the exact expected
-  URL, `Authorization` header, and `model`-key presence.
-- **Regression:** `tests/eval/datasets/engine_base/regression.jsonl` — 3 rows for the
-  mistakes this work actually made or nearly made (see §10).
+- **Baseline:** `tests/eval/datasets/engine_base/baseline.jsonl` — 23 transport-contract
+  cases. Each row is an `(env, model)` input and the exact expected URL, `Authorization`
+  header and body `model`. Five rows require a `ValidationError`.
+- **Regression:** `tests/eval/datasets/engine_base/regression.jsonl` — 3 rows, the first of
+  which fails on any reintroduction of the Databricks fallback this revision removed.
 - Mirror at `.planning/agents/engine_base/eval/dataset.jsonl`.
 
 Rows are hand-curated, not synthetic: the interesting cases are exactly the URL-shape edge
@@ -114,8 +127,9 @@ cases, and a generator would produce plausible-looking rows that miss them.
 
 ## 8. MLflow tracing
 
-Unchanged and still mandatory: `call_serving_endpoint` keeps its `@trace_llm("agent:llm")`
-decorator, so both the Databricks and external paths are traced identically. The span name
+Unchanged and still mandatory: `call_chat_completion` keeps its `@trace_llm("agent:llm")`
+decorator. The span's `endpoint` attribute now comes from `target.describe()`, which is
+log-safe — base URL and model, never the key. The span name
 still comes from each caller's `trace_name`. `LLMTarget` itself is pure config resolution
 with no I/O, so it is not traced.
 
@@ -125,22 +139,27 @@ with no I/O, so it is not traced.
 
 ## 10. Decisions and their costs
 
-**Engine signatures stay `(host, token, endpoint_name)`.** The honest names would be
-`(base_url, api_key, model)`, and `call_serving_endpoint` is now a misnomer. Renaming means
-11 engine files plus 12 test modules that patch the symbol by name — ~40 lines of pure
-churn mixed into a behaviour change, which is the shape of diff that hides a real bug from
-a reviewer. The three positional values already mean "endpoint base, credential, model
-name" in both worlds; only the URL shape differed. **Follow-up, not this change:** rename
-to `call_chat_completion(target, messages, …)` as a mechanical commit of its own.
+**The deferred rename is done.** The first revision kept `call_serving_endpoint(host,
+token, endpoint_name, …)` to avoid churn and recorded the rename as a follow-up. Removing
+the Databricks preset forces it: the function no longer accepts a host or a token, so the
+signature had to change and the old name became a lie. `call_chat_completion(target, …)`,
+with `endpoint_name: str` → `target: LLMTarget` across 11 engines, `AgentClient`, three
+domain objects and 12 test modules.
 
-**Precedence: explicit external configuration wins.** `LLMTarget.resolve` does not sniff
-the hostname to guess the provider — `*.databricks.com` sniffing breaks on custom DNS and
-private workspaces. Provenance decides: if `ONTOBRICKS_LLM_BASE_URL` is set, the style is
-`openai`; otherwise the caller's triple is Databricks. No third knob.
+**No hostname sniffing, and no precedence rule either.** The earlier design chose a
+provider by provenance, which was better than sniffing `*.databricks.com` but still a
+choice being made on the operator's behalf. There is now nothing to choose between.
 
-**`_UNSUPPORTED_PARAMS` is now keyed by resolved model, not `endpoint_name`.** Parameter
-support is a property of the model, and on an external provider `endpoint_name` may be a
-stale Databricks name that is no longer what gets called.
+**What is *not* a fallback, and stays.** Three behaviours could be mistaken for one:
+`ONTOBRICKS_LLM_MODEL` as a declared default that a domain may override (explicit config
+layering, not a chain); omitting `Authorization` when no key is set (the correct request for
+Ollama and a bare vLLM, which reject a `Bearer` carrying nothing); and stripping a trailing
+`/chat/completions` from a pasted base URL (input normalisation — doubling it yields a 404
+that blames the provider). Each has dataset rows.
+
+**`_UNSUPPORTED_PARAMS` is keyed by the target's model.** Parameter support is a property of
+the model, so a `temperature` ban discovered for one model never silences a parameter a
+different model supports.
 
 ## 11. Gate coverage gap found while writing this
 

@@ -59,13 +59,11 @@ class TestTransportContract:
         )
 
     @pytest.mark.parametrize("row", ALL_ROWS, ids=_ids(ALL_ROWS))
-    def test_payload_carries_model_only_for_openai_style(self, row):
+    def test_payload_always_carries_the_model(self, row):
         result = contract.judge_row(row)
         assert result["dimensions"]["payload_shape"], (
-            f"{row['id']}: expected model={row['expected'].get('model_in_body')!r} "
-            f"style={row['expected'].get('api_style')!r}, observed "
-            f"model={result['observed'].get('model_in_body')!r} "
-            f"style={result['observed'].get('api_style')!r}"
+            f"{row['id']}: expected model={row['expected'].get('model_in_body')!r}, "
+            f"observed model={result['observed'].get('model_in_body')!r}"
         )
 
     @pytest.mark.parametrize("row", ALL_ROWS, ids=_ids(ALL_ROWS))

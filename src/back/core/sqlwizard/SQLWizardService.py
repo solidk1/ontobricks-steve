@@ -44,67 +44,24 @@ class SQLWizardService:
         self._schema_cache: Dict[str, SchemaContext] = {}
 
     def get_model_serving_endpoints(self) -> List[Dict[str, str]]:
-        """List the models available to pick from.
+        """List the models an operator declared, for the Domain Settings picker.
 
-        On a Databricks deployment these are the workspace's text-capable
-        serving endpoints. On an external deployment they come from
-        ``ONTOBRICKS_LLM_MODELS`` (or ``ONTOBRICKS_LLM_MODEL``), because there
-        is no workspace to enumerate.
+        From ``ONTOBRICKS_LLM_MODELS`` (or the single ``ONTOBRICKS_LLM_MODEL``).
+        This used to call the workspace ``/api/2.0/serving-endpoints`` API and
+        filter for READY chat endpoints, which only worked on Databricks and
+        made the set of offered models depend on the workspace's state. Most
+        OpenAI-compatible providers have no listing endpoint worth querying, so
+        the offered set is declared.
 
         Returns:
             List of dicts with 'name', 'state' and 'endpoint_type' keys
         """
-        import requests
-
         from shared.config.LLMTarget import LLMTarget
 
-        # On an external deployment there is no workspace to enumerate; offer
-        # the configured model(s) so the Domain Settings picker still works.
-        external = LLMTarget.picker_models()
-        if external:
-            return [
-                {"name": m, "state": "READY", "endpoint_type": "external"}
-                for m in external
-            ]
-
-        if not self.client or not self.client.host or not self.client.has_valid_auth():
-            return []
-
-        try:
-            host = self.client.host.rstrip("/")
-            headers = self.client.get_auth_headers()
-
-            # Use the serving endpoints API
-            url = f"{host}/api/2.0/serving-endpoints"
-
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-
-            endpoints = []
-            for ep in data.get("endpoints", []):
-                # Filter for endpoints that can handle text/chat completions
-                # Look for foundation models, external models, or custom models
-                endpoint_type = (
-                    ep.get("config", {})
-                    .get("served_entities", [{}])[0]
-                    .get("entity_name", "")
-                )
-
-                endpoints.append(
-                    {
-                        "name": ep.get("name", ""),
-                        "state": ep.get("state", {}).get("ready", "UNKNOWN"),
-                        "endpoint_type": endpoint_type,
-                    }
-                )
-
-            logger.info("[SQLWizard] Found %d serving endpoints", len(endpoints))
-            return endpoints
-
-        except Exception as e:
-            logger.error("[SQLWizard] Error fetching serving endpoints: %s", e)
-            return []
+        return [
+            {"name": m, "state": "READY", "endpoint_type": "configured"}
+            for m in LLMTarget.models()
+        ]
 
     def get_schema_context(
         self, catalog: str, schema: str, use_cache: bool = True
@@ -278,12 +235,16 @@ class SQLWizardService:
         return {"system": system_instruction, "user": user_message}
 
     def call_llm_endpoint(
-        self, endpoint_name: str, prompt: Dict[str, str], timeout: int = 60
+        self, model: str, prompt: Dict[str, str], timeout: int = 60
     ) -> str:
-        """Call the LLM endpoint and get the generated SQL.
+        """Call the LLM and return the generated SQL.
+
+        SQL Wizard needs no Databricks credential: it generates SQL from schema
+        metadata already in hand, and the model is configured by
+        ``ONTOBRICKS_LLM_*`` like everywhere else.
 
         Args:
-            endpoint_name: Name of the model serving endpoint
+            model: Model to use. Empty means the configured default.
             prompt: Dict with 'system' and 'user' messages
             timeout: Request timeout in seconds
 
@@ -295,36 +256,23 @@ class SQLWizardService:
 
         from shared.config.LLMTarget import LLMTarget
 
-        # An external LLM provider stands alone: SQL Wizard generates SQL from
-        # schema metadata already in hand, so it needs no workspace token when
-        # the model lives elsewhere.
-        if LLMTarget.external_configured():
-            target = LLMTarget.resolve(endpoint_name=endpoint_name)
-            headers = target.headers()
-        else:
-            if not self.client.host or not self.client.has_valid_auth():
-                raise ValidationError("Databricks credentials not configured")
-            target = LLMTarget.for_databricks(self.client.host, "", endpoint_name)
-            # The client owns token refresh and already sets Content-Type, so
-            # use its headers verbatim rather than re-deriving them here. This
-            # keeps the Databricks path byte-identical to its pre-P6 behaviour.
-            headers = self.client.get_auth_headers()
-
+        target = LLMTarget.from_env(model)
+        headers = target.headers()
         url = target.completions_url()
 
         payload = {
+            "model": target.model,
             "messages": [
                 {"role": "system", "content": prompt["system"]},
                 {"role": "user", "content": prompt["user"]},
             ],
             "max_tokens": 1024,
             "temperature": 0.1,
-            **target.payload_extras(),
         }
 
         logger.info(
             "[SQLWizard] call_llm_endpoint: POST %s (timeout=%ds)",
-            endpoint_name,
+            target.describe(),
             timeout,
         )
         logger.debug("[SQLWizard] call_llm_endpoint: url=%s", url)
@@ -748,7 +696,7 @@ class SQLWizardService:
 
     def generate_sql(
         self,
-        endpoint_name: str,
+        model: str,
         user_prompt: str,
         limit: int = None,
         validate_plan: bool = True,
@@ -760,7 +708,7 @@ class SQLWizardService:
         """Full pipeline: generate and validate SQL from natural language.
 
         Args:
-            endpoint_name: Model serving endpoint name
+            model: Model to use; empty means the configured default.
             user_prompt: Natural language request
             limit: Query result limit
             validate_plan: Whether to run EXPLAIN validation
@@ -777,7 +725,7 @@ class SQLWizardService:
 
         # Telemetry data (anonymized)
         telemetry = {
-            "endpoint": endpoint_name,
+            "model": model,
             "prompt_hash": hashlib.sha256(user_prompt.encode()).hexdigest()[:16],
             "validation_outcomes": [],
             "mapping_type": mapping_type,
@@ -827,10 +775,8 @@ class SQLWizardService:
             )
 
             # Step 3: Call LLM
-            logger.info(
-                "[SQLWizard] generate_sql step 3: call LLM endpoint '%s'", endpoint_name
-            )
-            raw_output = self.call_llm_endpoint(endpoint_name, prompt)
+            logger.info("[SQLWizard] generate_sql step 3: call LLM model '%s'", model)
+            raw_output = self.call_llm_endpoint(model, prompt)
             logger.debug(
                 "[SQLWizard] generate_sql: raw LLM output (%d chars): %.300s",
                 len(raw_output),

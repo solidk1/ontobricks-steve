@@ -43,11 +43,7 @@ def tool_assign_icons(
                 logger.info("tool_assign_icons: recovered icons from '%s' key", alt)
                 break
 
-    if (
-        icons is None
-        and _kwargs
-        and all(isinstance(v, str) for v in _kwargs.values())
-    ):
+    if icons is None and _kwargs and all(isinstance(v, str) for v in _kwargs.values()):
         icons = dict(_kwargs)
         _kwargs = {}
         logger.info(

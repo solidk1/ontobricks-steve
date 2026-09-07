@@ -15,7 +15,7 @@ PANELS_JS = REPO_ROOT / "src/front/static/ontology/js/ontology-shared-panels.js"
 
 def _relationship_constraints_block() -> str:
     js = PANELS_JS.read_text(encoding="utf-8")
-    start = js.index("data-form-tab-content=\"constraints\"", js.index("sharedRelDomain"))
+    start = js.index('data-form-tab-content="constraints"', js.index("sharedRelDomain"))
     end = js.index("</form>", start)
     return js[start:end]
 

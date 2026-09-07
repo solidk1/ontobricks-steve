@@ -18,7 +18,7 @@ a wrong column inside the right table, the verdict stays with the Generator
 which can retry against the same table.
 
 The loop shape mirrors :mod:`agents.agent_mapping_pge.generators.entity` —
-same ``call_serving_endpoint`` + ``dispatch_tool`` ReAct cycle, same 3-second
+same ``call_chat_completion`` + ``dispatch_tool`` ReAct cycle, same 3-second
 inter-iteration delay, same MLflow trace decorator. Differences:
 
 * Smaller default budget (6) — auditing is bounded work; if the Critic can't
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 from back.core.logging import get_logger
 from agents.engine_base import (
     accumulate_usage,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
 )
 from agents.tools.context import ToolContext
@@ -64,6 +64,7 @@ from agents.tools.sql import (
     SQL_TOOL_HANDLERS,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -281,9 +282,7 @@ def _format_submitted_entity_mapping(submitted_mapping: dict) -> List[str]:
         parts.append("  unmapped_attributes:")
         for u in unmapped:
             if isinstance(u, dict):
-                parts.append(
-                    f"    - {u.get('name', '?')}: {u.get('reason', '')}"
-                )
+                parts.append(f"    - {u.get('name', '?')}: {u.get('reason', '')}")
             else:
                 parts.append(f"    - {u}")
     return parts
@@ -293,12 +292,8 @@ def _format_submitted_relationship_mapping(submitted_mapping: dict) -> List[str]
     """Lines summarising a relationship mapping under audit."""
     parts: List[str] = ["SUBMITTED MAPPING (relationship)"]
     parts.append(f"  sql_query:        {submitted_mapping.get('sql_query', '')}")
-    parts.append(
-        f"  source_id_column: {submitted_mapping.get('source_id_column', '')}"
-    )
-    parts.append(
-        f"  target_id_column: {submitted_mapping.get('target_id_column', '')}"
-    )
+    parts.append(f"  source_id_column: {submitted_mapping.get('source_id_column', '')}")
+    parts.append(f"  target_id_column: {submitted_mapping.get('target_id_column', '')}")
     parts.append(
         f"  source_class:     {submitted_mapping.get('source_class', '') or submitted_mapping.get('domain', '')}"
     )
@@ -379,7 +374,7 @@ def _build_user_prompt(
 def run_critic(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     *,
     item_kind: str,
@@ -402,9 +397,9 @@ def run_critic(
     ``CriticResult.report``.
 
     Args:
-        host: Databricks workspace URL.
-        token: Bearer token for the serving endpoint.
-        endpoint_name: Foundation Model serving endpoint name.
+        host: Databricks workspace URL (document tools).
+        token: Databricks bearer token (document tools).
+        target: Resolved OpenAI-compatible LLM endpoint.
         client: Databricks SQL client (must expose ``execute_query(sql)``).
         item_kind: ``"entity"`` or ``"relationship"``.
         item_uri: The ontology class or property URI under audit.
@@ -429,8 +424,8 @@ def run_critic(
     iteration_limit = max_iterations if max_iterations is not None else MAX_ITERATIONS
 
     logger.info(
-        "===== CRITIC START ===== endpoint=%s, kind=%s, uri=%s, max_iter=%d",
-        endpoint_name,
+        "===== CRITIC START ===== llm=%s, kind=%s, uri=%s, max_iter=%d",
+        target.describe(),
         item_kind,
         item_uri,
         iteration_limit,
@@ -509,10 +504,8 @@ def run_critic(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=_MAX_TOKENS,
@@ -617,9 +610,7 @@ def run_critic(
             "Critic iteration %d: processing %d tool call(s): [%s]",
             current_iteration,
             len(tool_calls),
-            ", ".join(
-                tc.get("function", {}).get("name", "?") for tc in tool_calls
-            ),
+            ", ".join(tc.get("function", {}).get("name", "?") for tc in tool_calls),
         )
         messages.append(message)
 
@@ -644,9 +635,7 @@ def run_critic(
             )
 
             if tool_name == "submit_evaluation":
-                notify(
-                    f"Submitting evaluation for {item_uri}…", pct=pct
-                )
+                notify(f"Submitting evaluation for {item_uri}…", pct=pct)
             elif tool_name == "sample_table":
                 fn = arguments.get("full_name", "?")
                 notify(f"Sampling {fn}…", pct=pct)

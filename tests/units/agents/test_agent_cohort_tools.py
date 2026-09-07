@@ -19,7 +19,6 @@ import pytest
 from agents.agent_cohort import tools as cohort_tools
 from agents.tools.context import ToolContext
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -132,10 +131,12 @@ class TestListClasses:
         assert consultant["data_property_count"] == 2
 
     def test_empty_ontology(self, patch_client):
-        patch_client(lambda _r: httpx.Response(
-            200,
-            json={"success": True, "ontology": {"classes": [], "properties": []}},
-        ))
+        patch_client(
+            lambda _r: httpx.Response(
+                200,
+                json={"success": True, "ontology": {"classes": [], "properties": []}},
+            )
+        )
         out = json.loads(cohort_tools.tool_list_classes(_ctx()))
         assert out["count"] == 0
         assert out["classes"] == []
@@ -292,9 +293,7 @@ class TestListPropertiesOf:
         for entry in out["data_properties"]:
             assert entry["uri_synthesised"] is True
 
-    def test_no_matching_domain_falls_back_to_all_object_properties(
-        self, patch_client
-    ):
+    def test_no_matching_domain_falls_back_to_all_object_properties(self, patch_client):
         """When no property's domain matches the class, return ALL object
         properties (mirroring the form's permissive picker) flagged with
         ``domain_unknown`` so the LLM knows it's a guess."""
@@ -385,7 +384,9 @@ class TestCountClassMembers:
     def test_happy_path(self, patch_client):
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.url.path == "/dtwin/cohorts/preview/class-stats"
-            assert request.url.params.get("class_uri") == "https://ex.com/onto/Consultant"
+            assert (
+                request.url.params.get("class_uri") == "https://ex.com/onto/Consultant"
+            )
             assert request.url.params.get("registry_catalog") == "main"
             return httpx.Response(200, json={"success": True, "count": 137})
 
@@ -557,7 +558,12 @@ class TestProposeRule:
 class TestDryRun:
     def test_happy_path_truncates_clusters(self, patch_client):
         clusters = [
-            {"id": f"c-{i}", "size": 10 - i, "members": [f"u{j}" for j in range(10 - i)], "idx": i}
+            {
+                "id": f"c-{i}",
+                "size": 10 - i,
+                "members": [f"u{j}" for j in range(10 - i)],
+                "idx": i,
+            }
             for i in range(8)
         ]
 
@@ -588,7 +594,9 @@ class TestDryRun:
 
     def test_validation_failure_propagates(self, patch_client):
         patch_client(
-            lambda _r: httpx.Response(400, text='{"detail":{"error":"Cohort rule is invalid"}}')
+            lambda _r: httpx.Response(
+                400, text='{"detail":{"error":"Cohort rule is invalid"}}'
+            )
         )
         out = json.loads(cohort_tools.tool_dry_run(_ctx(), rule={"id": "x"}))
         assert "error" in out

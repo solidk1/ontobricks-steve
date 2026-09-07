@@ -327,7 +327,7 @@ class SQLWizardBase {
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    endpoint_name: document.getElementById(this.ids.llmEndpoint).value,
+                    model: document.getElementById(this.ids.llmEndpoint).value,
                     catalog: this.metadata?.catalog || '',
                     schema: this.metadata?.schema || '',
                     prompt: document.getElementById(this.ids.prompt).value,

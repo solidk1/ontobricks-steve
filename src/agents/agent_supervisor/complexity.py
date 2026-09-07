@@ -210,7 +210,9 @@ class ComplexityAssessor:
     def _rationale(tier: str, signals: Dict[str, float], score: float) -> str:
         drivers = []
         if signals["cross_source"] > 0:
-            drivers.append("a shared key across multiple tables (cross-source reconciliation)")
+            drivers.append(
+                "a shared key across multiple tables (cross-source reconciliation)"
+            )
         if signals["n_tables"] >= SATURATE_TABLES:
             drivers.append(f"{signals['n_tables']} source tables")
         if signals["n_classes"] >= SATURATE_CLASSES:

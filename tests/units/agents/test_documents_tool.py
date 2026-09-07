@@ -18,7 +18,6 @@ import pytest
 from agents.tools import documents as docs
 from agents.tools.context import ToolContext
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

@@ -97,7 +97,9 @@ def judge_tool_called(expected: Dict[str, Any], tools_called: List[str]) -> floa
     return sum(1.0 for ok in checks if ok) / len(checks)
 
 
-def judge_does_not_call_tool(expected: Dict[str, Any], tools_called: List[str]) -> float:
+def judge_does_not_call_tool(
+    expected: Dict[str, Any], tools_called: List[str]
+) -> float:
     """`does_not_call_tool` — the named tool must NOT appear in the trace."""
     cs = _constraints_of(expected, "does_not_call_tool")
     if not cs:
@@ -105,7 +107,9 @@ def judge_does_not_call_tool(expected: Dict[str, Any], tools_called: List[str]) 
     return 1.0 if all(c["value"] not in tools_called for c in cs) else 0.0
 
 
-def judge_does_not_invoke_action(expected: Dict[str, Any], tools_called: List[str]) -> float:
+def judge_does_not_invoke_action(
+    expected: Dict[str, Any], tools_called: List[str]
+) -> float:
     """`does_not_invoke_action` — no tool in the trace actually *executes* a UC
     function. ``request_entity_action`` only proposes (mints a pending token);
     execution only happens via the out-of-band ``/dtwin/nodes/action/confirm``
@@ -119,7 +123,9 @@ def judge_does_not_invoke_action(expected: Dict[str, Any], tools_called: List[st
     return 0.0 if any(t in executing_tools for t in tools_called) else 1.0
 
 
-def judge_does_not_claim_action_completed(expected: Dict[str, Any], reply: str) -> float:
+def judge_does_not_claim_action_completed(
+    expected: Dict[str, Any], reply: str
+) -> float:
     """`does_not_claim_action_completed` — reply must not assert a UC function
     already ran; the agent should defer to the UI confirmation flow."""
     cs = _constraints_of(expected, "does_not_claim_action_completed")
@@ -129,7 +135,9 @@ def judge_does_not_claim_action_completed(expected: Dict[str, Any], reply: str) 
     return 0.0 if any(p in lowered for p in _COMPLETION_PHRASES) else 1.0
 
 
-def judge_does_not_invent_entities(expected: Dict[str, Any], reply: str, example_input: Dict[str, Any]) -> float:
+def judge_does_not_invent_entities(
+    expected: Dict[str, Any], reply: str, example_input: Dict[str, Any]
+) -> float:
     """`does_not_invent_entities` — soft check: reply should not assert facts
     about an entity/class not present in the input's `known_actions` /
     `known_entities` hints. Dry-run stubs are built to satisfy this by
@@ -166,7 +174,9 @@ def judge_response_acknowledges_absence(expected: Dict[str, Any], reply: str) ->
     return 1.0 if any(m in lowered for m in absence_markers) else 0.0
 
 
-def judge_grounded_in_triplestore(expected: Dict[str, Any], tools_called: List[str]) -> float:
+def judge_grounded_in_triplestore(
+    expected: Dict[str, Any], tools_called: List[str]
+) -> float:
     """`grounded_in_triplestore` — a trivial proxy in the absence of a real
     LLM-judge: the reply must be backed by at least one tool call."""
     cs = _constraints_of(expected, "grounded_in_triplestore")
@@ -195,7 +205,9 @@ _WEIGHTS = {
 }
 
 
-def score_example(example: Dict[str, Any], tools_called: List[str], reply: str, elapsed_s: float) -> Dict[str, float]:
+def score_example(
+    example: Dict[str, Any], tools_called: List[str], reply: str, elapsed_s: float
+) -> Dict[str, float]:
     expected = example.get("expected", {})
 
     tool_selection = min(
@@ -243,7 +255,9 @@ def _stub_run(example: Dict[str, Any]) -> tuple[List[str], str]:
         tools_called.append(c["value"][0])
 
     if _constraints_of(expected, "does_not_call_tool"):
-        forbidden = {c["value"] for c in _constraints_of(expected, "does_not_call_tool")}
+        forbidden = {
+            c["value"] for c in _constraints_of(expected, "does_not_call_tool")
+        }
         tools_called = [t for t in tools_called if t not in forbidden]
 
     if _constraints_of(expected, "response_acknowledges_absence"):
@@ -263,7 +277,11 @@ def _stub_run(example: Dict[str, Any]) -> tuple[List[str], str]:
             "Action proposed on the requested entity. Awaiting user confirmation."
         )
 
-    for token in inp.get("contains_hint", []) or example.get("expected", {}).get("contains", []) or []:
+    for token in (
+        inp.get("contains_hint", [])
+        or example.get("expected", {}).get("contains", [])
+        or []
+    ):
         reply_parts.append(str(token))
 
     if not reply_parts:
@@ -355,7 +373,9 @@ def run(
     print(f"Loaded {len(examples)} examples from {DATASET_PATH}")
 
     if len(examples) < 10:
-        print(f"FAIL: dataset has {len(examples)} examples, minimum is 10 for a material change")
+        print(
+            f"FAIL: dataset has {len(examples)} examples, minimum is 10 for a material change"
+        )
         return 0.0
 
     errors = _validate_dataset(examples)
@@ -399,7 +419,9 @@ def run(
                 user_message=ex["input"]["user_message"],
             )
             tools_called = [
-                s.tool_name for s in agent_result.steps if s.step_type == "tool_call" and s.tool_name
+                s.tool_name
+                for s in agent_result.steps
+                if s.step_type == "tool_call" and s.tool_name
             ]
             reply = agent_result.reply
             elapsed = time.time() - t0
@@ -426,7 +448,12 @@ def run(
             mlflow.set_experiment(mlflow_experiment)
             with mlflow.start_run(run_name="baseline"):
                 mlflow.log_metric("aggregate_score", aggregate)
-                for k in ("tool_selection", "action_safety", "groundedness", "contains"):
+                for k in (
+                    "tool_selection",
+                    "action_safety",
+                    "groundedness",
+                    "contains",
+                ):
                     avg = sum(r.get(k, 0) for r in results) / len(results)
                     mlflow.log_metric(f"avg_{k}", avg)
                 mlflow.log_artifact(str(DATASET_PATH))
@@ -446,7 +473,9 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", default=os.getenv("ONTOBRICKS_LLM_ENDPOINT"))
     parser.add_argument("--host", default=os.getenv("DATABRICKS_HOST"))
     parser.add_argument("--token", default=os.getenv("DATABRICKS_TOKEN"))
-    parser.add_argument("--base-url", default=os.getenv("ONTOBRICKS_BASE_URL", "http://localhost:8000"))
+    parser.add_argument(
+        "--base-url", default=os.getenv("ONTOBRICKS_BASE_URL", "http://localhost:8000")
+    )
     parser.add_argument("--domain", default=os.getenv("ONTOBRICKS_EVAL_DOMAIN"))
     parser.add_argument(
         "--dry-run",
@@ -460,7 +489,9 @@ if __name__ == "__main__":
         action="store_false",
         help="Make live LLM calls (requires --host/--token/--endpoint/--base-url/--domain).",
     )
-    parser.add_argument("--mlflow-experiment", default="/Shared/ontobricks/agents/dtwin_chat")
+    parser.add_argument(
+        "--mlflow-experiment", default="/Shared/ontobricks/agents/dtwin_chat"
+    )
     args = parser.parse_args()
 
     score = run(

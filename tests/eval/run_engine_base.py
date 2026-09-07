@@ -14,13 +14,13 @@ That offline run scores 0.90 of the 1.00 declared in
 because CI has no model to call. The remaining 0.10 is ``live_smoke``, one real
 round-trip, which needs a reachable provider:
 
-    # Databricks Foundation Model API
-    uv run --frozen python tests/eval/run_engine_base.py --live \
-        --host https://<workspace> --token <pat> --endpoint databricks-claude-sonnet-4
-
-    # Any OpenAI-compatible provider
+    # Any OpenAI-compatible provider, Databricks included
     ONTOBRICKS_LLM_BASE_URL=https://api.openai.com/v1 \
     ONTOBRICKS_LLM_API_KEY=sk-… ONTOBRICKS_LLM_MODEL=gpt-4o-mini \
+        uv run --frozen python tests/eval/run_engine_base.py --live
+
+    ONTOBRICKS_LLM_BASE_URL=https://<workspace>/serving-endpoints \
+    ONTOBRICKS_LLM_API_KEY=<pat> ONTOBRICKS_LLM_MODEL=databricks-claude-sonnet-4 \
         uv run --frozen python tests/eval/run_engine_base.py --live
 
 ``live_smoke`` is scored zero when it does not run — never skipped — so the
@@ -70,25 +70,20 @@ def _threshold() -> float:
         return contract.AGGREGATE_THRESHOLD
 
 
-def live_smoke(
-    host: str, token: str, endpoint: str, *, timeout: int = 60
-) -> dict[str, Any]:
+def live_smoke(model: str = "", *, timeout: int = 60) -> dict[str, Any]:
     """One real round-trip through the production transport.
 
-    Deliberately calls ``call_serving_endpoint`` — not a reimplementation — so
-    the smoke test exercises the same code an agent does, including retry and
-    tracing.
+    Deliberately calls ``call_chat_completion`` — not a reimplementation — so the
+    smoke test exercises the same code an agent does, including retry and tracing.
     """
-    from agents.engine_base import call_serving_endpoint, extract_message_content
+    from agents.engine_base import call_chat_completion, extract_message_content
     from shared.config.LLMTarget import LLMTarget
 
-    target = LLMTarget.resolve(host, token, endpoint)
+    target = LLMTarget.from_env(model)
     print(f"  live target: {target.describe()}")
     t0 = time.time()
-    response = call_serving_endpoint(
-        host,
-        token,
-        endpoint,
+    response = call_chat_completion(
+        target,
         [{"role": "user", "content": "Reply with the single word: OK"}],
         max_tokens=16,
         timeout=timeout,
@@ -100,17 +95,15 @@ def live_smoke(
         "passed": bool(content.strip()),
         "latency_ms": elapsed_ms,
         "content": content.strip()[:120],
-        "api_style": target.api_style,
         "model": target.model,
+        "base_url": target.base_url,
     }
 
 
 def run(
     *,
     live: bool = False,
-    host: str = "",
-    token: str = "",
-    endpoint: str = "",
+    model: str = "",
     mlflow_experiment: str | None = None,
 ) -> float:
     rows = _load("baseline.jsonl") + _load("regression.jsonl")
@@ -132,7 +125,7 @@ def run(
     smoke: dict[str, Any] = {"passed": False, "reason": "not run"}
     if live:
         try:
-            smoke = live_smoke(host, token, endpoint)
+            smoke = live_smoke(model)
             mark = "ok  " if smoke["passed"] else "FAIL"
             print(
                 f"  [{mark}] live_smoke           {smoke['latency_ms']}ms "
@@ -176,17 +169,15 @@ def run(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eval harness — engine_base transport")
     parser.add_argument("--live", action="store_true", help="Add one real round-trip.")
-    parser.add_argument("--host", default=os.getenv("DATABRICKS_HOST", ""))
-    parser.add_argument("--token", default=os.getenv("DATABRICKS_TOKEN", ""))
-    parser.add_argument("--endpoint", default=os.getenv("ONTOBRICKS_LLM_ENDPOINT", ""))
+    parser.add_argument(
+        "--model", default="", help="Override ONTOBRICKS_LLM_MODEL for the smoke call."
+    )
     parser.add_argument("--mlflow-experiment", default=None)
     args = parser.parse_args()
 
     score = run(
         live=args.live,
-        host=args.host,
-        token=args.token,
-        endpoint=args.endpoint,
+        model=args.model,
         mlflow_experiment=args.mlflow_experiment,
     )
     sys.exit(0 if score >= _threshold() else 1)

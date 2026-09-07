@@ -22,6 +22,7 @@ from back.core.logging import get_logger
 from back.core.w3c.rdf_utils import uri_local_name
 from back.core.errors import InfrastructureError, ValidationError
 from back.objects.session import is_valid_session_id
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -74,7 +75,7 @@ class Mapping:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         client: Any,
         metadata: dict,
         ontology: dict,
@@ -95,7 +96,7 @@ class Mapping:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             client=client,
             metadata=metadata,
             ontology=ontology,
@@ -111,7 +112,7 @@ class Mapping:
         *,
         host: str,
         token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         client: Any,
         metadata: dict,
         ontology: dict,
@@ -137,7 +138,7 @@ class Mapping:
         return run_agent(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             client=client,
             metadata=metadata,
             ontology=ontology,
@@ -157,7 +158,7 @@ class Mapping:
         host: str,
         token: str,
         client: Any,
-        llm_endpoint: str,
+        target: LLMTarget,
         schema_context: Dict[str, Any],
         session_id: Optional[str],
         session_ref: Any,
@@ -272,7 +273,7 @@ class Mapping:
                     agent_result = self.auto_assign_with_agent(
                         host=host,
                         token=token,
-                        endpoint_name=llm_endpoint,
+                        target=target,
                         client=client,
                         metadata=schema_context,
                         ontology={
@@ -477,7 +478,7 @@ class Mapping:
         host: str,
         token: str,
         client: Any,
-        llm_endpoint: str,
+        target: LLMTarget,
         schema_context: Dict[str, Any],
         session_id: Optional[str],
         session_ref: Any,
@@ -505,7 +506,7 @@ class Mapping:
             agent_result = self.auto_assign_with_agent(
                 host=host,
                 token=token,
-                endpoint_name=llm_endpoint,
+                target=target,
                 client=client,
                 metadata=schema_context,
                 ontology=ontology_payload,

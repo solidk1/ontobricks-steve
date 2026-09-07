@@ -27,6 +27,9 @@ ENV_KEYS = (
     "ONTOBRICKS_LLM_API_KEY",
     "ONTOBRICKS_LLM_MODEL",
     "ONTOBRICKS_LLM_MODELS",
+    # Present so a row can assert these do NOT configure an LLM.
+    "DATABRICKS_HOST",
+    "DATABRICKS_TOKEN",
 )
 
 # SPEC §5.  The four offline dimensions sum to 0.90; ``live_smoke`` is the
@@ -58,9 +61,10 @@ class _Capture(logging.Handler):
 def observe(case: dict[str, Any]) -> dict[str, Any]:
     """Resolve one row's ``input`` into the observed transport contract.
 
-    Returns either ``{"error": "<ExceptionClassName>"}`` or the four observable
-    facts: resolved URL, ``Authorization`` header (``None`` when omitted), the
-    ``model`` value the payload carries (``None`` when absent), and the style.
+    Returns either ``{"error": "<ExceptionClassName>"}`` or the three observable
+    facts: resolved URL, ``Authorization`` header (``None`` when omitted), and the
+    ``model`` value the payload carries. There is no style to observe — there is
+    only one request shape.
     """
     from shared.config.LLMTarget import LLMTarget
 
@@ -78,18 +82,13 @@ def observe(case: dict[str, Any]) -> dict[str, Any]:
             for key in removed:
                 os.environ.pop(key, None)
             try:
-                target = LLMTarget.resolve(
-                    case.get("host", ""),
-                    case.get("token", ""),
-                    case.get("endpoint_name", ""),
-                )
+                target = LLMTarget.from_env(case.get("model", ""))
             except Exception as exc:
                 return {"error": type(exc).__name__, "log": list(capture.messages)}
             observed = {
                 "url": target.completions_url(),
                 "auth": target.headers().get("Authorization"),
-                "model_in_body": target.payload_extras().get("model"),
-                "api_style": target.api_style,
+                "model_in_body": target.model,
                 "log": list(capture.messages),
             }
     finally:
@@ -101,8 +100,11 @@ def observe(case: dict[str, Any]) -> dict[str, Any]:
 def _secrets_of(case: dict[str, Any]) -> list[str]:
     """Credential strings that must never reach a log record."""
     env = case.get("env") or {}
-    candidates = [env.get("ONTOBRICKS_LLM_API_KEY", ""), case.get("token", "")]
-    return [c for c in candidates if c and len(c) >= 4]
+    candidates = [
+        env.get("ONTOBRICKS_LLM_API_KEY", ""),
+        env.get("DATABRICKS_TOKEN", ""),
+    ]
+    return [c.strip() for c in candidates if c.strip() and len(c.strip()) >= 4]
 
 
 def judge_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -134,10 +136,7 @@ def judge_row(row: dict[str, Any]) -> dict[str, Any]:
         "dimensions": {
             "url_exact": observed.get("url") == expected["url"],
             "auth_header_exact": observed.get("auth") == expected["auth"],
-            "payload_shape": (
-                observed.get("model_in_body") == expected["model_in_body"]
-                and observed.get("api_style") == expected["api_style"]
-            ),
+            "payload_shape": observed.get("model_in_body") == expected["model_in_body"],
             "no_secret_leak": all(s not in log_blob for s in _secrets_of(case)),
         },
     }

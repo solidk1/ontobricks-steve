@@ -75,7 +75,9 @@ class TestNoLegacyOnlyDefaults:
             if _CANONICAL in ln:
                 continue
             rel = f"{p.relative_to(_STATIC)}"
-            if any(rel == a_file and ln == a_line for a_file, a_line in _SECTION_ID_USES):
+            if any(
+                rel == a_file and ln == a_line for a_file, a_line in _SECTION_ID_USES
+            ):
                 continue
             offenders.append(f"{rel}:{n}: {ln}")
         assert offenders == [], (
@@ -87,7 +89,9 @@ class TestNoLegacyOnlyDefaults:
 class TestCanonicalIsPresent:
     def test_engine_label_maps_include_postgres(self):
         """A label map keyed only by the legacy value renders no label."""
-        maps = [p for p in _js_files() if "'lakebase':" in p.read_text(encoding="utf-8")]
+        maps = [
+            p for p in _js_files() if "'lakebase':" in p.read_text(encoding="utf-8")
+        ]
         for path in maps:
             text = path.read_text(encoding="utf-8")
             assert "'postgres':" in text, (
@@ -97,13 +101,13 @@ class TestCanonicalIsPresent:
 
     def test_domain_backend_select_offers_postgres(self):
         """The stored value written by the picker must be canonical."""
-        html = (_TEMPLATES / "partials" / "domain" / "_domain_information.html").read_text(
-            encoding="utf-8"
-        )
+        html = (
+            _TEMPLATES / "partials" / "domain" / "_domain_information.html"
+        ).read_text(encoding="utf-8")
         assert 'value="postgres"' in html
-        assert 'value="lakebase"' not in html, (
-            "the picker would write the retired value into domain JSON"
-        )
+        assert (
+            'value="lakebase"' not in html
+        ), "the picker would write the retired value into domain JSON"
 
 
 class TestSyntax:
@@ -140,3 +144,38 @@ class TestSyntax:
             [node, "--check", str(path)], capture_output=True, text=True, timeout=30
         )
         assert result.returncode == 0, f"{name} failed to parse:\n{result.stderr}"
+
+
+class TestLLMRequestFieldNames:
+    """The JS request body and the route that reads it must agree.
+
+    P3d shipped ~25 JS sites comparing against a value the backend had stopped
+    sending, with the whole Python suite green — a field-name change on one side
+    of an HTTP boundary is invisible to tests that only exercise one side. P6's
+    second revision renamed the SQL Wizard's ``endpoint_name`` field to
+    ``model``, which is the same hazard, so it gets the same guard.
+    """
+
+    _ROUTE = Path(__file__).resolve().parents[3] / "src/api/routers/internal/mapping.py"
+
+    def test_no_js_still_sends_the_retired_endpoint_name_field(self):
+        offenders = [
+            f"{p.relative_to(_STATIC)}:{n}"
+            for p in _STATIC.rglob("*.js")
+            for n, line in enumerate(p.read_text().splitlines(), 1)
+            if "endpoint_name:" in line
+        ]
+        assert not offenders, (
+            "JS still sends the retired 'endpoint_name' field; the route reads "
+            f"'model': {offenders}"
+        )
+
+    def test_the_generate_sql_route_reads_model(self):
+        assert 'data.get("model")' in self._ROUTE.read_text()
+
+    def test_the_generate_sql_route_no_longer_reads_endpoint_name(self):
+        assert 'data.get("endpoint_name")' not in self._ROUTE.read_text()
+
+    def test_js_sends_the_field_the_route_reads(self):
+        wizard_js = (_STATIC / "mapping/js/mapping-shared.js").read_text()
+        assert "model: document.getElementById" in wizard_js

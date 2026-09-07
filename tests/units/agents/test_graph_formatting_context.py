@@ -12,7 +12,13 @@ def test_class_context_includes_dataset_bridges_actions():
         {
             "name": "Customer",
             "dataset": {"fullName": "main.crm.customers", "key_column": "id"},
-            "bridges": [{"target_domain": "Finance", "target_class_name": "Contract", "label": "Owns"}],
+            "bridges": [
+                {
+                    "target_domain": "Finance",
+                    "target_class_name": "Contract",
+                    "label": "Owns",
+                }
+            ],
             "actions": [{"fullName": "main.ops.recompute_risk", "description": "Risk"}],
         },
         action_invoke_hint="call request_entity_action(entity_uri, action) to propose one",
@@ -66,7 +72,11 @@ def test_node_context_and_action_formatters():
             "entity_uri": "https://ex/Customer/CUST1",
             "entity_local_id": "CUST1",
             "class_name": "Customer",
-            "dataset": {"fullName": "main.crm.customers", "key_column": "id", "rows": [{"id": "CUST1"}]},
+            "dataset": {
+                "fullName": "main.crm.customers",
+                "key_column": "id",
+                "rows": [{"id": "CUST1"}],
+            },
             "bridges": None,
             "actions": [{"fullName": "main.ops.recompute_risk", "description": "Risk"}],
         },
@@ -75,8 +85,13 @@ def test_node_context_and_action_formatters():
     assert "Rows (1):" in ctx
     assert "request_entity_action" in ctx
     act = format_node_action_response(
-        {"success": True, "action": "main.ops.recompute_risk", "entity_local_id": "CUST1",
-         "class_name": "Customer", "rows": [{"result": 1}]}
+        {
+            "success": True,
+            "action": "main.ops.recompute_risk",
+            "entity_local_id": "CUST1",
+            "class_name": "Customer",
+            "rows": [{"result": 1}],
+        }
     )
     assert "main.ops.recompute_risk" in act
     assert "result: 1" in act

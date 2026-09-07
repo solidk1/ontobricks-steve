@@ -15,7 +15,9 @@ _BUILD = Path("src/front/templates/partials/dtwin/_query_sync.html")
 _BUILD_JS = Path("src/front/static/query/js/query-sync.js")
 _VALIDATION = Path("src/front/templates/partials/domain/_domain_validation.html")
 _VALIDATION_JS = Path("src/front/static/domain/js/domain-validation.js")
-_REGISTRY_CONFIG = Path("src/front/templates/partials/registry/_registry_configuration.html")
+_REGISTRY_CONFIG = Path(
+    "src/front/templates/partials/registry/_registry_configuration.html"
+)
 _REGISTRY_JS = Path("src/front/static/registry/js/registry.js")
 
 _EXPECTED = {
@@ -77,7 +79,7 @@ def test_databricks_settings_uses_official_databricks_icon():
 
     css = _CSS.read_text(encoding="utf-8")
     assert (
-        '.ob-icon-databricks {\n'
+        ".ob-icon-databricks {\n"
         '    background-image: url("/static/global/img/databricks-icon.svg");\n'
         "}"
     ) in css
@@ -95,7 +97,9 @@ def test_lakehouse_dynamic_icons_use_lakehouse_modifier():
 
 def test_brand_icon_box_matches_text_icon_size():
     css = _CSS.read_text(encoding="utf-8")
-    brand_rule = css[css.index(".ob-brand-icon {") : css.index("}", css.index(".ob-brand-icon {"))]
+    brand_rule = css[
+        css.index(".ob-brand-icon {") : css.index("}", css.index(".ob-brand-icon {"))
+    ]
     assert "width: 1em;" in brand_rule
     assert "height: 1em;" in brand_rule
     assert "background-size: contain;" in brand_rule

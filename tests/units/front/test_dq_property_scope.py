@@ -34,16 +34,16 @@ def _method_body(name: str) -> str:
 
 def test_property_without_a_domain_belongs_to_no_entity():
     body = _method_body("_classOwnsProperty")
-    assert "if (!domain) return false;" in body, (
-        "a domain-less property must not be claimed by every entity"
-    )
+    assert (
+        "if (!domain) return false;" in body
+    ), "a domain-less property must not be claimed by every entity"
 
 
 def test_ownership_tolerates_a_uri_domain():
     body = _method_body("_classOwnsProperty")
-    assert "_localName(domain)" in body, (
-        "domain may hold a full URI depending on the ingestion path"
-    )
+    assert (
+        "_localName(domain)" in body
+    ), "domain may hold a full URI depending on the ingestion path"
     assert "entry.cls.uri" in body, "a domain may also match the entity URI"
 
 
@@ -53,9 +53,9 @@ def test_inherited_properties_are_offered():
     assert "seen" in chain, "_classChain must guard against inheritance cycles"
 
     body = _method_body("_propertiesForClass")
-    assert "_classChain(className)" in body, (
-        "_propertiesForClass must include inherited properties"
-    )
+    assert (
+        "_classChain(className)" in body
+    ), "_propertiesForClass must include inherited properties"
 
 
 def test_unknown_entity_offers_nothing():
@@ -65,15 +65,15 @@ def test_unknown_entity_offers_nothing():
 
 def test_property_select_is_scoped_to_the_entity():
     body = _method_body("_populatePropertySelect")
-    assert "this._propertiesForClass(className)" in body, (
-        "the property select must resolve ownership, not filter inline"
-    )
-    assert "this.ontologyProperties" not in body, (
-        "the property select must not read the global property list directly"
-    )
-    assert "|| !dom" not in body, (
-        "regression: domain-less properties must not be offered for every entity"
-    )
+    assert (
+        "this._propertiesForClass(className)" in body
+    ), "the property select must resolve ownership, not filter inline"
+    assert (
+        "this.ontologyProperties" not in body
+    ), "the property select must not read the global property list directly"
+    assert (
+        "|| !dom" not in body
+    ), "regression: domain-less properties must not be offered for every entity"
 
 
 def test_conditions_use_the_same_scope_as_the_property_select():
@@ -88,15 +88,15 @@ def test_an_untyped_property_counts_as_an_attribute():
     entity whose attributes were not materialised in `dataProperties`.
     """
     body = _method_body("_isObjectProperty")
-    assert "if (!range) return false;" in body, (
-        "a property with no type and no range must be treated as an attribute"
-    )
-    assert "return this._isKnownClassName(range);" in body, (
-        "an untyped property is a relationship only when its range names an entity"
-    )
-    assert not re.search(r"\breturn true;", body), (
-        "regression: relationship must no longer be the fallback classification"
-    )
+    assert (
+        "if (!range) return false;" in body
+    ), "a property with no type and no range must be treated as an attribute"
+    assert (
+        "return this._isKnownClassName(range);" in body
+    ), "an untyped property is a relationship only when its range names an entity"
+    assert not re.search(
+        r"\breturn true;", body
+    ), "regression: relationship must no longer be the fallback classification"
 
 
 def test_a_range_naming_an_entity_is_a_relationship():

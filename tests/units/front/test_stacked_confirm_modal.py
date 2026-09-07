@@ -156,9 +156,9 @@ def test_shared_helper_cleans_stack_on_hidden():
     ), "hidden.bs.modal must invoke clearStack"
     clear_body = _function_body(body, "clearStack")
     assert clear_body, "clearStack helper must be defined"
-    assert _removals_cover_classes(clear_body, _STACK_CLASSES), (
-        "clearStack must remove every stacked-modal class"
-    )
+    assert _removals_cover_classes(
+        clear_body, _STACK_CLASSES
+    ), "clearStack must remove every stacked-modal class"
 
 
 def test_confirm_uses_shared_stacked_modal_helper():
@@ -174,9 +174,9 @@ def test_css_defines_underlying_blur():
     )
     assert body, "underlying blur rule missing from components.css"
     assert "blur(" in body, "blur() must be defined in the underlying-modal rule"
-    assert "prefers-reduced-motion" in css, (
-        "prefers-reduced-motion must be present in stacked modal styles"
-    )
+    assert (
+        "prefers-reduced-motion" in css
+    ), "prefers-reduced-motion must be present in stacked modal styles"
 
 
 def test_css_raises_stacked_z_index():
@@ -189,9 +189,9 @@ def test_css_raises_stacked_z_index():
     )
     assert stacked_body, ".ob-modal-stacked rule missing from components.css"
     assert backdrop_body, ".ob-modal-stacked-backdrop rule missing from components.css"
-    assert re.search(r"z-index\s*:\s*1065", stacked_body), (
-        ".ob-modal-stacked must set z-index: 1065"
-    )
-    assert re.search(r"z-index\s*:\s*1060", backdrop_body), (
-        ".ob-modal-stacked-backdrop must set z-index: 1060"
-    )
+    assert re.search(
+        r"z-index\s*:\s*1065", stacked_body
+    ), ".ob-modal-stacked must set z-index: 1065"
+    assert re.search(
+        r"z-index\s*:\s*1060", backdrop_body
+    ), ".ob-modal-stacked-backdrop must set z-index: 1060"

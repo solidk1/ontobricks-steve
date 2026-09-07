@@ -22,14 +22,16 @@ _KG_PAGES = [
 
 def test_kg_status_partial_exposes_data_attribute():
     html = PARTIAL.read_text(encoding="utf-8")
-    assert 'data-kg-status' in html
+    assert "data-kg-status" in html
     assert "kg-status-indicator" in html
 
 
 def test_kg_subpages_include_status_partial():
     for rel in _KG_PAGES:
         html = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        assert '_kg_status_indicator.html' in html, f"missing indicator include in {rel}"
+        assert (
+            "_kg_status_indicator.html" in html
+        ), f"missing indicator include in {rel}"
 
 
 def test_update_kg_ready_indicators_covers_three_states():
@@ -56,9 +58,15 @@ def test_backend_badges_include_matching_brand_icons():
     assert "ob-icon-databricks" in js
     assert "ob-icon-neo4j" in js
     assert "function _kgBackendIconMarkup()" in js
-    ready = js[js.index("Graph ready") : js.index("} else if (tripleStoreStatusUnknown)")]
+    ready = js[
+        js.index("Graph ready") : js.index("} else if (tripleStoreStatusUnknown)")
+    ]
     assert "_kgBackendIconMarkup()" in ready
-    unknown = js[js.index("Status unavailable") : js.index("} else {", js.index("Status unavailable"))]
+    unknown = js[
+        js.index("Status unavailable") : js.index(
+            "} else {", js.index("Status unavailable")
+        )
+    ]
     assert "_kgBackendIconMarkup()" in unknown
 
 
@@ -93,7 +101,7 @@ class TestAnUnreachableEngineIsNotAMissingGraph:
         added `false &&`, say) is still caught.
         """
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function updateKgReadyIndicators()"):]
+        body = js[js.index("function updateKgReadyIndicators()") :]
         body = body[: body.index("\n}")]
         branch = "} else if (tripleStoreStatusUnknown) {"
         assert branch in body
@@ -102,9 +110,9 @@ class TestAnUnreachableEngineIsNotAMissingGraph:
     def test_the_unknown_state_does_not_offer_a_rebuild(self):
         """A connection blip must not invite a needless rebuild."""
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function updateKgReadyIndicators()"):]
+        body = js[js.index("function updateKgReadyIndicators()") :]
         body = body[: body.index("\n}")]
-        unknown_branch = body[body.index("tripleStoreStatusUnknown"):]
+        unknown_branch = body[body.index("tripleStoreStatusUnknown") :]
         unknown_branch = unknown_branch[: unknown_branch.index("} else {")]
         assert "kg-go-build-btn" not in unknown_branch
 
@@ -114,15 +122,15 @@ class TestAnUnreachableEngineIsNotAMissingGraph:
 
     def test_a_failed_status_request_is_also_unknown(self):
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("async function checkTripleStoreStatus("):]
+        body = js[js.index("async function checkTripleStoreStatus(") :]
         body = body[: body.index("\n}")]
-        catch_block = body[body.index("} catch (e) {"):]
+        catch_block = body[body.index("} catch (e) {") :]
         assert "tripleStoreStatusUnknown = true" in catch_block
 
     def test_the_status_area_does_not_call_an_unknown_graph_empty(self):
         """It used to fall through to "Graph is empty. Run Synchronize"."""
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function renderTripleStoreStatus(data)"):]
+        body = js[js.index("function renderTripleStoreStatus(data)") :]
         body = body[: body.index("\n}\n")]
         assert "data.has_data === null" in body
         assert body.index("data.has_data === null") < body.index("Graph is empty")
@@ -148,27 +156,27 @@ class TestTheLiveProbeCorrectsTheCachedBadge:
 
     def test_it_runs_after_the_force_refreshed_fetch(self):
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("async function _loadDtExistence()"):]
+        body = js[js.index("async function _loadDtExistence()") :]
         body = body[: body.index("\n}")]
         assert "_reconcileReadinessWithLiveProbe(data)" in body
 
     def test_it_repaints_the_indicators(self):
         """Promoting the flag alone would leave the stale badge on screen."""
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function _reconcileReadinessWithLiveProbe("):]
+        body = js[js.index("function _reconcileReadinessWithLiveProbe(") :]
         body = body[: body.index("\n}\n")]
         assert "updateDataMenus()" in body
 
     def test_only_an_affirmative_live_result_promotes_readiness(self):
         """An unknown live probe must not manufacture a ready graph."""
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function _reconcileReadinessWithLiveProbe("):]
+        body = js[js.index("function _reconcileReadinessWithLiveProbe(") :]
         body = body[: body.index("\n}\n")]
         assert "graph_has_data !== true" in body
 
     def test_a_pending_skeleton_is_ignored(self):
         js = SYNC_JS.read_text(encoding="utf-8")
-        body = js[js.index("function _reconcileReadinessWithLiveProbe("):]
+        body = js[js.index("function _reconcileReadinessWithLiveProbe(") :]
         body = body[: body.index("\n}\n")]
         assert "pending" in body
 

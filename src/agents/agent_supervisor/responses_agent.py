@@ -40,6 +40,8 @@ from mlflow.types.responses import (
 from agents.agent_supervisor.complexity import assess
 from agents.agent_supervisor.engine import SupervisorEngine
 from back.core.logging import get_logger
+from back.core.errors import OntoBricksError
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -81,20 +83,29 @@ class MappingEngineResponsesAgent(ResponsesAgent):
                 f"Complexity {report.score:.2f} ({report.tier}). "
                 f"Recommended engine: {report.recommended_engine}. {report.rationale}"
             )
-            yield self._text_event(text, custom_outputs={"complexity": report.to_dict()})
+            yield self._text_event(
+                text, custom_outputs={"complexity": report.to_dict()}
+            )
             return
 
-        if not ci.get("host") or not ci.get("token") or not ci.get("endpoint_name"):
+        if not ci.get("host") or not ci.get("token"):
             yield self._text_event(
-                "Error: 'run' mode needs host, token, and endpoint_name in custom_inputs."
+                "Error: 'run' mode needs host and token in custom_inputs."
             )
+            return
+
+        try:
+            target = LLMTarget.from_env(ci.get("model", ""))
+        except OntoBricksError as exc:
+            # Streaming contract: surface the configuration error as an event.
+            yield self._text_event(f"Error: {exc}")
             return
 
         result = SupervisorEngine.run(
             task="mapping",
             host=ci["host"],
             token=ci["token"],
-            endpoint_name=ci["endpoint_name"],
+            target=target,
             metadata=metadata,
             ontology=ontology,
             engine_override=ci.get("engine_override") or self._engine,

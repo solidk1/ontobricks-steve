@@ -13,7 +13,10 @@ Usage (local / in-process)::
         "custom_inputs": {
             "host": "https://...",
             "token": "dapi...",
-            "endpoint_name": "databricks-meta-llama...",
+            # Optional. The LLM provider itself comes from the serving
+            # container's ONTOBRICKS_LLM_* environment, never from the request
+            # payload -- a credential does not belong in custom_inputs.
+            "model": "gpt-4o-mini",
             "classes": [...],
             "properties": [...],
             "base_uri": "http://example.org/ontology#",
@@ -47,7 +50,9 @@ from mlflow.types.responses import (
 from back.core.logging import get_logger
 from agents.agent_ontology_assistant.tools import TOOL_DEFINITIONS, TOOL_HANDLERS
 from agents.tools.context import ToolContext
-from agents.engine_base import call_serving_endpoint, dispatch_tool
+from agents.engine_base import call_chat_completion, dispatch_tool
+from back.core.errors import OntoBricksError
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -89,7 +94,6 @@ class OntologyAssistantResponsesAgent(ResponsesAgent):
         ci = request.custom_inputs or {}
         host = ci.get("host", "")
         token = ci.get("token", "")
-        endpoint_name = ci.get("endpoint_name", "")
         classes = copy.deepcopy(ci.get("classes", []))
         properties = copy.deepcopy(ci.get("properties", []))
         base_uri = ci.get("base_uri", "")
@@ -101,10 +105,16 @@ class OntologyAssistantResponsesAgent(ResponsesAgent):
             yield self._error_event("No user message provided.")
             return
 
-        if not host or not token or not endpoint_name:
-            yield self._error_event(
-                "Missing host, token, or endpoint_name in custom_inputs."
-            )
+        if not host or not token:
+            yield self._error_event("Missing host or token in custom_inputs.")
+            return
+
+        try:
+            target = LLMTarget.from_env(ci.get("model", ""))
+        except OntoBricksError as exc:
+            # The streaming contract converts problems into events, so the
+            # configuration error is surfaced verbatim rather than raised.
+            yield self._error_event(str(exc))
             return
 
         ctx = ToolContext(
@@ -126,9 +136,7 @@ class OntologyAssistantResponsesAgent(ResponsesAgent):
             is_last = iteration == MAX_ITERATIONS - 1
             send_tools = TOOL_DEFINITIONS if not is_last else None
 
-            llm_response = self._call_llm(
-                host, token, endpoint_name, messages, send_tools
-            )
+            llm_response = self._call_llm(target, messages, send_tools)
             if llm_response is None:
                 yield self._error_event("LLM request failed.")
                 return
@@ -208,7 +216,7 @@ class OntologyAssistantResponsesAgent(ResponsesAgent):
         result = run_agent(
             host=ci.get("host", ""),
             token=ci.get("token", ""),
-            endpoint_name=ci.get("endpoint_name", ""),
+            target=LLMTarget.from_env(ci.get("model", "")),
             classes=copy.deepcopy(ci.get("classes", [])),
             properties=copy.deepcopy(ci.get("properties", [])),
             base_uri=ci.get("base_uri", ""),
@@ -225,17 +233,13 @@ class OntologyAssistantResponsesAgent(ResponsesAgent):
     @mlflow.trace(span_type=SpanType.LLM)
     def _call_llm(
         self,
-        host: str,
-        token: str,
-        endpoint_name: str,
+        target: LLMTarget,
         messages: list,
         tools: Optional[list],
     ) -> Optional[dict]:
         try:
-            return call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            return call_chat_completion(
+                target,
                 messages,
                 tools=tools,
                 max_tokens=2048,

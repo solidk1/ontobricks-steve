@@ -12,7 +12,7 @@ get_documents_context, execute_sql), and emits a validated
 :class:`SourceModel` via the ``submit_source_model`` terminal tool.
 
 The loop semantics mirror the prior single-loop mapping agent — same
-``call_serving_endpoint`` + ``dispatch_tool`` ReAct cycle, same 3-second
+``call_chat_completion`` + ``dispatch_tool`` ReAct cycle, same 3-second
 inter-iteration delay, same accumulated usage tracking, same MLflow trace
 decorator — with two key differences:
 
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 from back.core.logging import get_logger
 from agents.engine_base import (
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     accumulate_usage,
 )
@@ -61,6 +61,7 @@ from agents.tools.sql import (
     SQL_TOOL_HANDLERS,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -370,7 +371,7 @@ def _build_user_prompt(
 def run_planner(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     metadata: dict,
     ontology: dict,
@@ -387,9 +388,9 @@ def run_planner(
     terminal ``submit_source_model`` tool.
 
     Args:
-        host: Databricks workspace URL.
-        token: Bearer token for the serving endpoint.
-        endpoint_name: Foundation Model serving endpoint name.
+        host: Databricks workspace URL (document tools).
+        token: Databricks bearer token (document tools).
+        target: Resolved OpenAI-compatible LLM endpoint.
         client: Databricks SQL client (must expose ``execute_query(sql)``).
         metadata: Imported domain metadata (``{"tables": [...]}``).
         ontology: Imported ontology (``{"entities": [...], "relationships": [...]}``).
@@ -410,8 +411,8 @@ def run_planner(
     n_tables = len((metadata or {}).get("tables", []))
 
     logger.info(
-        "===== PLANNER START ===== endpoint=%s, tables=%d, entities=%d, relationships=%d, max_iter=%d",
-        endpoint_name,
+        "===== PLANNER START ===== llm=%s, tables=%d, entities=%d, relationships=%d, max_iter=%d",
+        target.describe(),
         n_tables,
         len(entities),
         len(relationships),
@@ -482,10 +483,8 @@ def run_planner(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=TOOL_DEFINITIONS,
                 max_tokens=_MAX_TOKENS,
@@ -594,9 +593,7 @@ def run_planner(
             "Planner iteration %d: processing %d tool call(s): [%s]",
             current_iteration,
             len(tool_calls),
-            ", ".join(
-                tc.get("function", {}).get("name", "?") for tc in tool_calls
-            ),
+            ", ".join(tc.get("function", {}).get("name", "?") for tc in tool_calls),
         )
         messages.append(message)
 

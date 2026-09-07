@@ -6,7 +6,9 @@ ROOT = Path(__file__).resolve().parents[3]
 HTML = (
     ROOT / "src/front/templates/partials/ontology/_ontology_business_rules.html"
 ).read_text(encoding="utf-8")
-JS = (ROOT / "src/front/static/ontology/js/ontology-swrl.js").read_text(encoding="utf-8")
+JS = (ROOT / "src/front/static/ontology/js/ontology-swrl.js").read_text(
+    encoding="utf-8"
+)
 
 
 def test_swrl_button_and_modal_markup():

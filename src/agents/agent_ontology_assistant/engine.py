@@ -20,11 +20,12 @@ from agents.agent_ontology_assistant.tools import (
 from agents.tools.context import ToolContext
 from agents.engine_base import (
     AgentStep,
-    call_serving_endpoint,
+    call_chat_completion,
     dispatch_tool,
     accumulate_usage,
 )
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -145,7 +146,7 @@ FORMATTING
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     classes: list,
     properties: list,
     base_uri: str,
@@ -164,8 +165,8 @@ def run_agent(
         on_step: Optional progress callback.
     """
     logger.info(
-        "===== ONTOLOGY ASSISTANT START ===== endpoint=%s, classes=%d, properties=%d",
-        endpoint_name,
+        "===== ONTOLOGY ASSISTANT START ===== llm=%s, classes=%d, properties=%d",
+        target.describe(),
         len(classes),
         len(properties),
     )
@@ -198,10 +199,8 @@ def run_agent(
 
         t0 = time.time()
         try:
-            llm_response = call_serving_endpoint(
-                host,
-                token,
-                endpoint_name,
+            llm_response = call_chat_completion(
+                target,
                 messages,
                 tools=send_tools,
                 max_tokens=2048,

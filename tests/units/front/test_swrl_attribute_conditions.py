@@ -38,39 +38,39 @@ def _method_body(name: str) -> str:
 
 def test_condition_subjects_are_not_filtered_by_attributes():
     body = _method_body("_renderConditions")
-    assert "const entIds = [...this.ifNodes];" in body, (
-        "every IF entity must be offered as a condition subject"
-    )
-    assert "_dataPropsForClass(id).length" not in body, (
-        "_renderConditions must not filter IF entities on attribute presence"
-    )
+    assert (
+        "const entIds = [...this.ifNodes];" in body
+    ), "every IF entity must be offered as a condition subject"
+    assert (
+        "_dataPropsForClass(id).length" not in body
+    ), "_renderConditions must not filter IF entities on attribute presence"
 
 
 def test_new_condition_row_falls_back_to_any_if_entity():
     body = _method_body("addConditionRow")
-    assert "ifIds[0]" in body, (
-        "subject default must fall back to any IF entity, not stay empty"
-    )
+    assert (
+        "ifIds[0]" in body
+    ), "subject default must fall back to any IF entity, not stay empty"
 
 
 def test_attribute_lookup_walks_parent_chain():
     chain = _method_body("_classChain")
-    assert "cls.parent" in chain or "cls ? cls.parent" in chain, (
-        "_classChain must follow the parent link"
-    )
+    assert (
+        "cls.parent" in chain or "cls ? cls.parent" in chain
+    ), "_classChain must follow the parent link"
     assert "seen" in chain, "_classChain must guard against inheritance cycles"
 
     props = _method_body("_dataPropsForClass")
-    assert "_classChain(nodeId)" in props, (
-        "_dataPropsForClass must include inherited attributes via _classChain"
-    )
+    assert (
+        "_classChain(nodeId)" in props
+    ), "_dataPropsForClass must include inherited attributes via _classChain"
 
 
 def test_editor_reseeds_raw_classes_from_graph_config():
     body = _method_body("_openEditor")
-    assert "this._rawClasses = config.classes" in body, (
-        "editor must re-seed _rawClasses from the graph config"
-    )
-    assert "this._rawProperties = config.properties" in body, (
-        "editor must re-seed _rawProperties from the graph config"
-    )
+    assert (
+        "this._rawClasses = config.classes" in body
+    ), "editor must re-seed _rawClasses from the graph config"
+    assert (
+        "this._rawProperties = config.properties" in body
+    ), "editor must re-seed _rawProperties from the graph config"

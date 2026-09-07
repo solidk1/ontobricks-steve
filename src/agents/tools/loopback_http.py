@@ -17,7 +17,9 @@ from shared.config.constants import HTTP_USER_AGENT
 _DEFAULT_TIMEOUT = 60
 
 
-def loopback_client(ctx: ToolContext, *, timeout: int = _DEFAULT_TIMEOUT) -> httpx.Client:
+def loopback_client(
+    ctx: ToolContext, *, timeout: int = _DEFAULT_TIMEOUT
+) -> httpx.Client:
     """Build a sync httpx.Client bound to the loopback OntoBricks URL.
 
     Session cookies AND the user's Databricks-Apps ``X-Forwarded-*``

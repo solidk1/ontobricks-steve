@@ -7,9 +7,9 @@ token usage accumulation.  Each concrete agent engine imports what it needs
 and focuses exclusively on its own ``AgentResult``, system prompt, and
 ``run_agent`` loop.
 
-The endpoint is provider-agnostic: :class:`shared.config.LLMTarget` resolves
-either the Databricks Foundation Model API preset or any OpenAI-compatible
-``/chat/completions`` provider.  This module only posts the payload.
+The endpoint is provider-agnostic: :class:`shared.config.LLMTarget` carries the
+base URL, credential and model for any OpenAI-compatible ``/chat/completions``
+provider.  This module only posts the payload.
 """
 
 import json
@@ -32,10 +32,8 @@ logger = get_logger(__name__)
 # We cache such bans per (model, param) pair so subsequent calls skip the
 # offending field proactively instead of re-discovering the 400 every time.
 #
-# Keyed by *resolved model*, not by the caller's ``endpoint_name``: on an
-# external provider the endpoint name may be a stale Databricks value shared
-# by several models, and a ban discovered for one must not silence a parameter
-# the other supports.
+# Keyed by the target's model, so a ban discovered for one model never silences
+# a parameter a different model supports.
 _UNSUPPORTED_PARAMS: Dict[str, set] = {}
 
 
@@ -71,10 +69,8 @@ class AgentStep:
 
 
 @trace_llm("agent:llm")
-def call_serving_endpoint(
-    host: str,
-    token: str,
-    endpoint_name: str,
+def call_chat_completion(
+    target: LLMTarget,
     messages: List[dict],
     *,
     tools: Optional[List[dict]] = None,
@@ -83,29 +79,30 @@ def call_serving_endpoint(
     timeout: int = 180,
     trace_name: str = "agent:llm",
 ) -> dict:
-    """Call an OpenAI-compatible chat-completions endpoint.
+    """POST a chat completion to *target* and return the parsed response.
 
-    ``host``, ``token`` and ``endpoint_name`` are the Databricks preset's
-    inputs.  When ``ONTOBRICKS_LLM_BASE_URL`` is set they are superseded by that
-    provider, with ``endpoint_name`` falling back to the model name — see
-    :class:`shared.config.LLMTarget`.  The signature is unchanged so all 11
-    engines and their tests are untouched by the provider split.
+    The target carries the base URL, credential and model — this function does
+    not read configuration and does not choose a provider.  Callers resolve a
+    :class:`shared.config.LLMTarget` once at the edge (a route, or an MLflow
+    ``ResponsesAgent`` entry point) and pass it down.
 
-    Builds the URL, headers, and payload, then delegates to
-    :func:`call_llm_with_retry` for retry/backoff logic.
+    Note that a Databricks workspace host and token are *not* accepted here.
+    They remain a separate concern: agent tools use them for the Files API and
+    Unity Catalog, which is unrelated to where the model lives.
+
+    Delegates to :func:`call_llm_with_retry` for retry/backoff logic.
 
     Args:
         trace_name: Used for MLflow span naming via ``@trace_llm``.
     """
-    target = LLMTarget.resolve(host, token, endpoint_name)
     url = target.completions_url()
     headers = target.headers()
 
     banned = _unsupported_params(target.model)
     payload: Dict[str, Any] = {
+        "model": target.model,
         "messages": messages,
         "max_tokens": max_tokens,
-        **target.payload_extras(),
     }
     if "temperature" not in banned and temperature is not None:
         payload["temperature"] = temperature

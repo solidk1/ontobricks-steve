@@ -36,7 +36,6 @@ from fastapi import Request
 from back.core.errors import AuthorizationError
 from back.objects.registry import role_level
 
-
 _VALID_SCOPES = ("app", "domain")
 
 

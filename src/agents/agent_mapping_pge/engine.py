@@ -62,6 +62,7 @@ from agents.agent_mapping_pge.generators.relationship import (
 )
 from agents.agent_mapping_pge.planner import run_planner
 from agents.tracing import trace_agent
+from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -335,7 +336,7 @@ def _endpoint_em(state: "_RunState", ref: str) -> Optional[dict]:
 def run_agent(
     host: str,
     token: str,
-    endpoint_name: str,
+    target: LLMTarget,
     client: Any,
     metadata: dict,
     ontology: dict,
@@ -353,9 +354,9 @@ def run_agent(
     same positional/keyword signature, same :class:`AgentResult` shape.
 
     Args:
-        host: Databricks workspace URL.
-        token: Bearer token for the serving endpoint.
-        endpoint_name: Foundation Model serving endpoint name.
+        host: Databricks workspace URL (document tools).
+        token: Databricks bearer token (document tools).
+        target: Resolved OpenAI-compatible LLM endpoint.
         client: Databricks SQL client exposing ``execute_query(sql)``.
         metadata: Imported table metadata to hand to the Planner.
         ontology: Ontology dict with ``entities`` and ``relationships``.
@@ -383,7 +384,7 @@ def run_agent(
     state = _RunState(
         host=host,
         token=token,
-        endpoint_name=endpoint_name,
+        target=target,
         client=client,
         metadata=metadata or {},
         ontology=ontology or {},
@@ -417,10 +418,10 @@ def run_agent(
     relationships_in_scope = state.ontology.get("relationships", []) or []
 
     logger.info(
-        "===== MAPPING-PGE ENGINE START ===== endpoint=%s, entities=%d, "
+        "===== MAPPING-PGE ENGINE START ===== llm=%s, entities=%d, "
         "relationships=%d, preseeded_entities=%d, preseeded_rels=%d, "
         "skip_critic=%s",
-        endpoint_name,
+        target.describe(),
         len(entities_in_scope),
         len(relationships_in_scope),
         len(preseeded_entity_uris),
@@ -439,7 +440,7 @@ def run_agent(
         planner_result = run_planner(
             host=host,
             token=token,
-            endpoint_name=endpoint_name,
+            target=target,
             client=client,
             metadata=state.metadata,
             ontology=state.ontology,
@@ -481,9 +482,7 @@ def run_agent(
     state.entity_index = _ontology_index(state.ontology)
     state.rel_index = _relationship_index(state.ontology)
     state.execute_sql_fn = _wrap_execute_sql(client)
-    state.total_items_planned = len(state.entity_order) + len(
-        state.relationship_order
-    )
+    state.total_items_planned = len(state.entity_order) + len(state.relationship_order)
 
     # ------------------------------------------------------------------
     # Entity walk — three phases:
@@ -500,8 +499,12 @@ def run_agent(
         label = ontology_class.get("label") or ontology_class.get("name", entity_uri)
         if entity_uri in preseeded_entity_uris:
             state.mapping_run_log.append(
-                {"item": entity_uri, "kind": "entity", "attempts": [],
-                 "final_status": "PRESEEDED"}
+                {
+                    "item": entity_uri,
+                    "kind": "entity",
+                    "attempts": [],
+                    "final_status": "PRESEEDED",
+                }
             )
             state.notify(f"Skipping pre-seeded {label}")
             state.items_done += 1
@@ -519,7 +522,10 @@ def run_agent(
 
     # Phase 2 — abstract superclasses (depend on concrete mappings being present).
     for entity_uri in list(state.entity_order):
-        if entity_uri in state.abstract_uris and entity_uri not in preseeded_entity_uris:
+        if (
+            entity_uri in state.abstract_uris
+            and entity_uri not in preseeded_entity_uris
+        ):
             ontology_class = state.entity_index.get(entity_uri, {"uri": entity_uri})
             outcome = _run_abstract_item(state, ontology_class)
             _merge_entity_result(state, entity_uri, ontology_class, outcome)
@@ -534,8 +540,12 @@ def run_agent(
         label = prop.get("label") or prop.get("name", property_uri)
         if property_uri in preseeded_rel_uris:
             state.mapping_run_log.append(
-                {"item": property_uri, "kind": "relationship", "attempts": [],
-                 "final_status": "PRESEEDED"}
+                {
+                    "item": property_uri,
+                    "kind": "relationship",
+                    "attempts": [],
+                    "final_status": "PRESEEDED",
+                }
             )
             state.notify(f"Skipping pre-seeded {label}")
             state.items_done += 1
@@ -548,8 +558,12 @@ def run_agent(
         if source_em is None or target_em is None:
             missing = "source" if source_em is None else "target"
             state.mapping_run_log.append(
-                {"item": property_uri, "kind": "relationship", "attempts": [],
-                 "final_status": "FAIL_NO_ENDPOINT"}
+                {
+                    "item": property_uri,
+                    "kind": "relationship",
+                    "attempts": [],
+                    "final_status": "FAIL_NO_ENDPOINT",
+                }
             )
             state.add_step(
                 "evaluator",
@@ -590,7 +604,7 @@ class _RunState:
 
     host: str
     token: str
-    endpoint_name: str
+    target: LLMTarget
     client: Any
     metadata: dict
     ontology: dict
@@ -633,9 +647,7 @@ class _RunState:
     # Guards the shared accumulators (steps/usage/iterations) that per-item
     # runners touch while the entity/relationship walks run them in a pool.
     _lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
-    _replan_lock: Any = field(
-        default_factory=threading.Lock, repr=False, compare=False
-    )
+    _replan_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
     _max_pct: int = 0
 
     # -- helpers ----------------------------------------------------------
@@ -736,7 +748,7 @@ class _RunState:
             new_result = run_planner(
                 host=self.host,
                 token=self.token,
-                endpoint_name=self.endpoint_name,
+                target=self.target,
                 client=self.client,
                 metadata=self.metadata,
                 ontology=self.ontology,
@@ -788,14 +800,10 @@ class _RunState:
 
         # Success when at least one mapping was submitted, OR when there was
         # nothing to map (legitimate empty run).
-        nothing_to_map = (
-            not self.entity_order and not self.relationship_order
-        )
+        nothing_to_map = not self.entity_order and not self.relationship_order
         result.success = self.submitted_any or nothing_to_map
         if not result.success:
-            result.error = (
-                "no mappings submitted (all items failed or were skipped)"
-            )
+            result.error = "no mappings submitted (all items failed or were skipped)"
         logger.info(
             "===== MAPPING-PGE ENGINE COMPLETE ===== success=%s, entities=%d, "
             "relationships=%d, iterations=%d, replans=%d",
@@ -844,9 +852,16 @@ def _run_items_concurrently(items: List[Any], runner: Callable[[Any], _Outcome])
                 logger.error("Concurrent item runner raised: %s", exc, exc_info=True)
                 results[index[id(item)]] = (
                     "FAIL_BUDGET",
-                    [{"attempt": 1, "stage1_status": "skipped",
-                      "critic_status": "skipped", "bubble": False,
-                      "hint": None, "error": f"runner exception: {exc}"}],
+                    [
+                        {
+                            "attempt": 1,
+                            "stage1_status": "skipped",
+                            "critic_status": "skipped",
+                            "bubble": False,
+                            "hint": None,
+                            "error": f"runner exception: {exc}",
+                        }
+                    ],
                     None,
                     None,
                 )
@@ -861,8 +876,12 @@ def _merge_entity_result(
     final_status, attempts_log, last_mapping, last_report = outcome
     label = ontology_class.get("label") or ontology_class.get("name", entity_uri)
     state.mapping_run_log.append(
-        {"item": entity_uri, "kind": "entity", "attempts": attempts_log,
-         "final_status": final_status}
+        {
+            "item": entity_uri,
+            "kind": "entity",
+            "attempts": attempts_log,
+            "final_status": final_status,
+        }
     )
     if final_status == "PASS" and last_mapping is not None:
         state.entity_mappings.append(last_mapping)
@@ -881,8 +900,12 @@ def _merge_relationship_result(
     final_status, attempts_log, last_mapping, last_report = outcome
     label = prop.get("label") or prop.get("name", property_uri)
     state.mapping_run_log.append(
-        {"item": property_uri, "kind": "relationship", "attempts": attempts_log,
-         "final_status": final_status}
+        {
+            "item": property_uri,
+            "kind": "relationship",
+            "attempts": attempts_log,
+            "final_status": final_status,
+        }
     )
     if final_status == "PASS" and last_mapping is not None:
         state.relationship_mappings.append(last_mapping)
@@ -997,9 +1020,7 @@ def _run_entity_item(
     retry budget fresh, which is the intent of the bubble-to-planner path.
     """
     class_uri = ontology_class.get("uri", "")
-    class_label = ontology_class.get("label") or ontology_class.get(
-        "name", class_uri
-    )
+    class_label = ontology_class.get("label") or ontology_class.get("name", class_uri)
     attempts_log: List[dict] = []
     last_mapping: Optional[dict] = None
     last_report: Optional[EvalReport] = None
@@ -1023,7 +1044,7 @@ def _run_entity_item(
                 gen_result = run_entity_generator(
                     host=state.host,
                     token=state.token,
-                    endpoint_name=state.endpoint_name,
+                    target=state.target,
                     client=state.client,
                     ontology_class=ontology_class,
                     source_model_slice=slice_dict,
@@ -1138,7 +1159,7 @@ def _run_entity_item(
                 critic_result = run_critic(
                     host=state.host,
                     token=state.token,
-                    endpoint_name=state.endpoint_name,
+                    target=state.target,
                     client=state.client,
                     item_kind="entity",
                     item_uri=class_uri,
@@ -1277,7 +1298,7 @@ def _run_relationship_item(
                 gen_result = run_relationship_generator(
                     host=state.host,
                     token=state.token,
-                    endpoint_name=state.endpoint_name,
+                    target=state.target,
                     client=state.client,
                     ontology_property=ontology_property,
                     source_entity_mapping=source_em,
@@ -1395,7 +1416,7 @@ def _run_relationship_item(
                 critic_result = run_critic(
                     host=state.host,
                     token=state.token,
-                    endpoint_name=state.endpoint_name,
+                    target=state.target,
                     client=state.client,
                     item_kind="relationship",
                     item_uri=property_uri,

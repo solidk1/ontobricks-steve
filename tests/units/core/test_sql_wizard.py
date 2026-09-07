@@ -344,6 +344,18 @@ This returns active customers."""
 class TestIntegration:
     """Integration tests for the full SQL generation pipeline."""
 
+    @pytest.fixture(autouse=True)
+    def _llm_configured(self, monkeypatch):
+        """Configure a provider.
+
+        SQL Wizard no longer borrows the Databricks client's credentials for the
+        model call, so these tests must declare a provider like a real
+        deployment does.
+        """
+        monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://llm.test/v1")
+        monkeypatch.setenv("ONTOBRICKS_LLM_API_KEY", "test-key")
+        monkeypatch.setenv("ONTOBRICKS_LLM_MODEL", "default-model")
+
     @pytest.fixture
     def mock_client(self):
         client = Mock()
@@ -403,7 +415,7 @@ class TestIntegration:
         mock_post.return_value = mock_response
 
         result = wizard.generate_sql(
-            endpoint_name="test-endpoint",
+            model="test-endpoint",
             catalog="main",
             schema="sales",
             user_prompt="Get all customer names",
@@ -423,7 +435,7 @@ class TestIntegration:
 
         with pytest.raises(InfrastructureError) as exc_info:
             wizard.generate_sql(
-                endpoint_name="test-endpoint",
+                model="test-endpoint",
                 catalog="main",
                 schema="sales",
                 user_prompt="Get all customers",

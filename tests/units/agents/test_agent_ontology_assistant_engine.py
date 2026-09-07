@@ -18,10 +18,25 @@ def test_system_prompt_contains_all_pitfall_ids():
     from agents.agent_ontology_assistant.engine import SYSTEM_PROMPT
 
     expected_ids = [
-        "P1.1", "P1.2", "P1.3",
-        "P2.1", "P2.2", "P2.3", "P2.4", "P2.5", "P2.6",
-        "P3.1", "P3.2", "P3.3",
-        "P4.1", "P4.2", "P4.3", "P4.4", "P4.5", "P4.6", "P4.7",
+        "P1.1",
+        "P1.2",
+        "P1.3",
+        "P2.1",
+        "P2.2",
+        "P2.3",
+        "P2.4",
+        "P2.5",
+        "P2.6",
+        "P3.1",
+        "P3.2",
+        "P3.3",
+        "P4.1",
+        "P4.2",
+        "P4.3",
+        "P4.4",
+        "P4.5",
+        "P4.6",
+        "P4.7",
     ]
     missing = [pid for pid in expected_ids if pid not in SYSTEM_PROMPT]
     assert not missing, f"SYSTEM_PROMPT is missing pitfall IDs: {missing}"
@@ -63,7 +78,9 @@ def test_check_pitfalls_tool_is_registered():
 
     names = [td["function"]["name"] for td in TOOL_DEFINITIONS]
     assert "check_pitfalls" in names, "check_pitfalls missing from TOOL_DEFINITIONS"
-    assert "check_pitfalls" in TOOL_HANDLERS, "check_pitfalls missing from TOOL_HANDLERS"
+    assert (
+        "check_pitfalls" in TOOL_HANDLERS
+    ), "check_pitfalls missing from TOOL_HANDLERS"
 
 
 def test_check_pitfalls_returns_error_gracefully_when_deps_missing(monkeypatch):
@@ -71,7 +88,9 @@ def test_check_pitfalls_returns_error_gracefully_when_deps_missing(monkeypatch):
     import agents.agent_ontology_assistant.tools as tools_mod
 
     # Simulate missing pitfalls deps by patching PitfallsService import inside the tool
-    original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+    original_import = (
+        __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+    )
 
     def _mock_import(name, *args, **kwargs):
         if "pitfalls" in name.lower():

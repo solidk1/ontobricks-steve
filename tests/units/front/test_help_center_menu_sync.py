@@ -22,12 +22,16 @@ _EXPLORER = Path("src/front/templates/partials/dtwin/_query_sigmagraph.html")
 _GRAPHQL = Path("src/front/templates/partials/dtwin/_query_graphql.html")
 _SIGMA_JS = Path("src/front/static/query/js/query-sigmagraph.js")
 _BUILD_LAKEBASE = Path("src/front/templates/partials/dtwin/_query_sync.html")
-_BUILD_LAKEHOUSE = Path("src/front/templates/partials/dtwin/_query_databricks_build.html")
+_BUILD_LAKEHOUSE = Path(
+    "src/front/templates/partials/dtwin/_query_databricks_build.html"
+)
 _SYNC_JS = Path("src/front/static/query/js/query-sync.js")
 _ONTOLOGY_DESIGNER = Path("src/front/templates/partials/ontology/_ontology_map.html")
 _MAPPING_DESIGNER = Path("src/front/templates/partials/mapping/_mapping_design.html")
 _BUSINESS_VIEWS = Path("src/front/templates/partials/ontology/_ontology_design.html")
-_ONTOLOGY_ENTITIES = Path("src/front/templates/partials/ontology/_ontology_entities.html")
+_ONTOLOGY_ENTITIES = Path(
+    "src/front/templates/partials/ontology/_ontology_entities.html"
+)
 
 
 def _help_html() -> str:
@@ -72,14 +76,19 @@ def test_knowledge_graph_workflow_uses_current_item_labels():
 
 def test_explorer_uses_share_icon_consistently():
     digitaltwin = _menus()["digitaltwin"]
-    navigation = next(group for group in digitaltwin["groups"] if group["id"] == "digitaltwin-data")
+    navigation = next(
+        group for group in digitaltwin["groups"] if group["id"] == "digitaltwin-data"
+    )
     explorer = next(item for item in navigation["items"] if item["id"] == "sigmagraph")
 
     assert explorer["icon"] == "bi-share"
     assert '<i class="bi bi-share me-2"></i>Graph Explorer' in _EXPLORER.read_text(
         encoding="utf-8"
     )
-    assert '<div class="help-feature-icon"><i class="bi bi-share"></i></div>' in _help_html()
+    assert (
+        '<div class="help-feature-icon"><i class="bi bi-share"></i></div>'
+        in _help_html()
+    )
 
 
 def test_kg_viewer_buttons_use_menu_icons():
@@ -105,7 +114,9 @@ def test_kg_viewer_buttons_use_menu_icons():
 def test_build_uses_fast_forward_icon_consistently():
     digitaltwin = _menus()["digitaltwin"]
     management = next(
-        group for group in digitaltwin["groups"] if group["id"] == "digitaltwin-management"
+        group
+        for group in digitaltwin["groups"]
+        if group["id"] == "digitaltwin-management"
     )
     build = next(item for item in management["items"] if item["id"] == "sync")
 
@@ -138,8 +149,9 @@ def test_ontology_and_mapping_designers_use_pencil_icon():
     assert mapping_designer["label"] == "Designer"
     assert ontology_designer["icon"] == "bi-pencil"
     assert mapping_designer["icon"] == "bi-pencil"
-    assert '<i class="bi bi-pencil me-2"></i>Ontology Designer' in _ONTOLOGY_DESIGNER.read_text(
-        encoding="utf-8"
+    assert (
+        '<i class="bi bi-pencil me-2"></i>Ontology Designer'
+        in _ONTOLOGY_DESIGNER.read_text(encoding="utf-8")
     )
     assert (
         '<i class="bi bi-pencil me-2"></i>Visual Mapping Designer'
@@ -181,7 +193,9 @@ def test_ontology_advanced_list_matches_menu_items():
     """ontology-advanced group items must all be named under 'Advanced features'."""
     page = _help_html()
     ontology = _menus()["ontology"]
-    advanced_group = next(g for g in ontology["groups"] if g["id"] == "ontology-advanced")
+    advanced_group = next(
+        g for g in ontology["groups"] if g["id"] == "ontology-advanced"
+    )
     advanced_labels = {item["label"] for item in advanced_group["items"]}
 
     hw3_start = page.index('id="hw3"')

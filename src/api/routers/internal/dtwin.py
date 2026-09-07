@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import os
 import secrets
 import time
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import APIRouter, Request, Depends, Query
 from back.core.logging import get_logger
@@ -54,11 +54,13 @@ from back.core.helpers import (
     effective_view_table,
     get_databricks_client,
     get_triplestore_sql_credentials,
-    get_databricks_host_and_token,
     make_volume_file_service,
     is_uri,
     run_blocking,
 )
+
+if TYPE_CHECKING:
+    from shared.config.LLMTarget import LLMTarget
 
 logger = get_logger(__name__)
 
@@ -96,6 +98,7 @@ def _dataquality_table(domain, settings) -> str:
             "The triple-store VIEW is not available. Build the Knowledge Graph first."
         )
     return table
+
 
 # Canonical rdf:type predicate. Neighbour expansion must preserve type
 # triples so the knowledge graph can group/colour expanded nodes by their
@@ -330,8 +333,11 @@ async def start_triplestore_sync(
         name="Knowledge Graph Build",
         task_type="triplestore_sync",
         steps=[
-            {"name": "prepare", "description": "Preparing mappings and generating queries"},
-            {"name": "view",    "description": "Creating the Knowledge Graph view"},
+            {
+                "name": "prepare",
+                "description": "Preparing mappings and generating queries",
+            },
+            {"name": "view", "description": "Creating the Knowledge Graph view"},
             *_graph_steps,
         ],
     )
@@ -697,7 +703,7 @@ async def interpret_graph_metrics(
         data = await request.json()
         domain = get_domain(session_mgr)
 
-        host, token, llm_endpoint = _require_llm(domain, settings)
+        host, token, target = _require_llm(domain, settings)
 
         # Build loopback base URL so the agent can call get_entity_details
         base_url = RuntimeEnv.self_base_url()
@@ -714,7 +720,7 @@ async def interpret_graph_metrics(
             data,
             host,
             token,
-            llm_endpoint,
+            target,
             base_url,
             session_cookies,
             session_headers,
@@ -922,9 +928,7 @@ async def cohort_edge_count(
     ctx: CohortEngineContext = Depends(cohort_engine_context),
 ):
     """Live counter — candidate edges produced by current ``links``."""
-    out = await run_blocking(
-        ctx.service.edge_count, body, ctx.store, ctx.graph_name
-    )
+    out = await run_blocking(ctx.service.edge_count, body, ctx.store, ctx.graph_name)
     return {"success": True, **out}
 
 
@@ -934,9 +938,7 @@ async def cohort_node_count(
     ctx: CohortEngineContext = Depends(cohort_engine_context),
 ):
     """Live counter — surviving members after node-level compatibility."""
-    out = await run_blocking(
-        ctx.service.node_count, body, ctx.store, ctx.graph_name
-    )
+    out = await run_blocking(ctx.service.node_count, body, ctx.store, ctx.graph_name)
     return {"success": True, **out}
 
 
@@ -955,9 +957,7 @@ async def cohort_path_trace(
     Returns the engine's trace (see :meth:`CohortBuilder.trace_paths`)
     used by the Preview tab's *Trace path* button.
     """
-    out = await run_blocking(
-        ctx.service.path_trace, body, ctx.store, ctx.graph_name
-    )
+    out = await run_blocking(ctx.service.path_trace, body, ctx.store, ctx.graph_name)
     return {"success": True, **out}
 
 
@@ -1067,11 +1067,19 @@ async def filter_triplestore(
                 raise ValidationError("Please specify an entity type or search value.")
             logger.info(
                 "Filter preview – type=%s, field=%s, match=%s, value=%s",
-                entity_type, field, match_type, value,
+                entity_type,
+                field,
+                match_type,
+                value,
             )
             payload = await run_blocking(
                 DigitalTwin.filter_preview,
-                store, query_table, entity_type, field, match_type, value,
+                store,
+                query_table,
+                entity_type,
+                field,
+                match_type,
+                value,
             )
         else:
             selected_uris = data.get("selected_uris", [])
@@ -1086,9 +1094,15 @@ async def filter_triplestore(
             max_fetch_seconds = limits.fetch_timeout_s
             payload = await run_blocking(
                 DigitalTwin.filter_expand,
-                store, query_table, selected_uris,
-                include_rels, depth, max_entities,
-                batch_size, 100_000, max_fetch_seconds,
+                store,
+                query_table,
+                selected_uris,
+                include_rels,
+                depth,
+                max_entities,
+                batch_size,
+                100_000,
+                max_fetch_seconds,
             )
 
         return {"success": True, **payload}
@@ -1332,9 +1346,15 @@ async def start_databricks_triplestore_build(
         name="Databricks Triple Store Build",
         task_type="databricks_triplestore_build",
         steps=[
-            {"name": "prepare", "description": "Preparing mappings and generating queries"},
+            {
+                "name": "prepare",
+                "description": "Preparing mappings and generating queries",
+            },
             {"name": "view", "description": "Creating the R2RML SQL view"},
-            {"name": "materialize", "description": "Materializing Delta table in Unity Catalog"},
+            {
+                "name": "materialize",
+                "description": "Materializing Delta table in Unity Catalog",
+            },
             {"name": "finalize", "description": "Optimizing Delta table"},
         ],
     )
@@ -1648,7 +1668,12 @@ async def start_reasoning(
         "aggregate_rules": data.get("aggregate_rules", False),
     }
     # Per-rule name filters (optional; empty set = run all rules in that phase)
-    for key in ("swrl_rule_names", "decision_table_names", "sparql_rule_names", "aggregate_rule_names"):
+    for key in (
+        "swrl_rule_names",
+        "decision_table_names",
+        "sparql_rule_names",
+        "aggregate_rule_names",
+    ):
         names = data.get(key)
         if names:
             options[key] = set(names)
@@ -1954,7 +1979,11 @@ async def dtwin_nodes_action_cancel(
     return {"success": True}
 
 
-@router.get("/nodes/context", response_model=NodeContextResponse, response_model_exclude_none=True)
+@router.get(
+    "/nodes/context",
+    response_model=NodeContextResponse,
+    response_model_exclude_none=True,
+)
 async def dtwin_nodes_context(
     entity_uri: str,
     fetch_dataset_rows: bool = False,
@@ -1991,7 +2020,7 @@ async def dtwin_nodes_context(
 #   },
 # }
 _CHAT_SESSION_KEY = "graph_chat"
-_CHAT_DEFAULT_LIMIT = 20         # number of user+assistant turns kept per domain
+_CHAT_DEFAULT_LIMIT = 20  # number of user+assistant turns kept per domain
 _CHAT_MIN_LIMIT = 5
 _CHAT_MAX_LIMIT = 100
 
@@ -2025,7 +2054,9 @@ def _pending_actions_prune(cache: dict) -> None:
     """
     now = time.time()
     pending = cache.get("pending_actions") or {}
-    expired = [tok for tok, entry in pending.items() if entry.get("expires_at", 0) <= now]
+    expired = [
+        tok for tok, entry in pending.items() if entry.get("expires_at", 0) <= now
+    ]
     for tok in expired:
         pending.pop(tok, None)
 
@@ -2105,77 +2136,22 @@ def _chat_response_payload(agent_result, event_type: str | None = None) -> dict:
     return payload
 
 
-def _require_llm(domain, settings) -> tuple[str, str, str]:
-    """Resolve ``(host, token, model)`` for a Digital Twin agent call.
+def _require_llm(domain, settings) -> tuple[str, str, "LLMTarget"]:
+    """Resolve ``(host, token, target)`` for a Digital Twin agent call.
 
-    Same contract as ``require_serving_llm``, plus the auto-discovery fallback
-    so a domain that never pinned an LLM still works.  Three routes carried a
-    copy of this block; the discovery step is the only reason it could not just
-    call ``require_serving_llm``.
+    A thin local name over ``require_serving_llm``, kept because three routes
+    read better for it.
 
-    Raises :class:`ValidationError` with the message
-    :class:`shared.config.LLMTarget` produces, which names the variable or the
-    setting the operator actually needs to change.
+    The workspace-walking auto-discovery that used to live here is gone. It
+    asked the serving-endpoints API to guess a model and took whichever was
+    READY first -- which only ever worked on Databricks, changed its answer as
+    the workspace changed, and hid an unconfigured deployment behind an
+    arbitrary choice. Models are declared in ``ONTOBRICKS_LLM_MODELS`` now, and
+    nothing being configured is an error that says so.
     """
-    from shared.config.LLMTarget import LLMTarget
+    from back.core.helpers import require_serving_llm
 
-    host, token = get_databricks_host_and_token(domain, settings)
-    if not LLMTarget.external_configured() and not (host and token):
-        raise ValidationError("Databricks credentials not configured")
-
-    llm_endpoint = (domain.info or {}).get("llm_endpoint", "") or ""
-    if not llm_endpoint:
-        llm_endpoint = _auto_discover_llm_endpoint(domain, settings)
-        if llm_endpoint:
-            logger.info(
-                "Auto-selected LLM '%s' (no domain default pinned)", llm_endpoint
-            )
-    return host, token, LLMTarget.resolve(host, token, llm_endpoint).model
-
-
-def _auto_discover_llm_endpoint(domain, settings) -> str:
-    """Best-effort auto-selection of a serving endpoint for Graph Chat.
-
-    Walks the workspace's serving endpoints and returns the first one
-    that looks ready to serve chat completions.  Preference order:
-
-    1. Databricks hosted foundation models (pay-per-token), matched by
-       the ``databricks-`` prefix (e.g. ``databricks-meta-llama-*``).
-    2. Any other ``READY`` endpoint.
-
-    Returns an empty string if nothing usable can be found.
-    """
-    from shared.config.LLMTarget import LLMTarget
-
-    # A pure external deployment has no workspace to walk, and no Databricks
-    # client either — check the configured models before asking for one.
-    configured = LLMTarget.picker_models()
-    if configured:
-        return configured[0]
-
-    try:
-        from back.core.sqlwizard import SQLWizardService
-
-        client = get_databricks_client(domain, settings)
-        if not client:
-            return ""
-        endpoints = SQLWizardService(client).get_model_serving_endpoints() or []
-    except Exception as exc:
-        logger.debug("GraphChat: auto-discover LLM failed: %s", exc)
-        return ""
-
-    def _is_ready(ep: dict) -> bool:
-        state = (ep.get("state") or "").upper()
-        return state in ("READY", "TRUE", "UP")
-
-    for ep in endpoints:
-        name = ep.get("name") or ""
-        if name.startswith("databricks-") and _is_ready(ep):
-            return name
-    for ep in endpoints:
-        if _is_ready(ep) and ep.get("name"):
-            return ep["name"]
-    return ""
+    return require_serving_llm(domain, settings)
 
 
 @router.post("/assistant/chat")
@@ -2226,7 +2202,7 @@ async def dtwin_assistant_chat(
     saved_history = chat_cache["history"].get(domain_key) or []
     history = saved_history if saved_history else client_history
 
-    host, token, llm_endpoint = _require_llm(domain, settings)
+    host, token, target = _require_llm(domain, settings)
 
     reg = DigitalTwin.resolve_registry(session_mgr, settings)
     registry_params = {
@@ -2262,7 +2238,7 @@ async def dtwin_assistant_chat(
         "GraphChat: user_message=%s, domain=%s, endpoint=%s",
         user_message[:80],
         domain_name,
-        llm_endpoint,
+        target,
     )
 
     with map_route_errors("Graph Chat agent request failed", logger):
@@ -2270,7 +2246,7 @@ async def dtwin_assistant_chat(
             run_chat_agent,
             host=host,
             token=token,
-            endpoint_name=llm_endpoint,
+            target=target,
             base_url=base_url,
             domain_name=domain_name,
             registry_params=registry_params,
@@ -2300,9 +2276,11 @@ async def dtwin_assistant_chat(
     # ``pending_actions`` token into the session while ``run_agent`` was
     # running. Saving the stale snapshot would clobber that token.
     prior = list(history)
-    if prior and prior[-1].get("role") == "user" and (
-        prior[-1].get("content") or ""
-    ).strip() == user_message.strip():
+    if (
+        prior
+        and prior[-1].get("role") == "user"
+        and (prior[-1].get("content") or "").strip() == user_message.strip()
+    ):
         prior = prior[:-1]
     prior.append({"role": "user", "content": user_message})
     prior.append({"role": "assistant", "content": agent_result.reply or ""})
@@ -2358,7 +2336,7 @@ async def dtwin_assistant_chat_stream(
     saved_history = chat_cache["history"].get(domain_key) or []
     history = saved_history if saved_history else client_history
 
-    host, token, llm_endpoint = _require_llm(domain, settings)
+    host, token, target = _require_llm(domain, settings)
 
     reg = DigitalTwin.resolve_registry(session_mgr, settings)
     registry_params = {
@@ -2385,7 +2363,7 @@ async def dtwin_assistant_chat_stream(
         "GraphChat/stream: user_message=%s, domain=%s, endpoint=%s",
         user_message[:80],
         domain_name,
-        llm_endpoint,
+        target,
     )
 
     loop = asyncio.get_event_loop()
@@ -2402,7 +2380,7 @@ async def dtwin_assistant_chat_stream(
                     run_chat_agent,
                     host=host,
                     token=token,
-                    endpoint_name=llm_endpoint,
+                    target=target,
                     base_url=base_url,
                     domain_name=domain_name,
                     registry_params=registry_params,
@@ -2434,12 +2412,17 @@ async def dtwin_assistant_chat_stream(
                         # same process and may have minted a pending_actions
                         # token into the session while run_agent was running.
                         prior = list(history)
-                        if prior and prior[-1].get("role") == "user" and (
-                            prior[-1].get("content") or ""
-                        ).strip() == user_message.strip():
+                        if (
+                            prior
+                            and prior[-1].get("role") == "user"
+                            and (prior[-1].get("content") or "").strip()
+                            == user_message.strip()
+                        ):
                             prior = prior[:-1]
                         prior.append({"role": "user", "content": user_message})
-                        prior.append({"role": "assistant", "content": agent_result.reply or ""})
+                        prior.append(
+                            {"role": "assistant", "content": agent_result.reply or ""}
+                        )
                         fresh_cache = _chat_cache(session_mgr)
                         fresh_cache["history"][domain_key] = _chat_trim(prior, limit)
                         _chat_save_cache(session_mgr, fresh_cache)
@@ -2450,20 +2433,24 @@ async def dtwin_assistant_chat_stream(
                         break
 
                     else:  # error
-                        yield "data: " + _json.dumps({
-                            "type": "error",
-                            "message": payload,
-                        }) + "\n\n"
+                        yield "data: " + _json.dumps(
+                            {
+                                "type": "error",
+                                "message": payload,
+                            }
+                        ) + "\n\n"
                         break
 
                 elif isinstance(item, AgentStep):
-                    yield "data: " + _json.dumps({
-                        "type": "step",
-                        "step_type": item.step_type,
-                        "tool_name": item.tool_name,
-                        "content": item.content,
-                        "duration_ms": item.duration_ms,
-                    }) + "\n\n"
+                    yield "data: " + _json.dumps(
+                        {
+                            "type": "step",
+                            "step_type": item.step_type,
+                            "tool_name": item.tool_name,
+                            "content": item.content,
+                            "duration_ms": item.duration_ms,
+                        }
+                    ) + "\n\n"
 
         finally:
             if not agent_task.done():

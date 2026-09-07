@@ -292,8 +292,7 @@ def tool_get_status(ctx: ToolContext, **_kwargs) -> str:
             data = resp.json()
     except httpx.HTTPStatusError as exc:
         return _error(
-            f"status failed ({exc.response.status_code}): "
-            f"{exc.response.text[:300]}"
+            f"status failed ({exc.response.status_code}): " f"{exc.response.text[:300]}"
         )
     except Exception as exc:
         return _error(f"status error: {exc}")

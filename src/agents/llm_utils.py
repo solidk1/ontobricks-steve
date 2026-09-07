@@ -49,7 +49,9 @@ def call_llm_with_retry(
     for attempt in range(1, _RATE_LIMIT_RETRIES + 1):
         try:
             t0 = time.time()
-            resp = requests.post(url, json=payload, headers=request_headers, timeout=timeout)
+            resp = requests.post(
+                url, json=payload, headers=request_headers, timeout=timeout
+            )
             elapsed_ms = int((time.time() - t0) * 1000)
             logger.info(
                 "LLM: status=%d, %d bytes in %dms (attempt %d/%d)",

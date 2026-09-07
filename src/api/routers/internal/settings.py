@@ -14,7 +14,11 @@ from api.routers.internal._guards import require
 from api.routers.internal._helpers import map_route_errors
 from api.routers.internal._permissions import filter_visible_domains
 from back.core.errors import AuthorizationError, ValidationError
-from back.core.helpers import resolve_default_base_uri, resolve_default_emoji, run_blocking
+from back.core.helpers import (
+    resolve_default_base_uri,
+    resolve_default_emoji,
+    run_blocking,
+)
 from back.core.logging import LogManager, get_logger
 from back.objects.domain import SettingsService as config_service
 from back.objects.registry import ROLE_ADMIN
@@ -245,7 +249,9 @@ async def get_registry(
     settings: Settings = Depends(get_settings),
 ):
     """Return current domain-registry configuration and initialization status."""
-    return await run_blocking(config_service.build_registry_get_payload, session_mgr, settings)
+    return await run_blocking(
+        config_service.build_registry_get_payload, session_mgr, settings
+    )
 
 
 @router.get("/registry/check")
@@ -407,9 +413,7 @@ async def export_registry_obx(
     spec = await request.json()
     requested = spec.get("domains") or []
     if requested:
-        visible = filter_visible_domains(
-            request, session_mgr, settings, requested
-        )
+        visible = filter_visible_domains(request, session_mgr, settings, requested)
         visible_names = {
             (e.get("name") if isinstance(e, dict) else str(e)) for e in visible
         }
@@ -454,9 +458,7 @@ async def preview_registry_obx_import(
     if upload is None:
         raise ValidationError("No file provided")
     file_bytes = await upload.read()
-    return config_service.preview_obx_import_result(
-        file_bytes, session_mgr, settings
-    )
+    return config_service.preview_obx_import_result(file_bytes, session_mgr, settings)
 
 
 @router.post(
@@ -555,7 +557,6 @@ async def save_base_uri(
     return config_service.save_base_uri_result(
         base_uri, email, user_token, session_mgr, settings
     )
-
 
 
 # ===========================================
@@ -981,7 +982,9 @@ async def get_graph_engine_neo4j_secret_scopes(
 ):
     """List Databricks secret scopes for the Neo4j password "Secret scope" dropdown."""
     with map_route_errors("graph engine Neo4j secret scopes", logger):
-        return config_service.graph_engine_neo4j_secret_scopes_result(session_mgr, settings)
+        return config_service.graph_engine_neo4j_secret_scopes_result(
+            session_mgr, settings
+        )
 
 
 @router.get(
@@ -1089,7 +1092,9 @@ async def get_graph_engine_uc_schemas(
 ):
     """Unity Catalog schemas within a catalog for the managed-sync UC schema picker."""
     with map_route_errors("graph engine UC schemas", logger):
-        return config_service.graph_engine_uc_schemas_result(catalog, session_mgr, settings)
+        return config_service.graph_engine_uc_schemas_result(
+            catalog, session_mgr, settings
+        )
 
 
 @router.get("/graph-engine/lakebase-projects")
@@ -1099,7 +1104,9 @@ async def get_graph_engine_lakebase_projects(
 ):
     """List Lakebase Autoscaling projects visible in the workspace."""
     with map_route_errors("graph engine Lakebase projects", logger):
-        return config_service.graph_engine_lakebase_projects_result(session_mgr, settings)
+        return config_service.graph_engine_lakebase_projects_result(
+            session_mgr, settings
+        )
 
 
 @router.get("/graph-engine/lakebase-branches")
@@ -1406,9 +1413,7 @@ async def release_edit_lock_admin(
     if not folder or not version:
         raise ValidationError("folder and version are required")
     with map_route_errors("force release edit lock", logger):
-        return EditLockService.admin_release(
-            session_mgr, settings, folder, version
-        )
+        return EditLockService.admin_release(session_mgr, settings, folder, version)
 
 
 # ===========================================
@@ -1512,8 +1517,9 @@ async def download_app_logs():
         return PlainTextResponse(f"Error reading log file: {exc}", status_code=500)
 
     from datetime import datetime as _dt
+
     stamp = _dt.now().strftime("%Y%m%d_%H%M%S")
-    stem = p.stem   # e.g. "ontobricks"
+    stem = p.stem  # e.g. "ontobricks"
     filename = f"{stem}_{stamp}.log"
 
     return Response(
