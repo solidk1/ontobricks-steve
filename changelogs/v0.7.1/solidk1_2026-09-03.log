@@ -787,3 +787,52 @@ Registry (Postgres)" and "Lakebase — Graph DB", with check ids `lakebase.conne
 user-visible labels for what is now any PostgreSQL server. Same class as the copy
 already fixed in the settings UI; left for a separate pass because renaming a check
 id is a contract change for anything parsing `/health`.
+
+## uv.lock: 4002 proxy URLs rewritten to the public CDN
+
+Self-inflicted, and found only when the Azure deploy needed an image. Commit
+`436f8d87` ("build: add azure-identity for Entra Postgres authentication") re-locked
+with an ambient `UV_INDEX_URL` pointing at `pypi-proxy.dev.databricks.com`, so all
+4002 URLs in `uv.lock` were proxied. `.claude/skills/deploy/SKILL.md` lists exactly
+this as a pre-flight check and I did not run it before committing. A container built
+from that lock installs fine and then dies on the first wheel the proxy has not
+cached, roughly 45s after reporting a healthy start.
+
+`UV_INDEX_URL=https://pypi.org/simple uv lock` is a **no-op** here: `uv lock` only
+re-resolves when the lock no longer satisfies `pyproject.toml`, and the env var does
+not invalidate a satisfying lock. It returned in 7ms and changed nothing.
+
+`--upgrade` would re-resolve but also bump versions, which is a much larger change
+than the URLs. So the fix was a host rewrite, `pypi-proxy.dev.databricks.com` →
+`files.pythonhosted.org`, which is exact because the proxy mirrors PyPI's
+`/packages/<2>/<2>/<sha256>/<filename>` layout verbatim and `[tool.uv]` pins no
+index (only `constraint-dependencies`).
+
+**Verified rather than assumed**, in this order:
+
+1. Took one wheel entry, swapped the host, fetched it from
+   `files.pythonhosted.org`, and confirmed its sha256 **matched the hash already
+   recorded in the lock**. That is the whole argument: same path, same bytes.
+2. Rewrote all 4002. Zero proxy references remain; 4002 pythonhosted URLs.
+3. Spot-checked 8 more at random across the file — **8/8 fetched with matching
+   hashes**, covering cp310–cp314, manylinux, musllinux and win_arm64 wheels.
+4. `uv lock --check` exits 0, so the lock still satisfies `pyproject.toml`.
+5. `uv sync --frozen` installs from it.
+
+### One test now fails, and it is not a regression
+
+`uv sync --frozen --extra lakebase --extra pitfalls` installed the `pitfalls` extra,
+which my venv had been missing. That **un-skipped** 11 previously-skipped tests, and
+one of them fails: `test_pitfalls_service.py::test_run_all_keyword` with
+`LookupError: Resource 'wordnet' not found`.
+
+That is the NLTK wordnet corpus, not code. It cannot be downloaded from this sandbox.
+CI does not install the `pitfalls` extra either, so these tests skip there too —
+which is why nobody had seen it. Counts moved 4932 passed / 299 skipped → **4951
+passed / 288 skipped / 1 failed**: nineteen more tests running, eleven fewer skipped.
+
+Worth someone checking, not asserted here: `runner.py` calls
+`ensure_nltk_resource("corpora/wordnet", "wordnet")` before two of its three wordnet
+imports. The third, in `_get_antonyms_and_parents` (line ~495, reached via
+`_are_contrasting`), has no guard in its own call chain. Whether a guarded entry
+point always runs first was not traced to the end, so it may be fine.
