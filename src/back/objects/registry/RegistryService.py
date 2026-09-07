@@ -477,8 +477,8 @@ class RegistryService:
                         volume_msg = (
                             f" WARNING: could not create binary volume "
                             f"{c.catalog}.{c.schema}.{c.volume} — check "
-                            f"the app service principal's CREATE VOLUME "
-                            f"privilege on {c.catalog}.{c.schema}."
+                            f"the CREATE VOLUME privilege of the identity OntoBricks "
+                            f"connects as on {c.catalog}.{c.schema}."
                         )
                         logger.warning(
                             "Failed to create binary volume %s.%s.%s",

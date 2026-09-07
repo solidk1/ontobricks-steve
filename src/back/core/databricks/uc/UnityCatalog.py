@@ -345,7 +345,8 @@ class UnityCatalog:
             if response.status_code == 404:
                 return {"exists": False, "accessible": False, "error": "Schema not found in Unity Catalog"}
             if response.status_code == 403:
-                return {"exists": True, "accessible": False, "error": "Insufficient privileges — grant USE SCHEMA to the app service principal"}
+                return {"exists": True, "accessible": False, "error": "Insufficient privileges — grant USE SCHEMA to the identity OntoBricks "
+                    "connects as (DATABRICKS_CLIENT_ID, or the signed-in user)"}
             response.raise_for_status()
             return {"exists": True, "accessible": True, "error": None}
         except requests.exceptions.RequestException as exc:
@@ -373,7 +374,9 @@ class UnityCatalog:
             if response.status_code == 404:
                 return {"exists": False, "accessible": False, "error": "Volume not found — it may not have been created yet"}
             if response.status_code == 403:
-                return {"exists": True, "accessible": False, "error": "Insufficient privileges — grant READ VOLUME (and WRITE VOLUME) to the app service principal"}
+                return {"exists": True, "accessible": False, "error": "Insufficient privileges — grant READ VOLUME (and WRITE VOLUME) to the "
+                    "identity OntoBricks connects as (DATABRICKS_CLIENT_ID, or "
+                    "the signed-in user)"}
             response.raise_for_status()
             vol_info = response.json()
             return {

@@ -682,3 +682,50 @@ verification evidence is not a call to make unilaterally.
 Tests: **4932 passed, 299 skipped** (+2 from the two newly-registered docs). ruff
 F-rule findings identical to HEAD (67); total 4705 → 4704. Zero dangling references
 to any moved path; every relocated constant's value verified unchanged.
+
+## "app service principal" in user-facing messages
+
+The phrase appears at ~30 sites. They split three ways, and only one group was
+wrong:
+
+**Fixed — 8 user-facing messages** telling an operator to grant a privilege to
+"the app service principal". There is no Databricks App any more; OntoBricks
+authenticates as a service principal via `DATABRICKS_CLIENT_ID` **or** as the
+signed-in user (which is what enables per-user Unity Catalog enforcement on
+interactive queries). Each now names the identity:
+
+| Site | Was | Now |
+|---|---|---|
+| `uc/UnityCatalog.py` ×2 | "grant USE SCHEMA / READ VOLUME to the app service principal" | "…to the identity OntoBricks connects as (DATABRICKS_CLIENT_ID, or the signed-in user)" |
+| `registry/RegistryService.py` | "check the app service principal's CREATE VOLUME privilege" | "check the CREATE VOLUME privilege of the identity OntoBricks connects as" |
+| `domain/Domain.py` ×2 | "Grant SELECT … to the app service principal" / "The service principal can list tables" | named identity / "OntoBricks can list tables" |
+| `shared/fastapi/health.py` ×3 | check label, remediation (`TO \`<app-sp>\``), and description | named identity; the GRANT template now says `` `<principal>` `` |
+
+**Kept — genuinely about Databricks Apps service principals.** Verified before
+touching: `grants.resolve_app_service_principals` really does call
+`/api/2.0/apps/{name}` for a `service_principal_client_id`, so it and its callers
+(`store.py`) and `PermissionService`'s ACL docstring mean exactly what they say.
+Renaming them would have been wrong.
+
+One of those is user-reachable, though, so it now says which world it belongs to:
+"Could not resolve any **Databricks App** service principal to grant … This path
+applies only to a Databricks Apps deployment; on a container deployment, grant
+Postgres privileges directly (see `documentation/postgres-graphdb.md` §5)."
+
+**Left alone — ~15 internal docstrings** saying "the app's service principal" as
+shorthand for the connecting identity. Imprecise but not user-facing; changing them
+is churn without a reader benefit.
+
+### Verification
+
+- Checked first whether any test asserts on these strings: one does
+  (`test_registry.py:466` asserts `"CREATE VOLUME" in msg`), and that substring is
+  preserved. 54 passed in that file.
+- Rendered the rewritten messages rather than trusting the diff — the lesson from
+  the doubled-path bug earlier in this session, which a diff read had missed.
+- **black deliberately not run** on the five touched files. All five were already
+  non-black-clean at HEAD and are equally so now, so formatting them would have
+  reformatted ~125 unrelated lines — the mistake made earlier in this work.
+  `documents.py` was clean and stays clean.
+- Tests: **4932 passed, 299 skipped**. ruff F-rule findings identical to HEAD (67);
+  total 4705 → 4704. `compileall` clean; the app imports.

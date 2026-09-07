@@ -602,7 +602,8 @@ def _check_uc_catalog_privileges(settings: Settings) -> tuple[str, str]:
             return (
                 _OK,
                 f"USE CATALOG granted on '{cfg.catalog}' — {len(schemas)} schema(s) visible. "
-                "The app service principal can list and access schemas within this catalog.",
+                "The identity OntoBricks connects as can list and access schemas "
+                    "within this catalog.",
             )
         return _WARNING, "Could not determine catalog access — unexpected response from UC API"
     except Exception as exc:
@@ -611,8 +612,9 @@ def _check_uc_catalog_privileges(settings: Settings) -> tuple[str, str]:
             return (
                 _ERROR,
                 f"Cannot USE catalog '{cfg.catalog}': {err}. "
-                "Grant USE CATALOG on this catalog to the app service principal via: "
-                f"GRANT USE CATALOG ON CATALOG `{cfg.catalog}` TO `<app-sp>`",
+                "Grant USE CATALOG on this catalog to the identity OntoBricks "
+                "connects as (DATABRICKS_CLIENT_ID, or the signed-in user) via: "
+                f"GRANT USE CATALOG ON CATALOG `{cfg.catalog}` TO `<principal>`",
             )
         return _ERROR, f"Catalog privilege check failed: {exc}"
 
@@ -1246,7 +1248,8 @@ def run_diagnostics_checks(settings: Settings | None = None) -> dict[str, Any]:
             "id": "uc_registry",
             "title": "Unity Catalog — Registry",
             "description": (
-                "Verifies the privileges the app service principal needs on the Unity Catalog "
+                "Verifies the privileges OntoBricks' Databricks identity needs on the Unity "
+                "Catalog "
                 "registry catalog and schema. "
                 "Required grants: USE CATALOG (to navigate the catalog), "
                 "USE SCHEMA (to list objects in the registry schema), "

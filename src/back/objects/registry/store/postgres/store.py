@@ -756,8 +756,11 @@ class PostgresRegistryStore(RegistryStore):
                 "granted": granted,
                 "warnings": warnings,
                 "error": (
-                    "Could not resolve any app service principal to grant — "
-                    "check the app name(s)."
+                    "Could not resolve any Databricks App service principal "
+                    "to grant — check the app name(s). This path applies only "
+                    "to a Databricks Apps deployment; on a container "
+                    "deployment, grant Postgres privileges directly (see "
+                    "documentation/postgres-graphdb.md §5)."
                 ),
             }
 

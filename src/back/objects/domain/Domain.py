@@ -1576,8 +1576,9 @@ class Domain:
                     permissions["permission_warning"] = (
                         f"SHOW TABLES returned no results but "
                         f"{catalog}.information_schema.tables reports {hidden} table(s). "
-                        "Grant SELECT (and USE CATALOG / USE SCHEMA) on the tables to "
-                        "the app service principal."
+                        "Grant SELECT (and USE CATALOG / USE SCHEMA) on the tables to the "
+                        "identity OntoBricks connects as (DATABRICKS_CLIENT_ID, "
+                        "or the signed-in user)."
                     )
             else:
                 # Probe SELECT on the first table
@@ -1589,9 +1590,10 @@ class Domain:
                 if not select_result["can_select"]:
                     permissions["select_error"] = select_result["error"]
                     permissions["permission_warning"] = (
-                        f"The service principal can list tables in {catalog}.{schema} "
-                        "but cannot SELECT from them. "
-                        "Grant SELECT on the tables (or the schema) to the app service principal."
+                        f"OntoBricks can list tables in {catalog}.{schema} but cannot "
+                        "SELECT from them. Grant SELECT on the tables (or the "
+                        "schema) to the identity it connects as "
+                        "(DATABRICKS_CLIENT_ID, or the signed-in user)."
                     )
 
             return {
