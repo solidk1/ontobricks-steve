@@ -99,7 +99,7 @@ def resolve_neo4j_database(cfg: dict[str, Any] | None) -> str:
 # Env var carrying the Neo4j password, e.g. from a secret store, as
 # ``valueFrom: neo4j-password``. When set, the persisted engine_config
 # password is ignored (and stripped at save-time) — see
-# docs/pr47-neo4j-demo/secret-configuration.md.
+# documentation/neo4j-secret-configuration.md.
 NEO4J_PASSWORD_ENV = "NEO4J_PASSWORD"
 
 
@@ -240,7 +240,7 @@ class Neo4jConnection:
                     "Neo4jConnection: %s env var is required in the deployed app — "
                     "declare a Databricks Apps secret resource named 'neo4j-password' "
                     "and expose it as NEO4J_PASSWORD. See "
-                    "docs/pr47-neo4j-demo/secret-configuration.md."
+                    "documentation/neo4j-secret-configuration.md."
                     % NEO4J_PASSWORD_ENV
                 )
             if not pwd_cfg:

@@ -46,7 +46,7 @@ from __future__ import annotations
 import os
 import time
 
-from back.core.databricks.lakebase.constants import TOKEN_TTL_S as _TOKEN_TTL_S
+from back.core.postgres.constants import TOKEN_TTL_S as _TOKEN_TTL_S
 from back.core.errors import ValidationError
 from back.core.logging import get_logger
 

@@ -1,6 +1,13 @@
-# OntoBricks — Databricks Apps deployment
-# Install uv plus the local project so Databricks Apps resolves
-# all runtime dependencies from pyproject.toml at build time.
-# See: https://docs.databricks.com/aws/en/generative-ai/mcp/custom-mcp
+# NOT a dependency declaration — pyproject.toml is the single source of those.
+#
+# This exists solely so CI can run `pip-audit --requirement requirements.txt`
+# (.github/workflows/ci.yml, the Security Scan job). It resolves to the project's
+# own extras, so the audit covers what pyproject declares.
+#
+# The header used to describe the Databricks Apps build, which was removed in
+# v0.7.1. Deleting the file would break the security scan, so it stays with an
+# honest purpose. Auditing the synced environment instead would be stronger, but
+# that could not be verified here (pip-audit needs network), and silently breaking
+# the security scan is worse than keeping this.
 uv
 -e ".[lakebase,pitfalls]"

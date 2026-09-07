@@ -31,7 +31,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from back.core.databricks.lakebase.constants import (
+from back.core.postgres.constants import (
     AUTH_FAILURE_SQLSTATES,
     COLD_START_SQLSTATES,
     INITIAL_BACKOFF_S,

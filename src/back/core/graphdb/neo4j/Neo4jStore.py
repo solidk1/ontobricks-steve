@@ -106,7 +106,7 @@ class Neo4jStore(GraphDBBackend):
             ``"databricks_secret"`` → the only method the Settings UI
             offers: username + password resolved live from a Databricks
             secret scope/key via the Secrets REST API (see
-            ``docs/pr47-neo4j-demo/secret-configuration.md``).
+            ``documentation/neo4j-secret-configuration.md``).
             ``"basic"`` → username + password/env-var — legacy, kept only
             for deployments still bound to the ``neo4j-password`` Apps
             secret resource; no longer exposed in the UI.

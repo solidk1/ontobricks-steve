@@ -293,3 +293,97 @@ sites in `src/agents/`) are low-consequence and untouched.
 
 **B1** (Form Template Method on the four PGE ReAct loops — days, high risk) and
 **D** (12 files over the 800-LOC ceiling — weeks). Both remain as written above.
+
+
+---
+
+# Round 2 — deletions and consolidation
+
+## Nothing in `src/` is dead
+
+A full scan for modules no file references anywhere in the repo returned **0**.
+Whatever else is true, the source tree carries no orphaned code.
+
+## Consolidated: Postgres tuning constants out of the vendor package
+
+`back/core/databricks/lakebase/constants.py` held SQLSTATE classification, retry
+backoff, pool sizing and `application_name` labels — **all server-agnostic**. Its
+four consumers:
+
+| Consumer | Server-agnostic? |
+|---|---|
+| `back/core/postgres/PostgresConnectionPool.py` | yes |
+| `back/core/graphdb/postgres/pool.py` | yes |
+| `back/objects/registry/store/postgres/store.py` | yes |
+| `back/core/databricks/lakebase/LakebaseAuth.py` | no (`TOKEN_TTL_S` for its JWT) |
+
+Three of four. The generic Postgres layer was importing out of a vendor package
+because Lakebase was once the only Postgres target. Moved to
+`back/core/postgres/constants.py`, beside `PostgresAuth` and
+`PostgresConnectionPool` where P2b put that layer, with the comments de-vendored
+(pool lifetime is now justified against "the shortest credential lifetime any
+supported auth mode issues", which is the real constraint, rather than the Lakebase
+JWT specifically).
+
+All four imports updated, no shim left behind — a compatibility re-export would be
+the scatter this removes. Verified: every constant's value unchanged, and both
+import orders clean, since `databricks/lakebase/` now imports from `core/postgres/`.
+
+Side effect worth noting: the `lakebase` package is down to `LakebaseAuth.py` (453)
++ `grants.py` (238) + `__init__.py`, and all three are now genuinely
+Lakebase-specific — JWT minting and workspace grants. The package got more coherent,
+not just smaller.
+
+## Relocated: two operational guides out of a PR-artefact folder — and four dead paths fixed
+
+`documentation/pr47-neo4j-demo/` is labelled in its own README as "proof artefacts
+for **PR #47**", from a demo run on 2026-06-12. Two files in it were not proof
+artefacts at all but durable operational guidance, **pointed at by production error
+messages**:
+
+- `secret-configuration.md` → `documentation/neo4j-secret-configuration.md`
+- `ai-parse-document-prereq.md` → `documentation/ai-parse-document-prereq.md`
+
+And every one of those four source references was **broken**: they said
+`docs/pr47-neo4j-demo/…`, but `docs/` is the GitHub Pages marketing site — the docs
+live in `documentation/`. So a user hitting a Neo4j auth failure or an unparseable
+document was told to read a path that does not exist. Same class of bug as the
+`.gitignore` that never matched. All four fixed.
+
+Both guides are now registered in the Help Center (`help.py`), because only
+registered slugs are served — `neo4j-requirements.md` links to them, and that link
+would otherwise 404 in-app.
+
+## Checked and NOT deleted
+
+| Candidate | Why it stays |
+|---|---|
+| `requirements.txt` | Its header described the deleted Apps build, but CI's Security Scan runs `pip-audit --requirement requirements.txt`. Deleting it breaks the scan. Auditing the synced environment instead would be stronger, but `pip-audit` needs network and could not be verified here — silently breaking a security scan is worse than a stale comment. Header rewritten to state the real purpose. |
+| `NOTICE.txt`, `SECURITY.md` | Zero inbound references, but both are convention files GitHub and license compliance read directly. |
+| `scripts/migrations/*` | Historical upgrade paths (0.4→0.5→0.6→0.7); `migrate-registry-to-lakebase.sh` is cited by `RegistryService.py`. |
+| `licenses/` (41 files) | Third-party attribution required by `NOTICE.txt`. |
+| `.cursor/*.mdc` + `.cursorrules` + `src/.coding_rules.md` + `CLAUDE.md` + `AGENTS.md` | 17 files of conventions, and the scatter is deliberate and documented: Cursor reads `.mdc` natively with per-glob scoping, and the two agent files are thin pointers. Consolidating would break Cursor's scoping to save nothing. |
+| `src/api/service.py` | Established in round 1 — an intentional facade and test patch seam. |
+
+## Recommended, but NOT done — needs your call
+
+**`documentation/pr47-neo4j-demo/` minus the two extracted guides: 13MB.**
+7.6MB of screenshots, a 5.4MB PDF, and a 68KB HTML deck — a slide presentation for
+a PR merged months ago, no longer referenced by any code now that the operational
+content is extracted.
+
+It is a reasonable delete and recoverable from git history. I have not done it
+because, unlike the Sphinx `_build`, this is **authored and unregenerable** —
+screenshots of one specific run on the `fevm-mjolnir` workspace. Deleting another
+contributor's verification evidence on my own judgment is not a call I should make.
+Say the word and it goes.
+
+## Verification
+
+- `uv run --frozen pytest -q -m "not scenario"` → **4932 passed, 299 skipped**
+  (+2 vs round 1: the two newly-registered Help Center docs are parametrised over).
+- `compileall` clean; the app imports.
+- ruff: F-rule findings **67, identical to HEAD**; total 4705 → 4704.
+- Zero dangling references to any moved or deleted path.
+- Every relocated constant's value verified unchanged; both import orders clean.
+- All 21 Help-Center-registered docs resolve on disk.

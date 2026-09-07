@@ -79,6 +79,16 @@ _DOC_CATEGORIES: List[Dict] = [
                 "title": "Neo4j Backend",
             },
             {
+                "slug": "neo4j-secret-configuration",
+                "file": "neo4j-secret-configuration.md",
+                "title": "Neo4j Secret Setup",
+            },
+            {
+                "slug": "ai-parse-document-prereq",
+                "file": "ai-parse-document-prereq.md",
+                "title": "AI Parse Document Prereq",
+            },
+            {
                 "slug": "cohort-discovery",
                 "file": "cohort_discovery.md",
                 "title": "Cohort Discovery",

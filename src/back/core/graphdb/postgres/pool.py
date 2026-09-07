@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from back.core.databricks.lakebase.constants import APPLICATION_NAME_GRAPH
+from back.core.postgres.constants import APPLICATION_NAME_GRAPH
 from back.core.postgres.PostgresConnectionPool import (
     PostgresConnectionPool,
     get_postgres_pool,

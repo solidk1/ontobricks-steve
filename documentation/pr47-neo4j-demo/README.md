@@ -14,6 +14,12 @@ on 2026-06-12 using a real PFAS research-paper ontology.
   ← / → / `P` to print; click left/right halves to navigate).
 - **`screenshots/`** — the 13 source PNGs referenced by the deck.
 
+> The two operational guides that used to live here — Neo4j secret
+> configuration and the `ai_parse_document` prerequisite — moved to
+> `documentation/neo4j-secret-configuration.md` and
+> `documentation/ai-parse-document-prereq.md`. They are durable reference
+> that production error messages point at, not proof artefacts for one PR.
+
 ## Demo numbers
 
 | | |

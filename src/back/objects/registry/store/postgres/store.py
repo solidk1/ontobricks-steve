@@ -60,7 +60,7 @@ from typing import Any
 from back.core.databricks import get_lakebase_auth
 from back.core.databricks.lakebase import get_postgres_pool
 from back.core.databricks.lakebase import require_psycopg as _shared_require_psycopg
-from back.core.databricks.lakebase.constants import APPLICATION_NAME_REGISTRY
+from back.core.postgres.constants import APPLICATION_NAME_REGISTRY
 from back.core.errors import InfrastructureError
 from back.core.logging import get_logger
 from back.objects.registry.registry_cache import invalidate_registry_cache

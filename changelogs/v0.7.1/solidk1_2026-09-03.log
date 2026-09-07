@@ -635,3 +635,50 @@ output in the first place. The renamed `guides/postgres-graphdb.html` and
 `make clean` now sweeps `documentation/sphinx/_build`, so it cannot silently
 accumulate again — the gitignore stops it being committed, the clean target stops
 it being hoarded.
+
+## Round 2: deletions and consolidation
+
+Nothing in `src/` is dead — a full scan for modules no file references anywhere
+returned **0**. The findings were all misplacement rather than rot.
+
+**Postgres tuning constants moved out of the vendor package.**
+`back/core/databricks/lakebase/constants.py` held SQLSTATE classification, retry
+backoff, pool sizing and `application_name` labels, all server-agnostic. Three of
+its four consumers (the shared pool, the graph pool, the registry store) are
+server-agnostic too; only `LakebaseAuth` is Lakebase-specific. So the generic
+Postgres layer was importing out of a vendor package, because Lakebase was once the
+only Postgres target. Moved to `back/core/postgres/constants.py` beside
+`PostgresAuth` and `PostgresConnectionPool`, comments de-vendored — the pool
+lifetime is now justified against the shortest credential lifetime *any* supported
+auth mode issues, which is the actual constraint. No compatibility shim: a
+re-export would be the scatter being removed. The `lakebase` package is left with
+`LakebaseAuth` + `grants` + `__init__`, all genuinely Lakebase, so it got more
+coherent rather than just smaller.
+
+**Two operational guides moved out of a PR-artefact folder, and four dead paths
+fixed.** `documentation/pr47-neo4j-demo/` is its own README's "proof artefacts for
+PR #47". Two files in it were not artefacts but durable guidance that **production
+error messages point at**, so they moved to `documentation/`. Every one of those
+four source references was broken: they said `docs/pr47-neo4j-demo/…`, and `docs/`
+is the GitHub Pages marketing site — the docs live in `documentation/`. A user
+hitting a Neo4j auth failure was told to read a path that does not exist. Same
+class of bug as the `.gitignore` that never matched. Both guides are now registered
+in the Help Center, since only registered slugs are served and
+`neo4j-requirements.md` links to them.
+
+**Checked and deliberately kept:** `requirements.txt` (CI's `pip-audit` reads it —
+deleting it breaks the Security Scan; header rewritten to state the real purpose
+instead of the deleted Apps build); `NOTICE.txt` and `SECURITY.md` (zero inbound
+refs but convention files read directly by GitHub and license compliance);
+`scripts/migrations/*`; `licenses/`; the 17 convention files, whose scatter is
+deliberate because Cursor reads `.mdc` natively with per-glob scoping.
+
+**Recommended but not done:** the remaining 13MB of `pr47-neo4j-demo/` — 7.6MB of
+screenshots, a 5.4MB PDF and an HTML deck, unreferenced now that the operational
+content is out. Unlike the Sphinx `_build`, this is authored and unregenerable
+(screenshots of one run on a specific workspace), so deleting another contributor's
+verification evidence is not a call to make unilaterally.
+
+Tests: **4932 passed, 299 skipped** (+2 from the two newly-registered docs). ruff
+F-rule findings identical to HEAD (67); total 4705 → 4704. Zero dangling references
+to any moved path; every relocated constant's value verified unchanged.
