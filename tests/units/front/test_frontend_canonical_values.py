@@ -179,3 +179,56 @@ class TestLLMRequestFieldNames:
     def test_js_sends_the_field_the_route_reads(self):
         wizard_js = (_STATIC / "mapping/js/mapping-shared.js").read_text()
         assert "model: document.getElementById" in wizard_js
+
+
+class TestLLMUICopy:
+    """The UI must not tell users the LLM has to be a Databricks endpoint.
+
+    It no longer does, and the label drift is invisible to every other test: the
+    picker keeps working, the routes keep passing, and the only thing wrong is
+    what the user is told. That is precisely the kind of breakage that survives a
+    green suite, so it gets asserted.
+    """
+
+    _TEMPLATES = Path(__file__).resolve().parents[3] / "src" / "front" / "templates"
+
+    # Text that was accurate while Databricks was the only supported provider.
+    _STALE = (
+        "Databricks Model Serving endpoint",
+        "must be a Databricks Model Serving",
+    )
+
+    def test_no_template_claims_the_llm_must_be_a_databricks_endpoint(self):
+        offenders = [
+            f"{p.relative_to(self._TEMPLATES)}:{n}"
+            for p in self._TEMPLATES.rglob("*.html")
+            for n, line in enumerate(p.read_text().splitlines(), 1)
+            if any(t in line for t in self._STALE)
+        ]
+        assert not offenders, f"stale provider claim in templates: {offenders}"
+
+    def test_no_js_claims_the_llm_must_be_a_databricks_endpoint(self):
+        offenders = [
+            f"{p.relative_to(_STATIC)}:{n}"
+            for p in _STATIC.rglob("*.js")
+            for n, line in enumerate(p.read_text().splitlines(), 1)
+            if any(t in line for t in self._STALE)
+        ]
+        assert not offenders, f"stale provider claim in JS: {offenders}"
+
+    def test_the_settings_tab_names_the_provider_variables(self):
+        """An operator seeing an empty picker needs to know what to set."""
+        tab = (self._TEMPLATES / "partials/domain/_domain_information.html").read_text()
+        assert "ONTOBRICKS_LLM_BASE_URL" in tab
+        assert "ONTOBRICKS_LLM_MODELS" in tab
+
+    @pytest.mark.parametrize(
+        "name",
+        ["domain/js/domain-information.js", "global/js/utils.js"],
+    )
+    def test_empty_picker_says_what_to_configure(self, name):
+        js = (_STATIC / name).read_text()
+        assert "ONTOBRICKS_LLM_MODELS" in js, (
+            f"{name}: an empty model list must name the variable to set, not just "
+            "say 'no endpoints available'"
+        )

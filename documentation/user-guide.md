@@ -42,7 +42,7 @@ Click **Business Views** in the sidebar to use the visual drag-and-drop interfac
 
 Each entity supports:
 - **Icon**: Click the icon button (🎨) to select an emoji
-- **Auto-Map Icons**: In the **Model** view, click the smiley face button (😊) in the toolbar to automatically assign emoji icons to all entities that still have the default icon. This feature uses the domain's configured LLM serving endpoint to pick the most appropriate emoji for each entity name.
+- **Auto-Map Icons**: In the **Model** view, click the smiley face button (😊) in the toolbar to automatically assign emoji icons to all entities that still have the default icon. This feature uses the configured LLM to pick the most appropriate emoji for each entity name.
 - **Description**: Click the description button (📝) to add notes
 - **Attributes**: Add data properties directly on the entity
 
@@ -288,7 +288,7 @@ the allow-list.
 
 Click **Generate** in the sidebar to generate an ontology automatically from your database schema using an LLM.
 
-1. Select the **LLM Endpoint** (a Databricks Model Serving endpoint)
+1. Select the **Model** (from those the deployment declares in `ONTOBRICKS_LLM_MODELS`)
 2. Choose which **catalog/schema** metadata to include
 3. (Optional) Select uploaded **Documents** to enrich the generation
 4. Write custom **Guidelines** or pick a **Quick Template**
@@ -656,7 +656,7 @@ Use the **Top N** input at the top of the results section to control how many en
 
 After an analysis completes, an **Interpret** button (✦ icon) appears in the toolbar.
 
-1. Click **Interpret** — an AI agent (`agent_graph_interpreter`) calls the LLM serving endpoint configured for the domain. The agent may call `get_entity_details` one or more times to look up specific top-ranked entities before writing its insights.
+1. Click **Interpret** — an AI agent (`agent_graph_interpreter`) calls the configured LLM. The agent may call `get_entity_details` one or more times to look up specific top-ranked entities before writing its insights.
 2. The **AI Insights** card renders three structured sections:
    - **Key Findings** — 2–4 sentences on the graph structure and standout patterns
    - **Notable Entities** — up to 5 entities with reasons they stand out; clicking an entity name navigates to the Graph Viewer
@@ -1303,7 +1303,7 @@ Before you start, make sure you have:
 
 - A **Databricks workspace** with tables in Unity Catalog
 - A **SQL Warehouse** (Serverless or Classic)
-- A **Databricks Model Serving endpoint** (for LLM features — e.g., `databricks-meta-llama-3-3-70b-instruct`, or any chat/completions endpoint)
+- An **OpenAI-compatible chat-completions endpoint** (for LLM features), set per deployment via `ONTOBRICKS_LLM_BASE_URL` / `ONTOBRICKS_LLM_API_KEY` / `ONTOBRICKS_LLM_MODEL`. OpenAI, Azure OpenAI, vLLM, Ollama, a LiteLLM proxy, or Databricks Foundation Model APIs at `https://<workspace>/serving-endpoints` — Databricks is one provider here, not a requirement
 - A **Personal Access Token** with permissions to read tables and execute queries
 
 ---
@@ -1353,7 +1353,7 @@ Navigate to **Domain** in the top navbar, then open the **Information** sidebar 
 
 1. Enter a **Domain Name** (e.g., `CustomerAnalytics`).
 2. Set the **Base URI** for your ontology (e.g., `https://ontobricks.com/ontology/`). This is the namespace for all generated RDF resources.
-3. Select the **LLM Endpoint** from the dropdown. This is the Databricks Model Serving endpoint used for ontology generation and auto-mapping.
+3. Select the **Model** from the dropdown. The dropdown lists the models the deployment declares in `ONTOBRICKS_LLM_MODELS`; leaving it empty uses `ONTOBRICKS_LLM_MODEL`. The provider and credential are not editable here — an API key does not belong in a settings table.
 4. Configure the **Triple Store Table**: select a catalog, schema, and table name where triples will be stored (e.g., `my_catalog.my_schema.triples`). The table will be created automatically during sync.
 
 ---

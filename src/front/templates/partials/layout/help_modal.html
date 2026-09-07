@@ -110,7 +110,7 @@
                                 <li>A Databricks workspace with Unity Catalog enabled</li>
                                 <li>A running SQL Warehouse</li>
                                 <li>A UC Volume for the domain registry (configure via <em>Settings &rarr; Registry &rarr; Initialize</em> if empty)</li>
-                                <li>A Databricks Model Serving endpoint (for LLM-powered automation)</li>
+                                <li>An OpenAI-compatible LLM endpoint (for LLM-powered automation) &mdash; OpenAI, Azure OpenAI, Databricks Foundation Model APIs, vLLM, Ollama or a proxy</li>
                             </ul>
 
                             <div class="help-steps">
@@ -139,7 +139,7 @@
                                     <div class="help-step-badge">3</div>
                                     <div>
                                         <h5><i class="bi bi-magic me-2"></i>Generate the Ontology</h5>
-                                        <p>Open <strong>Ontology &rarr; Generate</strong> (AI Wizard), select your LLM endpoint, optionally choose a <em>Quick Template</em> (CRM, IoT, Healthcare, Energy, ...) and click <em>Generate</em>. The LLM produces entities, relationships and attributes &mdash; grounded in the metadata and any documents you imported. Review in the <strong>Model</strong> tab.</p>
+                                        <p>Open <strong>Ontology &rarr; Generate</strong> (AI Wizard), select your model, optionally choose a <em>Quick Template</em> (CRM, IoT, Healthcare, Energy, ...) and click <em>Generate</em>. The LLM produces entities, relationships and attributes &mdash; grounded in the metadata and any documents you imported. Review in the <strong>Model</strong> tab.</p>
                                     </div>
                                 </div>
                                 <div class="help-step-card">
@@ -401,7 +401,7 @@
                                 </div>
                                 <div class="accordion-item">
                                     <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">How does the LLM automation pick the right model?</button></h2>
-                                    <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#helpFaqAccordion"><div class="accordion-body">You select a Databricks Model Serving endpoint in <em>Settings</em>. The Wizard and Auto-Map features call this endpoint with prompts that include your UC metadata, documents and ontology context.</div></div>
+                                    <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#helpFaqAccordion"><div class="accordion-body">The LLM provider and credential are set per deployment (<code>ONTOBRICKS_LLM_BASE_URL</code>, <code>ONTOBRICKS_LLM_API_KEY</code>); any OpenAI-compatible endpoint works, Databricks Foundation Model APIs included. In <em>Settings</em> each domain picks which <em>model</em> to use from those the deployment declares. The Wizard and Auto-Map features call it with prompts that include your UC metadata, documents and ontology context.</div></div>
                                 </div>
                                 <div class="accordion-item">
                                     <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">Can I version my ontology?</button></h2>

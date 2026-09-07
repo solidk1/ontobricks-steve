@@ -300,7 +300,7 @@ OntoBricks is a **Graph Viewer Builder for Databricks** that brings **graph data
 
 Users can design ontologies visually or import industry standards (FIBO for finance, CDISC for clinical data, IOF for manufacturing), map ontology entities to Databricks tables, materialize the result into a Delta-backed triple store mirrored on Lakebase Postgres, run **formal reasoning** (OWL 2 RL deductive closure, SWRL rules, transitive/symmetric inference), and explore the graph viewer through interactive visualization. The entire pipeline — from raw tables to a reasoned, queryable graph viewer — can be completed in as few as four clicks thanks to LLM-driven ontology generation and automatic data mapping.
 
-OntoBricks runs as a **Databricks App**, making it natively integrated with the Databricks platform: Unity Catalog for storage and metadata, SQL Warehouses for query execution, and Model Serving endpoints for LLM features.
+OntoBricks runs as a **container** against any PostgreSQL instance, and integrates with Databricks as a connector rather than depending on it as a platform: Unity Catalog for source metadata and Volume attachments, SQL Warehouses for query execution, and optionally Foundation Model APIs for LLM features. The LLM can equally be OpenAI, Azure OpenAI, vLLM, Ollama or a proxy.
 
 ---
 
@@ -388,7 +388,7 @@ OntoBricks provides an end-to-end, web-based solution that runs directly on Data
 A **production-ready Databricks App** (open-source, MIT license) that:
 
 - Deploys in minutes via `databricks apps deploy`
-- Requires only a SQL Warehouse and (optionally) a Model Serving endpoint
+- Requires only a SQL Warehouse and (optionally) an OpenAI-compatible LLM endpoint
 - Stores all domain data in Unity Catalog Volumes (no external dependencies)
 - Supports the full lifecycle: design → map → materialize → explore → validate
 
@@ -429,7 +429,7 @@ A **production-ready Databricks App** (open-source, MIT license) that:
 | Graph Analysis | NetworkX 3.0+ (community detection: Louvain, Label Propagation, Greedy Modularity)    |
 | Frontend   | Bootstrap 5, Sigma.js, Graphology (+ communities-louvain), D3.js, OntoViz (custom), Vanilla JS |
 | Data       | Databricks SQL Connector, Unity Catalog, Delta Lake                                       |
-| AI         | Databricks Model Serving (LLM endpoints)                                                  |
+| AI         | Any OpenAI-compatible chat-completions endpoint (Databricks FMAPI, OpenAI, vLLM, …)        |
 | MCP        | FastMCP, httpx, Databricks SDK (separate App)                                             |
 | Deployment | Databricks Apps (`app.yaml`)                                                              |
 
@@ -439,7 +439,7 @@ A **production-ready Databricks App** (open-source, MIT license) that:
 - Fully functional application with all features implemented
 - Tested with CRM, IoT, energy, and healthcare ontologies
 - Industry-standard imports operational (FIBO, CDISC, IOF)
-- LLM-powered wizard and auto-map working with Databricks Model Serving endpoints
+- LLM-powered wizard and auto-map working with any OpenAI-compatible endpoint, Databricks Foundation Model APIs included
 - **Reasoning engine operational**: OWL 2 RL deductive closure, SWRL rule engine (SQL translator) with graphical D3 editor, graph reasoning (transitive closure, symmetric expansion), constraint validation, and SHACL data quality shapes (PySHACL + SQL compilation)
 - **Triple store + Graph DB layers**: Delta view (Unity Catalog) + Lakebase Postgres flat store, pluggable behind `GraphDBFactory`
 - MCP server deployed and operational for Databricks Playground
@@ -452,6 +452,6 @@ A **production-ready Databricks App** (open-source, MIT license) that:
 #### Resources Needed
 
 - **Databricks workspace** with a SQL Warehouse (Serverless recommended) for demo and testing
-- **Model Serving endpoint** for LLM features (e.g., Meta Llama 3.3 70B or equivalent)
+- **An OpenAI-compatible chat-completions endpoint** for LLM features (OpenAI, Azure OpenAI, vLLM, Ollama, a proxy, or Databricks Foundation Model APIs)
 - **Unity Catalog** with sample datasets for demonstration scenarios
 - Visibility and feedback from field engineering teams working on graph viewer, data governance, and semantic layer use cases

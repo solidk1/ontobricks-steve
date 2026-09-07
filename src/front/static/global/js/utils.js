@@ -859,17 +859,17 @@ function showNewDomainDialog() {
                             </div>
                             <div class="mb-1">
                                 <label for="${modalId}_llm" class="form-label fw-semibold">
-                                    <i class="bi bi-robot me-1"></i>LLM Endpoint <span class="text-muted fw-normal">(optional — for OntoBricks Agents)</span>
+                                    <i class="bi bi-robot me-1"></i>Model <span class="text-muted fw-normal">(optional — for OntoBricks Agents)</span>
                                 </label>
                                 <div class="input-group">
                                     <select class="form-select" id="${modalId}_llm">
-                                        <option value="">Loading endpoints…</option>
+                                        <option value="">Loading models…</option>
                                     </select>
-                                    <button type="button" class="btn btn-outline-secondary" id="${modalId}_llm_refresh" title="Refresh endpoints">
+                                    <button type="button" class="btn btn-outline-secondary" id="${modalId}_llm_refresh" title="Refresh models">
                                         <i class="bi bi-arrow-clockwise"></i>
                                     </button>
                                 </div>
-                                <small class="text-muted">Databricks Model Serving endpoint used by OntoBricks Agents.</small>
+                                <small class="text-muted">Model used by this domain's agents. Leave as &mdash; None &mdash; to use the deployment default.</small>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -903,14 +903,16 @@ function showNewDomainDialog() {
                         llmSelect.appendChild(opt);
                     });
                 } else {
+                    // Empty means the deployment declared no models. Say what to
+                    // set rather than leaving the user guessing at an empty list.
                     const opt = document.createElement('option');
                     opt.value = '';
-                    opt.textContent = 'No endpoints available';
+                    opt.textContent = 'No models configured — set ONTOBRICKS_LLM_MODELS';
                     opt.disabled = true;
                     llmSelect.appendChild(opt);
                 }
             } catch (_) {
-                llmSelect.innerHTML = '<option value="">Could not load endpoints</option>';
+                llmSelect.innerHTML = '<option value="">Could not load models</option>';
             }
         }
 

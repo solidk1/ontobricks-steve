@@ -347,3 +347,91 @@ New guard: `TestLLMRequestFieldNames` asserts the JS request field and the route
 that reads it agree — the P3d hazard, where one side of an HTTP boundary changes
 and a one-sided test suite stays green. Verified by re-injecting the regression
 (2 failures) and reverting.
+
+---
+
+# P6 revision, part 2 — the UI
+
+## Context
+
+Asked directly whether the UI was updated to let a user configure the model. It
+was not. The previous commit changed exactly one JS line — the request field name
+— and I had not audited what the interface actually *tells* the user.
+
+The picker mechanism was in fact fine: `loadLlmEndpoints()` fetches
+`/mapping/wizard/llm-endpoints`, which now serves `LLMTarget.models()`, so the
+dropdown populates from `ONTOBRICKS_LLM_MODELS`. Verified directly: nothing
+configured → `[]`, `_MODEL` only → one entry, `_MODELS` list → trimmed entries,
+Databricks endpoint names → passed through unchanged.
+
+What was wrong was the copy. Every label still told the user this had to be a
+Databricks endpoint, which is no longer true — and label drift is invisible to
+every other test: the picker works, the routes pass, and the only thing broken is
+what the user is told.
+
+## Changes
+
+1. **`partials/domain/_domain_information.html`** — "LLM Endpoint" → **"Model"**.
+   The help text said *"Select the Databricks Model Serving endpoint"*; the alert
+   said *"The endpoint must be a Databricks Model Serving endpoint accessible from
+   this workspace"*. Both replaced with the actual contract, naming
+   `ONTOBRICKS_LLM_BASE_URL` / `_API_KEY` / `_MODELS` so an operator seeing an
+   empty picker knows what to set.
+
+2. **`global/js/utils.js`** (new-domain dialog) — same relabel; the footnote
+   *"Databricks Model Serving endpoint used by OntoBricks Agents"* replaced.
+
+3. **Empty-state messages** in both pickers: "No endpoints available" →
+   **"No models configured — set ONTOBRICKS_LLM_MODELS"**. An empty list the user
+   cannot act on is worse than no list.
+
+4. **`domain/js/domain-information.js` — stale saved values.**
+   `setSelectedLlmEndpoint` silently appended any saved value as a normal option,
+   so a model no longer declared looked like a working choice and then failed at
+   the provider. It is still shown — hiding it would silently rewrite the domain's
+   setting on the next save — but labelled `— not in ONTOBRICKS_LLM_MODELS` in red.
+   Also "-- Select an LLM endpoint --" → "-- Deployment default --", which is what
+   an empty value now means.
+
+5. **`partials/layout/help_modal.html`** — three places: the prerequisites list,
+   the wizard walkthrough, and FAQ 6, which explained the old Databricks-only
+   model. FAQ 6 now states the split explicitly: provider and credential are
+   per-deployment, the domain picks a model.
+
+6. **Help Center docs** — 13 edits across `user-guide.md`, `product.md`,
+   `features.md`, `api.md`, `architecture.md`, `deployment.md`. Two were factually
+   wrong rather than merely stale: `architecture.md`'s ResponsesAgent table still
+   documented `custom_inputs.endpoint_name` (a contract I renamed to `model` last
+   commit), and `product.md` still opened with *"OntoBricks runs as a Databricks
+   App"*, which P7 deleted.
+
+## Deliberately NOT added: base URL / API key fields
+
+There is no UI to set `ONTOBRICKS_LLM_BASE_URL` or `ONTOBRICKS_LLM_API_KEY`, and
+there should not be. Persisting an API key in the registry's settings table would
+put a credential somewhere the UI reads and writes, where it would land in
+`export_for_save`, in domain exports, and plausibly in a log line. Provider and
+credential stay environment/secret-only; the UI chooses among models the operator
+declared. The settings tab now says this in as many words, so the absence reads as
+a decision rather than an omission.
+
+## New guard
+
+`TestLLMUICopy` in `tests/units/front/test_frontend_canonical_values.py` (5 tests):
+no template or JS file claims the LLM must be a Databricks Model Serving endpoint;
+the settings tab names the provider variables; both pickers name
+`ONTOBRICKS_LLM_MODELS` in their empty state.
+
+Verified by re-injecting the old copy — 1 failure — and reverting.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **4930 passed, 299 skipped,
+5 deselected**. `node --check` passes on all three touched JS files. ruff 4699,
+unchanged from the previous commit and 6 below HEAD.
+
+## Known remaining staleness (not LLM-related)
+
+`documentation/*.md` still describes the Databricks Apps deploy in places P7 made
+obsolete — `product.md` was fixed above because it was in the same paragraph, but a
+full docs pass against the container deploy has not been done and is not claimed.

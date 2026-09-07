@@ -1913,7 +1913,7 @@ This creates an MLflow run with the agent model, which can then be registered in
 |-------|-----------|----------|
 | `custom_inputs.host` | in | Databricks workspace URL |
 | `custom_inputs.token` | in | Databricks access token |
-| `custom_inputs.endpoint_name` | in | Foundation Model API serving endpoint |
+| `custom_inputs.model` | in | Model name; the provider comes from the serving container's `ONTOBRICKS_LLM_*` environment, never the request payload |
 | `custom_inputs.classes` | in | Current ontology classes (list of dicts) |
 | `custom_inputs.properties` | in | Current ontology properties (list of dicts) |
 | `custom_inputs.base_uri` | in | Ontology base URI |

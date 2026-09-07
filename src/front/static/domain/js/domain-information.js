@@ -79,7 +79,7 @@ async function loadLlmEndpoints() {
         const response = await fetch('/mapping/wizard/llm-endpoints', { credentials: 'same-origin' });
         const data = await response.json();
         
-        select.innerHTML = '<option value="">-- Select an LLM endpoint --</option>';
+        select.innerHTML = '<option value="">-- Deployment default --</option>';
         
         if (data.success && data.endpoints && data.endpoints.length > 0) {
             data.endpoints.forEach(endpoint => {
@@ -89,9 +89,11 @@ async function loadLlmEndpoints() {
                 select.appendChild(option);
             });
         } else {
+            // No declared models. Name the variable instead of showing an
+            // empty list the user cannot act on.
             const option = document.createElement('option');
             option.value = '';
-            option.textContent = 'No endpoints available';
+            option.textContent = 'No models configured — set ONTOBRICKS_LLM_MODELS';
             option.disabled = true;
             select.appendChild(option);
         }
@@ -104,7 +106,13 @@ async function loadLlmEndpoints() {
     }
 }
 
-// Set the selected LLM endpoint
+// Select the domain's saved model.
+//
+// A value saved before the deployment's model list changed is still shown --
+// hiding it would silently rewrite the domain's setting on the next save -- but
+// it is labelled as unavailable rather than presented as a working choice. It
+// would be sent to the provider and rejected there, so saying so here is the
+// difference between a clear message and an opaque 400.
 function setSelectedLlmEndpoint(endpointName) {
     const select = document.getElementById('domainLlmEndpoint');
     if (!select || !endpointName) return;
@@ -113,7 +121,8 @@ function setSelectedLlmEndpoint(endpointName) {
     if (select.value !== endpointName) {
         const option = document.createElement('option');
         option.value = endpointName;
-        option.textContent = endpointName;
+        option.textContent = `${endpointName} — not in ONTOBRICKS_LLM_MODELS`;
+        option.classList.add('text-danger');
         select.appendChild(option);
         select.value = endpointName;
     }

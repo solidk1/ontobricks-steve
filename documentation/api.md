@@ -2040,7 +2040,7 @@ The `last_modified` field is retrieved from the Unity Catalog Delta table metada
 
 #### Auto-Map Entity Icons (LLM)
 
-Use the domain's configured LLM serving endpoint to suggest emoji icons for entity names.
+Use the domain's configured LLM to suggest emoji icons for entity names.
 
 ```http
 POST /dtwin/auto-assign-icons
@@ -2066,7 +2066,7 @@ POST /dtwin/auto-assign-icons
 }
 ```
 
-> **Note**: Requires a valid LLM serving endpoint configured in Domain Settings (`llm_endpoint`).
+> **Note**: Requires an LLM provider configured for the deployment (`ONTOBRICKS_LLM_BASE_URL`, `ONTOBRICKS_LLM_API_KEY`, `ONTOBRICKS_LLM_MODEL`). A domain may select a different model in Domain Settings (`llm_endpoint`).
 
 ---
 

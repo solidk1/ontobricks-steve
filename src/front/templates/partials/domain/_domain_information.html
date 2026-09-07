@@ -162,24 +162,28 @@
                     <div class="tab-pane fade" id="panel-llm" role="tabpanel" aria-labelledby="tab-llm">
                         <div class="mb-3">
                             <label for="domainLlmEndpoint" class="form-label">
-                                <i class="bi bi-robot"></i> LLM Endpoint <small class="text-muted">(for OntoBricks Agents)</small>
+                                <i class="bi bi-robot"></i> Model <small class="text-muted">(for OntoBricks Agents)</small>
                             </label>
                             <div class="input-group">
                                 <select class="form-select domain-editable" id="domainLlmEndpoint"
                                         data-saved-value="{{ domain.llm_endpoint or '' }}">
-                                    <option value="">-- Loading endpoints... --</option>
+                                    <option value="">-- Loading models... --</option>
                                 </select>
-                                <button type="button" class="btn btn-outline-secondary" onclick="loadLlmEndpoints()" title="Refresh endpoints">
+                                <button type="button" class="btn btn-outline-secondary" onclick="loadLlmEndpoints()" title="Refresh models">
                                     <i class="bi bi-arrow-clockwise"></i>
                                 </button>
                             </div>
-                            <small class="text-muted">Select the Databricks Model Serving endpoint to use for the OntoBricks Agents</small>
+                            <small class="text-muted">Which model this domain's agents use. Leave empty to use the deployment default.</small>
                         </div>
                         <div class="alert alert-light border small mt-4">
                             <i class="bi bi-info-circle me-1"></i>
-                            OntoBricks agents (OWL generation, auto-mapping, icon mapping) use this endpoint
-                            to interact with a Foundation Model. The endpoint must be a Databricks Model Serving
-                            endpoint accessible from this workspace.
+                            OntoBricks agents (OWL generation, auto-mapping, icon mapping) call an
+                            OpenAI-compatible chat-completions endpoint &mdash; OpenAI, Azure OpenAI,
+                            Databricks Foundation Model APIs, vLLM, Ollama or a proxy. The provider and
+                            credential are set once per deployment via <code>ONTOBRICKS_LLM_BASE_URL</code>
+                            and <code>ONTOBRICKS_LLM_API_KEY</code>; the choices above come from
+                            <code>ONTOBRICKS_LLM_MODELS</code>. They are deliberately not editable here:
+                            an API key does not belong in a settings table.
                         </div>
                     </div>
 

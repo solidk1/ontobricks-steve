@@ -64,7 +64,7 @@ This section provides detailed diagrams covering the OntoBricks component topolo
                     │  │   │  (Jinja2 + JS)    │  │   /api/v1/*      │  │   /graphql      │ │    │
                     │  │   └──────────────────┘  └──────────────────┘  └─────────────────┘ │    │
                     │  │                                                                     │    │
-                    │  │   LLM Agents  (Databricks Model Serving / Foundation Models):      │    │
+                    │  │   LLM Agents  (any OpenAI-compatible /chat/completions):           │    │
                     │  │   OWL Generator · Auto-Assignment · Ontology Assistant             │    │
                     │  │   Digital-Twin Chat · Cohort Generator · Auto-Icon Assign          │    │
                     │  └────────────────────────┬────────────────────────────────────────── ┘    │
