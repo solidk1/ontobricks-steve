@@ -836,3 +836,61 @@ Worth someone checking, not asserted here: `runner.py` calls
 imports. The third, in `_get_antonyms_and_parents` (line ~495, reached via
 `_are_contrasting`), has no guard in its own call chain. Whether a guarded entry
 point always runs first was not traced to the end, so it may be fine.
+
+## Azure Container Apps reference deploy
+
+`deploy/azure/Dockerfile` — the container image, added because deploying to Azure
+needed one and the repo ships none at its root by design (OntoBricks is a plain ASGI
+process; the image is the operator's to own). It lives under `deploy/azure/` as a
+working reference for the Container Apps path rather than pretending to be the only
+way to package the app.
+
+Built and deployed successfully: `az acr build` in 8m29s, running as
+`ontobrickssteveacr.azurecr.io/ontobricks:f3c5cd2b`.
+
+Notes captured in the file because each cost time to find:
+
+- Build from the **repo root** with `-f deploy/azure/Dockerfile .`, since the build
+  context needs `src/`, `uv.lock` and `documentation/`.
+- `az acr build` runs the build inside ACR, so no local Docker daemon is required —
+  which mattered, because there wasn't one.
+- `documentation/` is **not** optional: the Help Center serves markdown from it at
+  runtime, so an image without it renders an empty Help Center.
+- `ca-certificates` covers `PGSSLMODE=verify-full` against Azure Database for
+  PostgreSQL, so no CA has to be baked in separately.
+- `ONTOBRICKS_CONTAINERIZED=true` is baked into the image, because without it
+  uvicorn binds `127.0.0.1` and nothing outside the container can reach it.
+- The `HEALTHCHECK` hits `/health`, which was verified to answer **HTTP 200 with
+  auth enabled and no cookie** — it is in the bypass lists of `PermissionMiddleware`,
+  `CSRFMiddleware` and `RequestTimingMiddleware`. The comment also records that
+  `/health` always returns 200, so a probe must read the JSON `status`.
+- Runs unprivileged as uid 10001.
+
+### Verified in the live deployment
+
+The Entra path from P2b works end to end against a real Azure Container App:
+
+```
+Postgres auth mode: entra
+Entra Postgres token minted, valid for ~1440 min
+Created Postgres connection pool for ontobricks-pg-steve…/ontobricks
+relation "ontobricks_registry.registries" does not exist
+```
+
+That last line is the success signal — authenticated with a managed-identity token,
+pool open, issuing SQL, just no tables until Registry → Initialize runs.
+
+Fail-closed auth also behaved: with no OIDC client configured the app serves
+`/access-denied?reason=app`, which is correct rather than broken.
+
+### Network shape, forced by policy and better for it
+
+Container Apps Consumption hands out 160+ shared egress IPs, and the usual
+workaround — the `0.0.0.0-0.0.0.0` "allow Azure services" firewall rule — is denied
+by management-group policy (*"Deny firewall rules with IP range 0.0.0.0 - 0.0.0.0 on
+MySQL, PostgreSQL, SQL and Flexible Servers"*). The alternative is a VNet-integrated
+environment with a NAT gateway, giving **one** fixed egress IP to whitelist.
+
+That is strictly better, and it proved itself immediately: this workstation's egress
+IP rotated mid-session and lost database access, while the app never noticed because
+its NAT address is fixed.
