@@ -232,3 +232,64 @@ class TestLLMUICopy:
             f"{name}: an empty model list must name the variable to set, not just "
             "say 'no endpoints available'"
         )
+
+
+class TestRetiredDeploymentCopy:
+    """The UI must not instruct operators to set variables that no longer exist.
+
+    The Registry panel told users to set ``LAKEBASE_SCHEMA`` and to "bind the
+    Volume and Lakebase resources in ``app.yaml``" long after both were retired
+    (``ONTOBRICKS_PG_SCHEMA`` replaced the former; the asset bundle and
+    ``app.yaml`` were deleted in v0.7.1). On the first non-Databricks deployment
+    that message was the *only* thing the operator saw, and every instruction in
+    it was wrong.
+
+    Nothing else can catch this: the panel renders, the fetch succeeds, and the
+    copy is simply false.
+    """
+
+    #: Names retired from the runtime, mapped to what replaced them.
+    _RETIRED = {
+        "LAKEBASE_SCHEMA": "ONTOBRICKS_PG_SCHEMA",
+        "app.yaml": "the container environment",
+        "REGISTRY_VOLUME_PATH": "PGHOST/PGDATABASE",
+    }
+
+    def _offenders(self, needle: str, suffix: str, root: Path):
+        return [
+            f"{p.relative_to(root)}:{n}"
+            for p in root.rglob(suffix)
+            for n, line in enumerate(p.read_text().splitlines(), 1)
+            if needle in line
+        ]
+
+    @pytest.mark.parametrize("retired", sorted(_RETIRED))
+    def test_no_js_instructs_setting_a_retired_variable(self, retired):
+        offenders = self._offenders(retired, "*.js", _STATIC)
+        assert not offenders, (
+            f"{retired} is retired (use {self._RETIRED[retired]}) but is still "
+            f"named in JS: {offenders}"
+        )
+
+    @pytest.mark.parametrize("retired", ["LAKEBASE_SCHEMA"])
+    def test_no_template_instructs_setting_a_retired_variable(self, retired):
+        offenders = self._offenders(retired, "*.html", _TEMPLATES)
+        assert not offenders, f"{retired} still named in templates: {offenders}"
+
+    def test_registry_panel_names_the_postgres_variables(self):
+        """A registry with no Postgres must say which variables to set."""
+        js = (_STATIC / "registry/js/registry.js").read_text()
+        for var in ("PGHOST", "PGDATABASE", "ONTOBRICKS_PG_SCHEMA"):
+            assert var in js, f"registry.js must name {var} when unconfigured"
+
+    def test_registry_panel_does_not_blame_the_volume_when_uninitialized(self):
+        """The Volume is optional; 'create the volume' is not the fix."""
+        js = (_STATIC / "registry/js/registry.js").read_text()
+        assert "Initialize</strong> to create the volume" not in js
+
+    def test_registry_defaults_match_the_backend_payload(self):
+        """``as_dict()`` emits postgres_*; the JS defaults must not shadow it."""
+        js = (_STATIC / "registry/js/registry.js").read_text()
+        head = js[: js.index("loadRegistryConfig();")]
+        assert "postgres_schema:" in head
+        assert "lakebase_schema:" not in head

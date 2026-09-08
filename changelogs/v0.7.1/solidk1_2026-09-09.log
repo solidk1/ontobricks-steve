@@ -1,0 +1,91 @@
+
+## Split RegistryCfg.is_configured from has_volume — the Volume is now optional
+
+### Context
+
+The first non-Databricks deployment (Azure Container Apps + Azure Database for
+PostgreSQL) reported *"Registry is not operational — not configured"* while its
+Postgres registry was up, reachable and initialized. The panel then told the
+operator to set `LAKEBASE_SCHEMA` and to "bind the Volume and Lakebase resources
+in `app.yaml`" — a retired variable and a file deleted in v0.7.1.
+
+Root cause: `RegistryCfg.is_configured` meant *"the Unity Catalog Volume triplet
+is set"*, but all ~37 call sites read it as *"the registry is usable"*. Those two
+were the same statement only while the Databricks Apps deploy bound the Volume
+and the registry together. Decoupling separated them, and no test noticed because
+no test ever constructed a config with Postgres but no Volume.
+
+This is the same class of gap as the three auth bugs fixed earlier today: the
+fakes encoded the intended shape rather than the real contract.
+
+### Changes
+
+1. `src/back/objects/registry/RegistryService.py` — `is_configured` now answers
+   "is the *structured* registry usable?" (a Postgres question: schema name set
+   and `PostgresAuth.is_available`). New `has_volume` property carries the old
+   triplet meaning. `as_dict()` emits both so the UI can branch on either.
+   Never raises — it is called from status payloads.
+2. `src/back/objects/session/DomainSession.py` — `uc_domain_path` switched to
+   `has_volume`. All 37 sites were classified individually; this is the **only**
+   one that genuinely needs the Volume, because it builds a `/Volumes/…` string.
+   `uc_version_path` derives from it, so it is covered. Two regex-flagged
+   candidates (`list_cohort_rules_for_domain_result`, the three OBX
+   export/import functions) were verified as false positives — they route
+   through `self._store`, i.e. Postgres.
+3. `src/front/static/registry/js/registry.js` — the "why is it not operational"
+   branch now keys on `cfg.postgres.bound` instead of Volume coordinates, so a
+   fresh Postgres deployment is told to click **Initialize** rather than to
+   create a volume. The unconfigured branch names the real variables
+   (`PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`, `ONTOBRICKS_PG_SCHEMA`). Fixed a
+   dead read of `registryCfg.lakebase_schema` (the backend emits
+   `postgres_schema`; it resolved to `undefined`) and the "from LAKEBASE_SCHEMA"
+   / "from app resource binding" hints. Defaults object realigned to the payload.
+4. `src/back/objects/domain/SettingsService.py` — corrected the
+   `_postgres_runtime_info` docstring; it no longer describes a Lakebase resource
+   binding.
+5. `tests/units/registry/test_volume_is_optional.py` (new, 12 tests) — the truth
+   table for the two properties, `as_dict` carrying both, and the
+   `uc_domain_path` guard with a negative control asserting `""` rather than
+   `/Volumes///domains/…`. **Verified against the pre-fix code**: reverting
+   `uc_domain_path` fails 1, reverting `is_configured` fails 2.
+6. `tests/units/front/test_frontend_canonical_values.py` — new
+   `TestRetiredDeploymentCopy` (6 tests) asserting no JS or template instructs
+   an operator to set a retired variable, that the registry panel names the
+   Postgres variables, and that it no longer blames the Volume. **5 of the 6
+   fail against the previous `registry.js`.**
+7. `tests/units/registry/test_registry.py` — the four `test_is_configured_*`
+   helpers rewritten onto `has_volume`, which is the property that now carries
+   the triplet meaning. Left as they were, the three negative cases would have
+   kept passing only because the suite sets no `PGHOST` — passing for the wrong
+   reason.
+8. `tests/conftest.py` — new opt-in `configured_registry_env` fixture. The
+   autouse env fixture deletes `PGHOST`/`PGDATABASE` (correctly, so a
+   developer's `.env` cannot leak), which made every `RegistryCfg` in the suite
+   report *not configured* once the semantics changed. Values are deliberately
+   unroutable: `is_configured` only inspects the environment and opens no
+   connection, so anything that does try to connect fails loudly.
+9. Docstrings in `RegistryService.py` corrected — the module no longer claims
+   the registry is "Lakebase-only", and `RegistryCfg` documents why the two
+   predicates are separate.
+
+### Modified files
+
+- `src/back/objects/registry/RegistryService.py`
+- `src/back/objects/session/DomainSession.py`
+- `src/back/objects/domain/SettingsService.py`
+- `src/front/static/registry/js/registry.js`
+- `tests/conftest.py`
+- `tests/units/registry/test_registry.py`
+- `tests/units/registry/test_volume_is_optional.py` (new)
+- `tests/units/front/test_frontend_canonical_values.py`
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5000 passed, 1 failed,
+295 skipped**.
+
+The single failure is pre-existing and unrelated:
+`test_pitfalls_service.py::TestPitfallsServiceRunAnalysis::test_run_all_keyword`
+fails on `LookupError: Resource 'wordnet' not found`. The NLTK corpus cannot be
+downloaded from this sandbox; CI does not install the `pitfalls` extra, so it
+skips there. Not a regression from this change.

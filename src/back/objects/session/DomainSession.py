@@ -897,7 +897,11 @@ class DomainSession:
         from back.objects.registry.RegistryService import RegistryCfg, _DOMAINS_FOLDER
 
         cfg = RegistryCfg.from_domain(self, get_settings())
-        if not cfg.is_configured:
+        # has_volume, not is_configured: this builds a /Volumes path, so it needs
+        # the UC triplet specifically. is_configured now means "the structured
+        # registry is reachable", which is a Postgres question and true on
+        # deployments that have no Volume at all.
+        if not cfg.has_volume:
             return ""
         return f"/Volumes/{cfg.catalog}/{cfg.schema}/{cfg.volume}/{_DOMAINS_FOLDER}/{self.uc_domain_folder}"
 

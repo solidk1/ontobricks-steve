@@ -61,6 +61,30 @@ def setup_test_env(monkeypatch):
         monkeypatch.delenv(_lakebase_var, raising=False)
 
 
+@pytest.fixture
+def configured_registry_env(monkeypatch):
+    """Make ``RegistryCfg.is_configured`` true, as a real deployment would.
+
+    The autouse env fixture above deletes ``PGHOST``/``PGDATABASE`` so a
+    developer's ``.env`` cannot leak into unit tests. That is right, but it
+    also means every ``RegistryCfg`` in the suite reports *not configured*
+    once ``is_configured`` became a Postgres question rather than a Unity
+    Catalog Volume one.
+
+    Tests that exercise a route needing a usable registry request this
+    fixture. The values are deliberately unroutable: ``is_configured`` only
+    inspects the environment (``PostgresAuth.is_available``) and opens no
+    connection, so anything that *does* try to connect fails loudly here
+    instead of reaching a real server.
+    """
+    monkeypatch.setenv("PGHOST", "postgres.invalid")
+    monkeypatch.setenv("PGPORT", "5432")
+    monkeypatch.setenv("PGDATABASE", "ontobricks_test")
+    monkeypatch.setenv("PGUSER", "ontobricks_test")
+    monkeypatch.setenv("ONTOBRICKS_PG_SCHEMA", "ontobricks_registry")
+    yield
+
+
 @pytest.fixture(autouse=True)
 def isolate_databricks_cli_auth(request):
     """Prevent accidental ``~/.databrickscfg`` resolution in unit tests."""

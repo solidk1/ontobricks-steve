@@ -227,7 +227,7 @@ class TestDomainVersions:
 
     @patch("api.routers.domains.RegistryService")
     @patch("api.routers.domains.DigitalTwin")
-    def test_versions_not_found(self, mock_dt, mock_svc_cls, client):
+    def test_versions_not_found(self, mock_dt, mock_svc_cls, client, configured_registry_env):
         mock_dt.uc_from_domain.return_value = MagicMock()
         svc = MagicMock()
         svc.list_versions_sorted.return_value = []
@@ -239,7 +239,7 @@ class TestDomainVersions:
 
     @patch("api.routers.domains.RegistryService")
     @patch("api.routers.domains.DigitalTwin")
-    def test_versions_success(self, mock_dt, mock_svc_cls, client):
+    def test_versions_success(self, mock_dt, mock_svc_cls, client, configured_registry_env):
         mock_dt.uc_from_domain.return_value = MagicMock()
         svc = MagicMock()
         svc.list_versions_sorted.return_value = ["3", "2", "1"]

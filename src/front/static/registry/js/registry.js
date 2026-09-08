@@ -6,13 +6,17 @@
 document.addEventListener('DOMContentLoaded', function () {
 
     let registryConfigured = false;
+    // Shape mirrors GET /settings/registry (RegistryCfg.as_dict() plus the
+    // status keys). Only used before the first fetch resolves, or if it
+    // fails -- the fetch replaces this object wholesale.
     let registryCfg = {
         catalog: '',
         schema: '',
         volume: 'OntoBricksRegistry',
-        lakebase_schema: 'ontobricks_registry',
+        has_volume: false,
+        postgres_schema: 'ontobricks_registry',
         configured: false,
-        lakebase: { bound: false, branch: '', database: '', user: '', schema: 'ontobricks_registry' }
+        postgres: { bound: false, branch: '', database: '', user: '', schema: 'ontobricks_registry' }
     };
     let registryLocked = false;
 
@@ -113,14 +117,14 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
         set('lbRegistryUser', lb.user);
-        set('lbRegistrySchema', lb.schema || registryCfg.lakebase_schema);
+        set('lbRegistrySchema', lb.schema || registryCfg.postgres_schema);
         const schemaHint = document.getElementById('lbRegistrySchemaHint');
         if (schemaHint) {
             if (lb.schema) {
                 schemaHint.style.display = '';
                 schemaHint.innerHTML = lb.host
-                    ? '<i class="bi bi-link-45deg me-1"></i>from app resource binding'
-                    : '<i class="bi bi-link-45deg me-1"></i>from LAKEBASE_SCHEMA';
+                    ? '<i class="bi bi-link-45deg me-1"></i>from PGHOST environment'
+                    : '<i class="bi bi-link-45deg me-1"></i>from ONTOBRICKS_PG_SCHEMA';
             } else {
                 schemaHint.style.display = 'none';
             }
@@ -188,23 +192,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<i class="bi bi-check-circle-fill me-1"></i>Registry is operational</p>'
             );
             loadRegistryDomains();
-        } else if (cfg.catalog && cfg.schema) {
-            const msg = registryLocked
-                ? 'Registry volume is set via Databricks App resource but not yet initialized. Click <strong>Initialize</strong> to set up the registry.'
-                : 'Registry location set but not initialized yet. Click <strong>Initialize</strong> to create the volume.';
+        } else if (cfg.postgres && cfg.postgres.bound) {
+            // Postgres is reachable but the registry schema/tables are not
+            // there yet. This is the normal state of a fresh deployment and
+            // Initialize is the whole fix. The Volume is irrelevant here:
+            // it only ever held binary document uploads, and a deployment
+            // with no Volume at all is fully supported.
             setStatus(
                 '<p class="small text-warning mb-0">' +
-                '<i class="bi bi-exclamation-triangle-fill me-1"></i>Registry is not operational — ' + msg + '</p>'
+                '<i class="bi bi-exclamation-triangle-fill me-1"></i>Registry is not operational — ' +
+                'connected to PostgreSQL but schema <code>' + (cfg.postgres_schema || '') + '</code> ' +
+                'is not initialized yet. Click <strong>Initialize</strong> to create the registry tables.</p>'
             );
             const section = document.getElementById('registryDomainsSection');
             if (section) section.style.display = 'none';
         } else {
             setStatus(
                 '<p class="small text-danger mb-0">' +
-                '<i class="bi bi-x-circle-fill me-1"></i>Registry is not operational — not configured. ' +
-                'Set <code>REGISTRY_CATALOG</code> / <code>REGISTRY_SCHEMA</code> / <code>LAKEBASE_SCHEMA</code> in <code>.env</code> ' +
-                '(local development) or bind the Volume and Lakebase resources in <code>app.yaml</code> ' +
-                '(Databricks Apps deployment), then restart the app.</p>'
+                '<i class="bi bi-x-circle-fill me-1"></i>Registry is not operational — no PostgreSQL connection. ' +
+                'Set <code>PGHOST</code> / <code>PGPORT</code> / <code>PGDATABASE</code> / <code>PGUSER</code> and ' +
+                '<code>ONTOBRICKS_PG_SCHEMA</code> in the environment, then restart the app.</p>'
             );
             const section = document.getElementById('registryDomainsSection');
             if (section) section.style.display = 'none';

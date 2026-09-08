@@ -664,9 +664,9 @@ class SettingsService:
 
     @staticmethod
     def _postgres_runtime_info(rcfg: RegistryCfg) -> Dict[str, Any]:
-        """Surface the read-only Lakebase connection params for the UI.
+        """Surface the read-only Postgres connection params for the UI.
 
-        Returns an empty block when the Lakebase resource is not bound.
+        Returns an empty block when no Postgres server is configured.
         Never raises and never includes the OAuth token.
 
         Coordinates are the standard ``PGHOST``/``PGPORT``/``PGDATABASE``/

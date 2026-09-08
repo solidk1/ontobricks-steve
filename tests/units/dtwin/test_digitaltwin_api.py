@@ -42,7 +42,7 @@ class TestResolveDomainReadOnly:
             patch("back.objects.registry.RegistryService", return_value=svc),
         )
 
-    def test_read_only_uses_cache_and_skips_gen_and_save(self):
+    def test_read_only_uses_cache_and_skips_gen_and_save(self, configured_registry_env):
         svc = MagicMock()
         svc.load_published_domain_data_cached.return_value = (True, {"info": {}}, "2", "")
         p_get, p_reg, p_uc, p_svc = self._patch(svc)
@@ -61,7 +61,7 @@ class TestResolveDomainReadOnly:
         domain.ensure_generated_content.assert_not_called()
         domain.save.assert_not_called()
 
-    def test_write_path_generates_and_saves(self):
+    def test_write_path_generates_and_saves(self, configured_registry_env):
         svc = MagicMock()
         svc.load_published_domain_data.return_value = (True, {"info": {}}, "2", "")
         p_get, p_reg, p_uc, p_svc = self._patch(svc)

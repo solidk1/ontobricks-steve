@@ -5,11 +5,12 @@ Centralises all domain-registry management (config resolution, path
 construction, domain CRUD, version management) behind a single
 ``RegistryService`` class and a lightweight ``RegistryCfg`` dataclass.
 
-The registry is **Lakebase-only**: JSON-shaped registry data (domains,
+The registry is **Postgres-only**: JSON-shaped registry data (domains,
 versions, permissions, schedules, global config) lives in the Postgres
-schema named by ``postgres_schema``. The Unity Catalog Volume triplet
-(``catalog``/``schema``/``volume``) is kept around solely for
-domain-scoped binary artefacts — the ``documents/`` uploads imported by
+schema named by ``postgres_schema``, on any PostgreSQL 14+ server. The
+Unity Catalog Volume triplet (``catalog``/``schema``/``volume``) is
+**optional** and kept solely for domain-scoped binary artefacts — the
+``documents/`` uploads imported by
 the ontology designer. The historical JSON-on-Volume backend was
 removed in v0.4.0; existing deployments must run
 ``scripts/migrate-registry-to-lakebase.sh`` once to copy their data
@@ -67,8 +68,15 @@ _LEGACY_DOMAINS_FOLDER = "projects"
 class RegistryCfg:
     """Immutable registry location triplet (catalog, schema, volume).
 
-    Lakebase is the sole registry backend. ``postgres_schema`` is the
+    PostgreSQL is the sole registry backend. ``postgres_schema`` is the
     Postgres schema for registry tables.
+
+    Two independent predicates, and conflating them was a real bug:
+    :attr:`is_configured` asks "is the structured registry usable?" (a
+    Postgres question) while :attr:`has_volume` asks "is the UC triplet
+    set?" (a Databricks one). A container + plain Postgres deployment is
+    ``is_configured`` and not ``has_volume``; only code building a
+    ``/Volumes/`` path should consult the latter.
 
     ``postgres_database`` (optional) overrides the bound Postgres
     database name. When empty (the default), the runtime uses the
@@ -258,8 +266,41 @@ class RegistryCfg:
     # -- helpers -----------------------------------------------------
 
     @property
-    def is_configured(self) -> bool:
+    def has_volume(self) -> bool:
+        """Whether the Unity Catalog Volume triplet is set.
+
+        Gates the features that genuinely touch the Volume: document uploads,
+        OBX artefact export/import, and the UC-path helpers. It says nothing
+        about whether the registry itself works.
+        """
         return bool(self.catalog and self.schema and self.volume)
+
+    @property
+    def is_configured(self) -> bool:
+        """Whether the **structured** registry is usable.
+
+        Domains, versions, permissions, schedules, app roles and global config
+        are Postgres rows, so this asks whether Postgres is reachable, not
+        whether a UC Volume exists.
+
+        This used to return ``catalog and schema and volume``, which contradicted
+        this class's own docstring ("the triplet ... is not used for registry
+        rows") and made a Postgres-only deployment permanently report "Registry is
+        not operational". Twenty-five of the forty call sites gating on it do pure
+        Postgres work: listing domains, loading a domain, listing versions, build
+        runs, OBX export. All of them refused to run because a Volume was absent.
+
+        Volume-dependent callers use :attr:`has_volume` instead.
+        """
+        from back.core.postgres.PostgresAuth import PostgresAuth
+
+        if not self.postgres_schema:
+            return False
+        try:
+            return bool(PostgresAuth().is_available)
+        except Exception:  # noqa: BLE001
+            # Never let a config probe raise into a readiness check.
+            return False
 
     def as_dict(self) -> Dict[str, str]:
         """Dict representation for backward compatibility with legacy callers."""
@@ -267,6 +308,7 @@ class RegistryCfg:
             "catalog": self.catalog,
             "schema": self.schema,
             "volume": self.volume,
+            "has_volume": self.has_volume,
             "postgres_schema": self.postgres_schema,
             "postgres_database": self.postgres_database,
         }
@@ -281,10 +323,11 @@ class RegistryService:
     """Encapsulates every registry operation.
 
     JSON-shaped data (domains, versions, permissions, schedules,
-    global config) is routed through the Lakebase
+    global config) is routed through the Postgres
     :class:`RegistryStore`. Domain-scoped binary artefacts (the
     ``documents/`` uploads imported by the ontology designer) stay on
-    the Unity Catalog Volume and are managed via :attr:`uc`.
+    the Unity Catalog Volume and are managed via :attr:`uc` — optional,
+    and absent on deployments with no Databricks workspace.
     """
 
     def __init__(
@@ -431,7 +474,7 @@ class RegistryService:
     # -- registry lifecycle ------------------------------------------
 
     def is_initialized(self) -> bool:
-        """Return ``True`` when the Lakebase store reports a usable registry."""
+        """Return ``True`` when the Postgres store reports a usable registry."""
         return self._store.is_initialized()
 
     def initialize(self, client) -> Tuple[bool, str]:

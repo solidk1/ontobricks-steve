@@ -273,17 +273,27 @@ class TestRegistryCfgFromDomainLakebaseRow:
 
 
 class TestRegistryCfgHelpers:
-    def test_is_configured_true(self):
-        assert RegistryCfg("a", "b", "c").is_configured is True
+    """``has_volume`` is the triplet predicate.
 
-    def test_is_configured_missing_catalog(self):
-        assert RegistryCfg("", "b", "c").is_configured is False
+    These four asserted ``is_configured`` until the Volume became optional.
+    ``is_configured`` now answers "is the *structured* registry usable?",
+    which is a Postgres question — see
+    ``tests/units/registry/test_volume_is_optional.py`` for its contract.
+    Left on ``is_configured``, the three negative cases below would still
+    have passed, but only because the test environment sets no ``PGHOST``.
+    """
 
-    def test_is_configured_missing_schema(self):
-        assert RegistryCfg("a", "", "c").is_configured is False
+    def test_has_volume_true(self):
+        assert RegistryCfg("a", "b", "c").has_volume is True
 
-    def test_is_configured_missing_volume(self):
-        assert RegistryCfg("a", "b", "").is_configured is False
+    def test_has_volume_missing_catalog(self):
+        assert RegistryCfg("", "b", "c").has_volume is False
+
+    def test_has_volume_missing_schema(self):
+        assert RegistryCfg("a", "", "c").has_volume is False
+
+    def test_has_volume_missing_volume(self):
+        assert RegistryCfg("a", "b", "").has_volume is False
 
     def test_as_dict(self):
         c = RegistryCfg("x", "y", "z")
@@ -291,6 +301,7 @@ class TestRegistryCfgHelpers:
             "catalog": "x",
             "schema": "y",
             "volume": "z",
+            "has_volume": True,
             "postgres_schema": "ontobricks_registry",
             "postgres_database": "",
         }
