@@ -245,9 +245,23 @@ class TestSettingsPage:
         assert 'id="databricks-section"' in html
         assert 'id="global-section"' in html
 
-    def test_host_display(self, client):
+    def test_host_is_editable(self, client):
+        """The host was a read-only plaintext div showing DATABRICKS_HOST.
+
+        It is an input now: the workspace host is per-deployment configuration
+        an admin has to be able to correct without a redeploy, which matters
+        because getting it wrong (an account console instead of a workspace)
+        breaks Unity Catalog silently.
+        """
         html = _html(client, "/settings")
-        assert _find(_tags(html), id_="currentHostDisplay") is not None
+        assert _find(_tags(html), id_="workspaceHostInput") is not None
+        assert _find(_tags(html), id_="btnSaveWorkspaceHost") is not None
+
+    def test_host_help_separates_login_from_workspace(self, client):
+        """The two hosts are different things; the panel must say so."""
+        html = _html(client, "/settings")
+        assert "ONTOBRICKS_OIDC_HOST" in html
+        assert "DATABRICKS_HOST" in html
 
     def test_token_status(self, client):
         html = _html(client, "/settings")

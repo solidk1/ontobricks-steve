@@ -347,3 +347,86 @@ and the five fixed here were verified one at a time. Not changed blind.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5055 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure.
+
+## Make the Databricks workspace host configurable in the UI
+
+### Context
+
+The host was a read-only plaintext div captioned "Set via environment variable
+DATABRICKS_HOST", so correcting it required a redeploy. That is the wrong shape
+for this particular setting, because the wrong value is easy to choose and fails
+*silently*: an account console — or a vanity domain in front of one — answers
+OIDC discovery perfectly and returns HTTP 303 for every `/api/2.0/...` path, so
+login succeeds while every Unity Catalog and SQL warehouse call redirects into
+nothing. That is exactly what happened on this deployment.
+
+### Changes
+
+1. `src/front/templates/settings.html` — the host is an input with a **Save**
+   button, carrying the same "Admin only – applies to all users" badge as the
+   warehouse picker. The help text gives the per-workspace URL shape, says the
+   `?o=` number in the browser URL is the workspace id, and states that an
+   account console will be rejected and why.
+2. `src/back/objects/domain/SettingsService.py` —
+   - `probe_workspace_host` verifies a host before accepting it. **A 401/403 is
+     the pass condition** (a real workspace API answered and wants credentials);
+     a 3xx is the failure, and the rejection names the account-vs-workspace
+     mistake with the URL shape to use instead. Network errors and 5xx warn but
+     do not block, since a private-endpoint workspace can be unreachable from
+     wherever the probe runs while being fine from the app.
+   - `set_workspace_host` gates on admin, normalises the value (adds `https://`,
+     strips a trailing slash), persists globally, and also writes the session so
+     it applies immediately when the registry write fails. Empty clears the
+     override and skips the probe.
+   - `/settings/current` gained `host_source` (`session` / `global` / `env` /
+     `unset`) and `host_env_default`, so the panel distinguishes "this is just
+     the deployment default" from "an admin overrode it".
+3. `src/back/objects/session/GlobalConfigService.py` — `get_workspace_host` /
+   `set_workspace_host`. The getter deliberately takes no host/token: it is
+   consulted *while* resolving the host, so it cannot require one. Safe because
+   `_store_for` discards both and reads Postgres.
+4. `src/back/core/helpers/DatabricksHelpers.py` — resolution is now
+   **session → global config → `DATABRICKS_HOST`**. No recursion: the global
+   config read reaches the Postgres registry, which needs no Databricks host.
+   `_global_workspace_host` never raises, so a registry that is down falls
+   through to the environment variable.
+5. `src/api/routers/internal/settings.py` — `POST /settings/workspace-host`.
+6. `src/front/static/config/js/settings.js` — hydration, source caption, and a
+   save handler that renders `message` (not the machine error code, so the
+   account-host diagnosis survives to the screen).
+
+### The login issuer stays an environment variable
+
+`ONTOBRICKS_OIDC_HOST` is deliberately **not** UI-settable, and there is a test
+asserting no route accepts it. It is needed to authenticate before anyone can
+reach this page, so a wrong value stored behind its own login would be
+unrecoverable without a redeploy — the exact problem this change removes for the
+workspace host. The panel says so explicitly.
+
+### Tests
+
+`tests/units/settings/test_workspace_host_configurable.py` (new, 21) — the probe
+verdict for 301/302/303/307/308 vs 401/403 vs unreachable vs 5xx, that the
+rejection names the real mistake, admin gating, global vs session-fallback
+scoping, normalisation, clearing, that clearing does not probe, and that the OIDC
+issuer is not writable here. **6 fail against a permissive probe.**
+
+`tests/units/api/test_ui_rendering.py` — `test_host_display` asserted the
+read-only div. Replaced with `test_host_is_editable` plus a check that the panel
+names both hosts.
+
+### Modified files
+
+- `src/back/objects/domain/SettingsService.py`
+- `src/back/objects/session/GlobalConfigService.py`
+- `src/back/core/helpers/DatabricksHelpers.py`
+- `src/api/routers/internal/settings.py`
+- `src/front/templates/settings.html`
+- `src/front/static/config/js/settings.js`
+- `tests/units/settings/test_workspace_host_configurable.py` (new)
+- `tests/units/api/test_ui_rendering.py`
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5077 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure.

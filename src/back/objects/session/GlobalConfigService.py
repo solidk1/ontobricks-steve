@@ -155,6 +155,20 @@ class GlobalConfigService:
         """Return the globally configured SQL Warehouse ID (or empty string)."""
         return self.get(host, token, registry_cfg, "warehouse_id")
 
+    def get_workspace_host(self, registry_cfg: Dict[str, str]) -> str:
+        """Return the globally configured Databricks **workspace** host.
+
+        Deliberately takes no ``host``/``token``: it is consulted *while*
+        resolving the host, so it cannot require one. Safe because
+        :meth:`_store_for` ignores both and reads Postgres.
+
+        This is the workspace REST host only. The OIDC login issuer stays an
+        environment variable (``ONTOBRICKS_OIDC_HOST``) because it is needed to
+        authenticate *before* anyone can reach this setting — a host stored
+        behind the login it configures would be unreachable if wrong.
+        """
+        return self.get("", "", registry_cfg, "workspace_host")
+
     def get_delta_warehouse_id(
         self, host: str, token: str, registry_cfg: Dict[str, str]
     ) -> str:
@@ -255,6 +269,17 @@ class GlobalConfigService:
     ) -> Tuple[bool, str]:
         """Persist a new SQL Warehouse ID in the global config file."""
         return self._save(host, token, registry_cfg, {"warehouse_id": warehouse_id})
+
+    def set_workspace_host(
+        self,
+        registry_cfg: Dict[str, str],
+        workspace_host: str,
+    ) -> Tuple[bool, str]:
+        """Persist the Databricks workspace host for every user.
+
+        Stored empty to fall back to ``DATABRICKS_HOST``.
+        """
+        return self._save("", "", registry_cfg, {"workspace_host": workspace_host})
 
     def set_default_base_uri(
         self,

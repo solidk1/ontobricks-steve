@@ -379,6 +379,22 @@ class DatabricksHelpers:
         return DatabricksHelpers.get_databricks_credentials(domain, settings)
 
     @staticmethod
+    def _global_workspace_host(domain, settings) -> str:
+        """The admin's saved workspace host, or "" if none/unreachable.
+
+        Never raises and never blocks host resolution: a registry that is down
+        simply means falling through to ``DATABRICKS_HOST``.
+        """
+        from back.objects.session import global_config_service
+
+        try:
+            registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
+            return global_config_service.get_workspace_host(registry_cfg) or ""
+        except Exception as exc:  # noqa: BLE001 — host resolution must not fail
+            logger.debug("Could not read global workspace host: %s", exc)
+            return ""
+
+    @staticmethod
     def get_databricks_host_and_token(domain, settings) -> Tuple[str, str]:
         """Get only host and token from domain session or settings.
 
@@ -394,7 +410,17 @@ class DatabricksHelpers:
             Tuple of (host, token)
         """
         dbcfg = _domain_databricks(domain)
-        host = dbcfg.get("host") or settings.databricks_host
+        # Precedence: this user's session, then the admin's globally saved
+        # workspace host, then DATABRICKS_HOST. The middle layer is what makes
+        # the host settable from Settings -> Databricks instead of only by
+        # redeploying with a new environment variable.
+        #
+        # No recursion: reading global config goes to the Postgres registry,
+        # which needs no Databricks host (``GlobalConfigService._store_for``
+        # discards host and token), so this cannot re-enter host resolution.
+        host = dbcfg.get("host") or DatabricksHelpers._global_workspace_host(
+            domain, settings
+        ) or settings.databricks_host
         token = dbcfg.get("token") or settings.databricks_token
 
         if host and token:

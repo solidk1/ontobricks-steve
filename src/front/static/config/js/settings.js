@@ -35,6 +35,44 @@ document.addEventListener('DOMContentLoaded', function () {
     // Analytics groups whose slug matches no domain, keyed by that slug.
     let _dtOrphanRegistry = {};
 
+    async function saveWorkspaceHost() {
+        const input = document.getElementById('workspaceHostInput');
+        const out = document.getElementById('workspaceHostResult');
+        const btn = document.getElementById('btnSaveWorkspaceHost');
+        if (!input || !out) return;
+
+        const show = (cls, icon, msg) => {
+            out.className = 'small mt-2 alert alert-' + cls + ' py-2 mb-0';
+            out.innerHTML = '<i class="bi bi-' + icon + ' me-1"></i>' + msg;
+            out.classList.remove('d-none');
+        };
+
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Verifying…'; }
+        try {
+            const resp = await fetch('/settings/workspace-host', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host: input.value.trim() })
+            });
+            const data = await resp.json();
+            if (!resp.ok) {
+                // The message names the account-vs-workspace mistake explicitly;
+                // showing the machine code instead would waste the diagnosis.
+                show('danger', 'x-circle', escapeHtmlSettings(data.message || data.error || 'Save failed'));
+                return;
+            }
+            show(data.scope === 'global' ? 'success' : 'warning',
+                 data.scope === 'global' ? 'check-circle' : 'exclamation-triangle',
+                 escapeHtmlSettings(data.message || 'Saved'));
+            await loadCurrentConfig();
+        } catch (err) {
+            show('danger', 'x-circle', escapeHtmlSettings(String(err)));
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2"></i> Save'; }
+        }
+    }
+
     function escapeHtmlSettings(str) { return escapeHtml(str); }
 
     // The graph backend *selection* moved to a mandatory per-domain choice
@@ -132,11 +170,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 await loadWarehouseSelect(data.warehouse_id);
             }
 
-            const hostDisplay = document.getElementById('currentHostDisplay');
-            if (data.host) {
-                hostDisplay.innerHTML = '<i class="bi bi-cloud text-success"></i> ' + escapeHtmlSettings(data.host);
-            } else {
-                hostDisplay.innerHTML = '<i class="bi bi-exclamation-circle text-warning"></i> Not configured';
+            const hostInput = document.getElementById('workspaceHostInput');
+            if (hostInput) hostInput.value = data.host || '';
+            const hostSrc = document.getElementById('workspaceHostSource');
+            if (hostSrc) {
+                const env = data.host_env_default || '';
+                const SOURCES = {
+                    global: '<i class="bi bi-people-fill text-success me-1"></i>Set here by an admin, for all users.',
+                    session: '<i class="bi bi-person-fill text-warning me-1"></i>Applied to your session only — the global save did not succeed.',
+                    env: '<i class="bi bi-gear-fill text-muted me-1"></i>From <code>DATABRICKS_HOST</code> in the deployment environment.',
+                    unset: '<i class="bi bi-exclamation-circle text-warning me-1"></i>Not configured. Unity Catalog and SQL warehouse features are unavailable until it is set.'
+                };
+                hostSrc.innerHTML = SOURCES[data.host_source] || '';
+                if (data.host_source === 'global' && env) {
+                    hostSrc.innerHTML += ' Deployment default is <code>'
+                        + escapeHtmlSettings(env) + '</code>.';
+                }
             }
 
             if (data.from_env) {
@@ -184,6 +233,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.getElementById('btnRefreshWarehouses')?.addEventListener('click', () => loadWarehouseSelect(currentWarehouseId));
+    document.getElementById('btnSaveWorkspaceHost')?.addEventListener('click', saveWorkspaceHost);
+    document.getElementById('workspaceHostInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveWorkspaceHost(); }
+    });
 
     function warehouseNameFromSelect(select, warehouseId) {
         if (!select || !warehouseId) return '';

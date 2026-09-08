@@ -127,6 +127,30 @@ async def select_warehouse(
     )
 
 
+@router.post("/workspace-host")
+async def set_workspace_host(
+    request: Request,
+    session_mgr: SessionManager = Depends(get_session_manager),
+    settings: Settings = Depends(get_settings),
+):
+    """Set the Databricks workspace host for all users (admin only).
+
+    Not the OIDC login issuer: that stays ``ONTOBRICKS_OIDC_HOST`` in the
+    environment, because it is needed before anyone can authenticate.
+    """
+    data = await request.json()
+    email, _display_name, user_token, _user_role, _user_domain_role = (
+        _settings_request_identity(request)
+    )
+    return config_service.set_workspace_host(
+        data.get("host"),
+        email,
+        user_token,
+        session_mgr,
+        settings,
+    )
+
+
 @router.post("/select-delta-warehouse")
 async def select_delta_warehouse(
     request: Request,

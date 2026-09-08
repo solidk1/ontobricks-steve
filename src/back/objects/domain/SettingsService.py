@@ -245,6 +245,18 @@ class SettingsService:
             # project / branch inputs, which are Databricks Lakebase concepts a
             # plain PostgreSQL server does not have. Without this the panel
             # showed two permanently empty selects and read as "still Lakebase".
+            # Where the host actually came from, so the panel can distinguish
+            # "this is just the deployment default" from "an admin overrode it".
+            "host_env_default": settings.databricks_host or "",
+            "host_source": (
+                "session"
+                if domain.databricks.get("host")
+                else "global"
+                if (host and host != (settings.databricks_host or ""))
+                else "env"
+                if host
+                else "unset"
+            ),
             "postgres_auth_mode": _pg_auth_mode(),
             "postgres_is_lakebase": bool(
                 os.environ.get("LAKEBASE_PROJECT") or os.environ.get("LAKEBASE_BRANCH")
@@ -361,6 +373,109 @@ class SettingsService:
             raise InfrastructureError(
                 "Failed to list SQL warehouses", detail=str(e)
             ) from e
+
+    @staticmethod
+    def probe_workspace_host(host: str) -> Tuple[bool, str]:
+        """Check that *host* is a workspace REST endpoint, not an account host.
+
+        The distinction is invisible in a browser and cost a full debugging
+        session: an account console or a vanity domain fronting one answers
+        OIDC discovery perfectly and returns **HTTP 303** for every
+        ``/api/2.0/...`` path. So login worked while every Unity Catalog and
+        SQL warehouse call silently redirected.
+
+        A **401/403 is the pass condition** — it means a real workspace API
+        answered and merely wants credentials. A 3xx is the failure we are
+        looking for. Network errors are reported but not treated as fatal,
+        since a private-endpoint workspace may be unreachable from wherever
+        this probe runs while being perfectly reachable from the app.
+        """
+        import requests
+
+        url = f"{host.rstrip('/')}/api/2.0/clusters/list"
+        try:
+            resp = requests.get(url, timeout=8, allow_redirects=False)
+        except Exception as exc:  # noqa: BLE001 — vendor/network surface
+            return True, f"Saved, but the host could not be reached to verify it: {exc}"
+
+        if 300 <= resp.status_code < 400:
+            return False, (
+                f"{host} redirected (HTTP {resp.status_code}) instead of answering the "
+                "workspace API. That is an account console or a vanity domain in "
+                "front of one, not a workspace. Use the per-workspace URL, which "
+                "on Azure looks like https://adb-<workspace-id>.<n>.azuredatabricks.net "
+                "— the ?o= number in your browser URL is the workspace id."
+            )
+        if resp.status_code in (401, 403):
+            return True, "Verified: the workspace API answered."
+        if resp.status_code < 500:
+            return True, f"Verified (HTTP {resp.status_code})."
+        return True, (
+            f"Saved, but the host returned HTTP {resp.status_code}; it may be "
+            "temporarily unavailable."
+        )
+
+    @staticmethod
+    def set_workspace_host(
+        workspace_host: Optional[str],
+        email: str,
+        user_token: str,
+        session_mgr: SessionManager,
+        settings: Settings,
+    ) -> Dict[str, Any]:
+        """Persist the Databricks **workspace** host for every user.
+
+        An empty value clears the override and falls back to
+        ``DATABRICKS_HOST``. This never touches the OIDC login issuer
+        (``ONTOBRICKS_OIDC_HOST``), which has to stay an environment variable:
+        it is needed to authenticate before anyone can reach this page, so
+        storing it behind its own login would make a wrong value unrecoverable.
+        """
+        SettingsService.require_admin_error(email, user_token, session_mgr, settings)
+
+        host = (workspace_host or "").strip().rstrip("/")
+        if host and not host.startswith(("http://", "https://")):
+            host = f"https://{host}"
+
+        note = ""
+        if host:
+            ok, note = SettingsService.probe_workspace_host(host)
+            if not ok:
+                raise ValidationError(note)
+
+        domain, _old_host, token, registry_cfg = SettingsService._resolve_context(
+            session_mgr, settings
+        )
+        saved, msg = global_config_service.set_workspace_host(registry_cfg, host)
+
+        # Session copy too, so the change applies to this admin immediately even
+        # if the registry write failed.
+        if host:
+            domain.databricks["host"] = host
+        else:
+            domain.databricks.pop("host", None)
+        domain.save()
+
+        if not saved:
+            logger.warning("Workspace host stored in session only: %s", msg)
+            return {
+                "success": True,
+                "host": host,
+                "scope": "session",
+                "message": f"Applied for this session only — {msg}",
+            }
+
+        logger.info("Workspace host set globally to %s by %s", host or "(unset)", email)
+        return {
+            "success": True,
+            "host": host,
+            "scope": "global",
+            "message": (
+                f"Workspace host set for all users. {note}".strip()
+                if host
+                else "Cleared — falling back to DATABRICKS_HOST."
+            ),
+        }
 
     @staticmethod
     def select_warehouse(

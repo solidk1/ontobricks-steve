@@ -39,11 +39,39 @@
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label fw-semibold">Databricks Host</label>
-                        <div class="form-control-plaintext bg-light p-2 rounded font-monospace" id="currentHostDisplay">
-                            <i class="bi bi-hourglass-split"></i> Loading...
+                        <label for="workspaceHostInput" class="form-label fw-semibold">
+                            Databricks Workspace Host
+                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle ms-1"
+                                  title="Applies to every user">
+                                <i class="bi bi-shield-exclamation"></i> Admin only &ndash; applies to all users
+                            </span>
+                        </label>
+                        <div class="input-group">
+                            <input type="text" class="form-control font-monospace" id="workspaceHostInput"
+                                   placeholder="https://adb-&lt;workspace-id&gt;.&lt;n&gt;.azuredatabricks.net"
+                                   aria-describedby="workspaceHostHelp">
+                            <button type="button" class="btn btn-outline-primary" id="btnSaveWorkspaceHost">
+                                <i class="bi bi-check2"></i> Save
+                            </button>
                         </div>
-                        <small class="text-muted">Set via environment variable DATABRICKS_HOST</small>
+                        <div id="workspaceHostResult" class="small mt-2 d-none"></div>
+                        <small class="text-muted d-block mt-2" id="workspaceHostHelp">
+                            The <strong>workspace</strong> REST endpoint, used for Unity Catalog, SQL warehouses and SCIM.
+                            Saved for all users; leave empty to fall back to <code>DATABRICKS_HOST</code>.
+                            <span id="workspaceHostSource" class="d-block mt-1"></span>
+                            <span class="d-block mt-1">
+                                On Azure this is the <em>per-workspace</em> URL
+                                (<code>https://adb-&lt;workspace-id&gt;.&lt;n&gt;.azuredatabricks.net</code>) &mdash; the
+                                <code>?o=</code> number in your browser URL is the workspace id. An account console, or a
+                                vanity domain in front of one, will be rejected: it answers logins but returns HTTP&nbsp;303
+                                for every workspace API call.
+                            </span>
+                            <span class="d-block mt-1">
+                                The <strong>login</strong> issuer is separate and stays in the environment
+                                (<code>ONTOBRICKS_OIDC_HOST</code>), since it is needed before anyone can sign in to reach
+                                this page.
+                            </span>
+                        </small>
                     </div>
 
                     <div class="mb-4">
