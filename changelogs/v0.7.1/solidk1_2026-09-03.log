@@ -1057,3 +1057,76 @@ a hard dependency, the bootstrap deadlock) could have been caught by the suite a
 written, because each concerns a *first* interaction with a *fresh* system. The tests
 assert what a component returns for given inputs; none modelled a brand-new deployment
 being approached by a brand-new user. The suite was green at 4930 tests throughout.
+
+## Why none of this was caught by tests
+
+Fair challenge after three consecutive deployment-only failures. The answer is one
+root cause, not three, and it is worth stating plainly: **the fakes in the unit suite
+encoded my mental model of the store rather than its actual contract.**
+
+The sharpest instance. I wrote this fake:
+
+```python
+class _FreshStore:
+    def list_app_roles(self):
+        raise RuntimeError('relation "app_roles" does not exist')
+```
+
+and a fix that keyed the bootstrap grant on catching that exception. Eight tests
+passed. But the real `PostgresRegistryStore.list_app_roles` does:
+
+```python
+except Exception as exc:
+    logger.debug("list_app_roles failed: %s", exc)
+    return []
+```
+
+It **never raises**. So the fix could not fire in production, and the tests proved it
+worked against a fake designed to make it work. Circular, and green.
+
+That store has **25 bare "swallow and return a default" sites**, so the trap is
+systemic rather than a one-off.
+
+The other two failures share the shape. Each concerns the *first* interaction with a
+*fresh* system, and nothing in the suite modelled that:
+
+| Failure | Why the suite missed it |
+|---|---|
+| Nothing redirected to `/auth/login` | Tests assert what the middleware returns per role. None asked "can a new visitor reach a login page?" A repo-wide search for `auth/login` returned zero hits and no test noticed. |
+| Login hard-depended on SCIM | SCIM was always mocked as succeeding. No test asked what happens when it fails. |
+| Bootstrap admin deadlock | The fake raised where the real store returns `[]`. |
+
+### What changed structurally, rather than another patch
+
+**1. `resolve_role` keyed on state, not on an exception.** The bootstrap grant now
+triggers when *no admin is recorded*, which covers a missing table (reported as `[]`),
+a genuinely empty table, and a raising store alike. Keying on the exception was the
+defect; keying on state cannot be fooled by how a store reports emptiness.
+
+**2. `tests/units/registry/test_store_swallow_contract.py`** pins the real store's
+failure contract: `list_app_roles` catches broadly, returns a default, and reports a
+missing table as `[]`. If that ever changes, this fails loudly instead of silently
+invalidating every fake in the suite. It also names the one place a fake author can
+read the contract from, and asserts `resolve_role` decides from `admin_exists` rather
+than from an exception, so the specific regression cannot return.
+
+**3. `tests/units/registry/test_cold_start_first_admin.py`** is the test that would
+have caught it: the **real** `PostgresRegistryStore` against a genuinely empty schema
+on real Postgres. It asserts the property all three bugs violated, that a brand-new
+deployment lets the configured bootstrap admin in and nobody else, plus that a group
+is not a route to the grant, that unsetting the variable denies everyone, and that
+once a real admin is recorded the table decides and the env var stops overriding.
+
+**7 passed against the live Azure Postgres 16.15.** And verified as a real test rather
+than a decorative one: reintroducing the bug makes it fail, restoring makes it pass.
+
+### The honest limitation
+
+These three were found by deploying, not by testing, and the cold-start suite closes
+the class rather than proving there are no others. `db`-marked tests also skip without
+a DSN or Docker, so this only guards CI (which now provides `postgres:16-alpine`) and
+anyone who sets `ONTOBRICKS_TEST_DSN`. It is not load-bearing on a developer laptop
+with neither.
+
+Tests: **4981 passed, 295 skipped, 1 failed** (the pre-existing NLTK `wordnet` case).
+ruff F-rule findings unchanged at 67.
