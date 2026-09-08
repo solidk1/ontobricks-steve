@@ -894,3 +894,55 @@ environment with a NAT gateway, giving **one** fixed egress IP to whitelist.
 That is strictly better, and it proved itself immediately: this workstation's egress
 IP rotated mid-session and lost database access, while the app never noticed because
 its NAT address is fixed.
+
+## The OIDC flow was unreachable, a P4b gap the deployment exposed
+
+Reported from the live Azure deployment: every visit still landed on
+`/access-denied?reason=app`, even with the OAuth app registered and the client
+id/secret set.
+
+Root cause, and it is mine. `PermissionMiddleware` treated **two different states
+identically**: "no identity at all" and "authenticated but holding no role" both
+fell into `role == ROLE_NONE` and redirected to `/access-denied`. And
+`/access-denied` links nowhere: a repo-wide search for "auth/login" across every
+`.py` and `.html` returned **zero hits**. So P4b shipped `/auth/login`,
+`/auth/callback`, `/auth/logout`, `/auth/me`, the `app_roles` table and
+`AppRoleService`, but nothing anywhere sent a user into the flow. It was reachable
+only by typing the URL.
+
+The unit tests never caught it because they assert what the middleware returns for
+a given role, not that a first-time visitor can get in. The deployment was the
+first thing to actually walk up to the front door.
+
+### Fix
+
+In `PermissionMiddleware.dispatch`, split the two cases:
+
+- **No identity, OIDC configured**: `302 /auth/login?return_to=<path>`, or `401`
+  with a login hint for JSON callers. The original path is preserved, and
+  `/auth/login` already runs it through `_safe_return_to`, so the open-redirect
+  guard still applies.
+- **Authenticated, no role**: `/access-denied` as before. That is a genuine
+  authorisation denial and the page's advice is correct for it.
+- **No identity and OIDC not configured**: `/access-denied` as before, because
+  there is nowhere to send them. A test pins this so the fix cannot turn a
+  misconfigured deployment into a redirect loop.
+
+`tests/units/auth/test_unauthenticated_redirects_to_login.py`, 9 tests: four paths
+redirect to login, `return_to` is preserved, the destination is explicitly not
+access-denied, `/health` stays anonymous, `/auth/login` does not redirect to itself
+("you cannot require a login in order to log in"), and the unconfigured fallback.
+
+Tests: **4960 passed, 288 skipped, 1 failed**. The failure is the pre-existing NLTK
+`wordnet` corpus one documented above, unrelated. ruff F-rule findings unchanged at 67.
+
+## Container image: 6.02 GB down to 0.50 GB
+
+The first `deploy/azure/Dockerfile` enabled the `pitfalls` extra by default, which
+pulls `sentence-transformers` and therefore torch. Measured at **6.02 GB**, and both
+Container Apps replicas sat in `PullingImage` long enough that the revision never
+activated, which is how it was found.
+
+`ARG EXTRAS` makes it opt-in. Rebuilt: **0.50 GB, a 12x reduction**, and the revision
+activated promptly. The Dockerfile records the measured size and the NLTK-corpora
+caveat so nobody re-enables it without knowing the cost.

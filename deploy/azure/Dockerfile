@@ -44,10 +44,21 @@ WORKDIR /app
 #   rg -o 'url = "https?://[^/"]+' uv.lock | sort -u   -> only pythonhosted
 #
 # The `lakebase` extra is plain psycopg + psycopg-pool (historical name) and is
-# required for every Postgres target. `pitfalls` powers the ontology pitfalls
-# detector; drop it if you do not need that feature.
+# required for every Postgres target, so it is never optional.
+#
+# `pitfalls` is opt-in and deliberately NOT default: it pulls
+# sentence-transformers, which pulls torch, taking the image from ~1GB to
+# **6.02 GB** (measured). At that size every cold start and every rollout stalls
+# on PullingImage, which is exactly what happened the first time this was built
+# with it enabled. Turn it on only if you need the ontology pitfalls detector:
+#
+#   az acr build ... --build-arg EXTRAS="--extra lakebase --extra pitfalls" ...
+#
+# Note it also needs NLTK corpora (wordnet, vader_lexicon) at runtime, which are
+# downloaded on first use and are not baked into the image.
+ARG EXTRAS="--extra lakebase"
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra lakebase --extra pitfalls
+RUN uv sync --frozen --no-dev ${EXTRAS}
 
 # ── Application ─────────────────────────────────────────────────────────────
 COPY run.py ./

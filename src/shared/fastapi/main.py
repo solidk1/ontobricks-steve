@@ -333,7 +333,8 @@ class PermissionMiddleware(BaseHTTPMiddleware):
             permission_service,
         )
 
-        from back.objects.identity import IdentityResolver
+        from back.objects.identity import IdentityResolver, OIDCClient
+        from urllib.parse import quote
 
         auth_on = RuntimeEnv.auth_enabled()
         # allow_local only when auth is off: with it enforced, falling back to
@@ -384,6 +385,26 @@ class PermissionMiddleware(BaseHTTPMiddleware):
         )
 
         if role == ROLE_NONE:
+            # Unauthenticated is not the same as unauthorised. With no identity
+            # at all there is nobody to deny yet -- send them to log in. Without
+            # this, a fresh visitor landed on /access-denied with no route to
+            # /auth/login anywhere in the UI, so the OIDC flow built in P4b was
+            # unreachable unless you typed the URL by hand.
+            #
+            # Only when auth is enforced: with it off, IdentityResolver already
+            # short-circuited above and this branch is unreachable.
+            if not email and OIDCClient().is_configured:
+                if self._wants_json(request):
+                    return JSONResponse(
+                        {"error": "Authentication required", "login": "/auth/login"},
+                        status_code=401,
+                    )
+                target = quote(path, safe="/")
+                return RedirectResponse(
+                    f"/auth/login?return_to={target}", status_code=302
+                )
+
+            # Authenticated but holding no role: a genuine authorisation denial.
             # First-deploy bootstrap: the app's service principal is not
             # allowed to read its own ACL, so *nobody* — not even CAN_MANAGE
             # users — can be resolved as admin/app-user.  Surface that as a
