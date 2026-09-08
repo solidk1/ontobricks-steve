@@ -946,3 +946,52 @@ activated, which is how it was found.
 `ARG EXTRAS` makes it opt-in. Rebuilt: **0.50 GB, a 12x reduction**, and the revision
 activated promptly. The Dockerfile records the measured size and the NLTK-corpora
 caveat so nobody re-enables it without knowing the cost.
+
+## Sign-in failed at SCIM /Me: login no longer depends on it
+
+Second failure from the live deployment. The OIDC redirect and the Databricks login
+both worked; the callback then died with "Could not resolve the signed-in user via
+SCIM /Me" and a 502.
+
+### What the investigation actually found, including a wrong turn
+
+The callback URL carried `iss=https://accounts.azuredatabricks.net/oidc/accounts/...`,
+so my first hypothesis was that an account-scoped token cannot call a workspace SCIM
+endpoint. **That was wrong.** Decoding both tokens showed the workspace CLI token has
+the *same* account issuer and the same `aud`, and `databricks current-user me` works
+with it. Issuer scope was never the problem.
+
+The decode did surface the thing that mattered: **`sub` is the user's e-mail.** The
+identity was already in hand after the code exchange, and the login was throwing it
+away to make a second call that could fail.
+
+Direct testing of SCIM from this sandbox was impossible: the egress strips
+`Authorization`, so both tokens got redirected to a sign-in page regardless of
+validity. Worth knowing before trusting a negative result from here.
+
+### Fix
+
+`fetch_identity` now takes the e-mail from the token's `sub` claim, and SCIM `/Me` is
+**enrichment only** — display name and group memberships. A SCIM failure logs a
+warning and continues instead of aborting the login. It raises only when *both*
+sources fail, and that error now carries the underlying cause, which the old message
+hid behind a generic string.
+
+Losing groups is a real degradation, not a bypass: group-based app-role grants stop
+applying, so access narrows to direct grants. The warning says so.
+
+Claims are **decoded, not signature-verified**, and the code says why: the token comes
+straight from the Databricks token endpoint over TLS in exchange for our client secret
+plus the PKCE verifier we generated. It is never a caller-supplied bearer token, so
+there is no attacker-controlled path into the value. A test pins this behaviour so
+nobody "fixes" it later without reading the reasoning.
+
+`tests/units/auth/test_oidc_identity_from_token.py`, 10 tests: `sub` extraction; five
+degradation cases (service-principal sub, missing sub, opaque token, malformed base64,
+empty) all returning "" so the SCIM fallback engages rather than crashing the
+callback; the deliberate no-verify behaviour; SCIM outage not blocking login; raising
+only when both fail; and SCIM still supplying groups with the token claim winning over
+SCIM `userName`.
+
+Tests: **4970 passed, 288 skipped, 1 failed** (the pre-existing NLTK `wordnet` case).
+ruff F-rule findings unchanged at 67.

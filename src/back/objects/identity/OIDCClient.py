@@ -176,15 +176,57 @@ class OIDCClient:
                 "OIDC token refresh failed", detail=str(exc)[:500]
             ) from exc
 
-    def fetch_identity(self, access_token: str) -> dict[str, Any]:
-        """Resolve email, display name and groups via SCIM ``/Me``.
+    @staticmethod
+    def _email_from_token(access_token: str) -> str:
+        """Read the subject e-mail out of the access token's claims.
 
-        Groups feed group-based app-role grants, so a failure to read them
-        degrades to an empty list rather than aborting the login — a user with a
-        direct grant can still get in.
+        Databricks issues a JWT whose ``sub`` is the user's e-mail, so the
+        identity is already in hand after the code exchange and needs no second
+        round-trip.
+
+        The claims are **decoded, not verified**, which is safe only because of
+        where this token came from: we received it directly from the Databricks
+        token endpoint over TLS, in exchange for our client secret plus the PKCE
+        verifier we generated. It is not a bearer token presented by the caller,
+        so there is no attacker-controlled path into this value. Verifying the
+        signature would mean fetching and caching JWKS to re-prove something the
+        exchange already established.
+
+        Returns "" for an opaque or unparsable token, so the caller falls back to
+        SCIM.
+        """
+        import base64
+        import json as _json
+
+        parts = (access_token or "").split(".")
+        if len(parts) != 3:
+            return ""
+        try:
+            payload = parts[1]
+            payload += "=" * (-len(payload) % 4)
+            claims = _json.loads(base64.urlsafe_b64decode(payload))
+        except Exception:  # noqa: BLE001
+            return ""
+        sub = str(claims.get("sub") or "").strip()
+        return sub if "@" in sub else ""
+
+    def fetch_identity(self, access_token: str) -> dict[str, Any]:
+        """Resolve email, display name and groups for the signed-in user.
+
+        The e-mail comes from the access token's ``sub`` claim. SCIM ``/Me`` is
+        then consulted only to enrich display name and group memberships, and a
+        failure there is **not fatal** — groups feed group-based app-role grants,
+        so a user holding a direct grant still gets in.
+
+        This used to depend on SCIM for the e-mail too, which made the whole
+        login fail closed on any SCIM hiccup: a live deployment returned
+        "Could not resolve the signed-in user via SCIM /Me" and there was no way
+        past it, even though the token in hand already carried the identity.
         """
         import requests
 
+        email = self._email_from_token(access_token)
+        me: dict[str, Any] = {}
         try:
             resp = requests.get(
                 f"{self.host}/api/2.0/preview/scim/v2/Me",
@@ -197,12 +239,23 @@ class OIDCClient:
             resp.raise_for_status()
             me = resp.json() or {}
         except Exception as exc:  # noqa: BLE001
-            raise InfrastructureError(
-                "Could not resolve the signed-in user via SCIM /Me",
-                detail=str(exc)[:500],
-            ) from exc
+            if not email:
+                # No token claim and no SCIM: genuinely cannot identify them.
+                # Carry the underlying error, which the previous message hid.
+                raise InfrastructureError(
+                    "Could not resolve the signed-in user: the access token "
+                    "carried no 'sub' claim and SCIM /Me failed",
+                    detail=str(exc)[:500],
+                ) from exc
+            logger.warning(
+                "SCIM /Me failed for %s; continuing with token claims only "
+                "(groups will be empty, so only direct app-role grants apply): %s",
+                email,
+                str(exc)[:200],
+            )
 
-        email = str(me.get("userName") or "").strip()
+        if not email:
+            email = str(me.get("userName") or "").strip()
         if not email:
             for entry in me.get("emails") or []:
                 value = str((entry or {}).get("value") or "").strip()
