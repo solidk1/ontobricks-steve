@@ -171,3 +171,65 @@ no reason other than API access, so they alone signal it.
    since the Apps platform was dropped.
 
 Suite: **5012 passed, 295 skipped**, same one pre-existing NLTK failure.
+
+## Delete the PR47 Neo4j demo artefacts
+
+### Context
+
+`documentation/pr47-neo4j-demo/` held 13MB of proof artefacts for one merged PR
+(a 5.7MB PDF deck, an HTML deck, 18 screenshots), labelled in its own README as
+"proof artefacts for PR #47". The two durable operational guides that once lived
+there had already been moved out to `documentation/neo4j-secret-configuration.md`
+and `documentation/ai-parse-document-prereq.md`.
+
+Deleting it surfaced a link that was already dead: the Settings panel's Neo4j
+**setup guide** pointed at `pr47-neo4j-demo/secret-configuration.md`, a file that
+moved out of that folder some releases ago. Because it is an external GitHub URL
+nothing in the app ever opened it, so operators clicking it got a 404 and no
+signal reached the project.
+
+### Changes
+
+1. `documentation/pr47-neo4j-demo/` — deleted, 22 tracked files, 1375 lines.
+   Recoverable from git history; the changelogs retain the full record of what
+   the deck contained and the measured demo results.
+2. `src/front/templates/settings.html` — the Neo4j setup-guide link repointed
+   from the non-existent `documentation/pr47-neo4j-demo/secret-configuration.md`
+   to `documentation/neo4j-secret-configuration.md`. This was broken before the
+   deletion, not by it.
+3. `documentation/neo4j-requirements.md` — dropped the pointer to the deleted
+   folder.
+4. `tests/units/front/test_documentation_links_resolve.py` (new, 25 tests) —
+   asserts every markdown file the Help Center indexes is actually bundled (21
+   docs, checked individually) and every `documentation/…md` path named by a
+   template or script exists. **The dead setup-guide link fails 2 of these**;
+   verified by restoring it. Includes a guard that the index parse is not
+   vacuously empty, so a future refactor cannot silently make the per-file
+   checks green by matching nothing.
+
+Verified before deleting: the folder was never in the Help Center index, and all
+21 indexed docs still resolve.
+
+### Measured results preserved from the deleted README
+
+| AI-generated classes | 32 |
+| AI-generated relations | 13 |
+| Auto-Map entities | 25 / 25 |
+| Auto-Map relations | 12 / 12 |
+| Triples written to Neo4j | 303 |
+| Build duration cold / cached | 10.3 s / 5.3 s |
+| Inferred triples (T-Box OWL 2 RL) | 99 in 0.102 s |
+| SHACL rules auto-generated | 13 |
+| SHACL graph-mode pass rate | 92.3 % |
+
+### Modified files
+
+- `documentation/pr47-neo4j-demo/` (deleted, 22 files)
+- `documentation/neo4j-requirements.md`
+- `src/front/templates/settings.html`
+- `tests/units/front/test_documentation_links_resolve.py` (new)
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5037 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure, unrelated.
