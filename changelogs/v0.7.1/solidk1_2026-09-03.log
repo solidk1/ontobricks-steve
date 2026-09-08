@@ -995,3 +995,65 @@ SCIM `userName`.
 
 Tests: **4970 passed, 288 skipped, 1 failed** (the pre-existing NLTK `wordnet` case).
 ruff F-rule findings unchanged at 67.
+
+## Access Denied after a successful sign-in: the bootstrap admin deadlock
+
+Third and final failure from the live deployment, and the most instructive. Sign-in
+now worked (the page said "Signed in as steve.shao@databricks.com") and the app still
+served Access Denied. Authentication was fixed and *authorisation* was broken, which
+is the correct branch to be failing in but the wrong answer.
+
+### The deadlock
+
+`resolve_role` calls `ensure_bootstrap_admin`, which calls `store.list_app_roles()`.
+On a fresh deployment that table does not exist yet, so the call raises, the
+exception is swallowed, and no admin is seeded. `resolve_role` then calls
+`list_app_roles()` again, raises again, and returns `none`.
+
+Creating the table happens at **Settings, Registry, Initialize**, which sits behind an
+admin check. So: no table means no role, no role means no Settings, no Settings means
+no table.
+
+`ONTOBRICKS_BOOTSTRAP_ADMIN` exists precisely to break this. Its own docstring says
+"without it a fresh deployment has nobody able to grant access". It only worked *after*
+the registry was initialised, which is to say only when it was not needed. The variable
+was documented, tested, and useless in the one situation it was for.
+
+### Fix
+
+When `list_app_roles()` is unreadable and the caller matches
+`ONTOBRICKS_BOOTSTRAP_ADMIN`, `resolve_role` returns `admin`. Every other caller still
+gets `none`.
+
+It grants admin to exactly one operator-configured address, never to a group, and only
+while the table cannot be read. It also keeps a way in during a genuine database
+outage, which is when an operator most needs one.
+
+`tests/units/auth/test_bootstrap_admin_breaks_deadlock.py`, 8 tests: the bootstrap
+address resolves to admin against a store whose table does not exist; `is_admin`
+agrees; matching is case-insensitive; a different user, an empty email, and a group
+coincidentally named like an admin all still get `none`; unsetting the variable denies
+everyone; and with a readable table the table decides, so the env var never overrides a
+real grant or re-seeds once an admin exists.
+
+### The Access Denied page was also lying
+
+Its `bootstrap` branch told operators to run `make bootstrap-perms` and grant the app's
+service principal `CAN_MANAGE`, which is the Databricks Apps ACL model plus a make
+target that no longer exists. The `else` branch said to ask a Databricks workspace
+administrator for a permission under Databricks, Apps, Permissions.
+
+Both now describe the real model: access lives in the registry `app_roles` table, the
+bootstrap branch shows the environment variable that seeds the first admin, and the
+general branch points at **Settings, App access**.
+
+Tests: **4978 passed, 288 skipped, 1 failed** (the pre-existing NLTK `wordnet` case).
+ruff F-rule findings unchanged at 67. `access_denied.html` verified to parse as Jinja2.
+
+### Three deployment-only bugs, and what they share
+
+None of the three failures found in this deployment (unreachable `/auth/login`, SCIM as
+a hard dependency, the bootstrap deadlock) could have been caught by the suite as
+written, because each concerns a *first* interaction with a *fresh* system. The tests
+assert what a component returns for given inputs; none modelled a brand-new deployment
+being approached by a brand-new user. The suite was green at 4930 tests throughout.

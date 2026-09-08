@@ -89,6 +89,29 @@ class AppRoleService:
         try:
             rows = store.list_app_roles()
         except Exception as exc:  # noqa: BLE001
+            # A fresh deployment has no ``app_roles`` table until the registry is
+            # initialised, and initialising it happens in the UI behind an admin
+            # check. That deadlocked: nobody resolved to a role, so nobody could
+            # reach Settings -> Registry -> Initialize to create the table that
+            # would have given them a role. ``ONTOBRICKS_BOOTSTRAP_ADMIN`` exists
+            # precisely to break that, so honour it while the table is unreadable
+            # -- otherwise it only works *after* the thing it is meant to unblock,
+            # which is never when it is needed.
+            #
+            # This grants admin to exactly one operator-configured address and to
+            # nobody else; every other caller still gets ROLE_NONE. It also keeps
+            # a route in during a genuine database outage, which is when an
+            # operator most needs one.
+            boot = cls.bootstrap_admin()
+            if boot and cls._match(boot, email, groups):
+                logger.warning(
+                    "resolve_role: app_roles unreadable (%s); granting admin to "
+                    "the configured ONTOBRICKS_BOOTSTRAP_ADMIN %s so the registry "
+                    "can be initialised",
+                    str(exc)[:160],
+                    email,
+                )
+                return ROLE_ADMIN
             logger.warning("resolve_role: could not list app roles: %s", exc)
             return ROLE_NONE
 

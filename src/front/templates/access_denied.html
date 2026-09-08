@@ -53,23 +53,24 @@
                     First-deploy bootstrap required
                 </p>
                 <p class="mb-2">
-                    The app's own service principal needs
-                    <code>CAN_MANAGE</code> on this app so the middleware can
-                    resolve who is an admin and who is a regular user.
+                    App access lives in the registry's <code>app_roles</code>
+                    table, and no admin has been recorded yet.
                 </p>
-                <p class="mb-1">Run once from the project root:</p>
-                <pre class="bg-light border rounded p-2 mb-2 small"><code>make bootstrap-perms</code></pre>
+                <p class="mb-1">Set this in the deployment environment and restart:</p>
+                <pre class="bg-light border rounded p-2 mb-2 small"><code>ONTOBRICKS_BOOTSTRAP_ADMIN=you@example.com</code></pre>
                 <p class="mb-0">
-                    or equivalently
-                    <code>scripts/bootstrap-app-permissions.sh</code>.
-                    You can reload this page afterwards.
+                    It seeds the first admin, applies only while no admin exists,
+                    and is honoured even before
+                    <strong>Settings &rarr; Registry &rarr; Initialize</strong>
+                    has created the table. Reload afterwards.
                 </p>
             </div>
             {% else %}
             <p class="small text-muted">
-                Ask your Databricks workspace administrator to grant your
-                account a permission on the OntoBricks app (in
-                <strong>Databricks &rarr; Apps &rarr; Permissions</strong>).
+                Ask an OntoBricks admin to grant your account access under
+                <strong>Settings &rarr; App access</strong>. Access is held in the
+                registry's <code>app_roles</code> table, not in a Databricks
+                permission list.
             </p>
             {% endif %}
         </div>
