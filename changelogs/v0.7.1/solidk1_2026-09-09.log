@@ -141,3 +141,33 @@ green makes the documented monitoring signal worthless.
 `uv run --frozen pytest -q -m "not scenario"` → **5010 passed, 1 failed,
 295 skipped**. The failure is the same pre-existing, unrelated NLTK `wordnet`
 lookup in `test_pitfalls_service.py`.
+
+### Follow-up: DATABRICKS_HOST is not a workspace-API intent signal
+
+Deploying the change above surfaced a case it got wrong. The live app reported
+*"Databricks is partially configured (DATABRICKS_HOST) but credentials are not
+usable"* — still an error, on a correct deployment.
+
+`DATABRICKS_HOST` is the input `OIDCClient` derives its authorize and token
+endpoints from, so a deployment using Databricks purely for SSO sets that and
+no credentials at all. That is exactly this deployment's shape. The host is
+therefore ambiguous and is no longer counted as intent; the four credential
+variables (`CLIENT_ID`, `CLIENT_SECRET`, `TOKEN`, `CONFIG_PROFILE`) are set for
+no reason other than API access, so they alone signal it.
+
+1. `src/shared/fastapi/health.py` — `DATABRICKS_HOST` dropped from
+   `_INTENT_VARS`, with the reason recorded inline.
+2. `tests/units/core/test_health_databricks_optional.py` — new
+   `TestSSOOnlyDeployment` (3 tests) pinning the real-world shape: host alone
+   warns, host plus OIDC client id/secret warns, host plus a *credential*
+   variable is still an error.
+3. `tests/units/core/test_health.py` — `test_app_mode_missing_creds_is_error`
+   and `test_local_mode_missing_token_is_error` asserted that *no* credentials
+   is an error, which is the contract that changed. Rewritten as
+   `test_half_configured_service_principal_is_error` and
+   `test_unresolvable_cli_profile_is_error`: each sets one credential variable
+   and leaves the rest missing, which is what they were really testing. The
+   vestigial `DATABRICKS_APP_PORT` setenv went with them — nothing reads it
+   since the Apps platform was dropped.
+
+Suite: **5012 passed, 295 skipped**, same one pre-existing NLTK failure.

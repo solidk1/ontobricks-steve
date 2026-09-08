@@ -28,7 +28,6 @@ from shared.fastapi.health import _check_databricks_auth
 pytestmark = pytest.mark.unit
 
 _INTENT = (
-    "DATABRICKS_HOST",
     "DATABRICKS_CLIENT_ID",
     "DATABRICKS_CLIENT_SECRET",
     "DATABRICKS_TOKEN",
@@ -88,7 +87,44 @@ class TestPartialDatabricksIsStillAnError:
         assert var in detail, "the error must name the variable that was set"
 
     def test_error_says_how_to_opt_out(self, no_databricks_env):
-        no_databricks_env.setenv("DATABRICKS_HOST", "https://example.invalid")
+        no_databricks_env.setenv("DATABRICKS_TOKEN", "dapi-not-a-real-token")
         with _unusable():
             _, detail = _check_databricks_auth()
         assert "Unset" in detail
+
+
+class TestSSOOnlyDeployment:
+    """Databricks for login only, with no workspace API access, is supported.
+
+    ``DATABRICKS_HOST`` is what :class:`OIDCClient` derives its authorize and
+    token endpoints from, so a deployment doing SSO through Databricks sets it
+    and no credentials at all. Counting the host as intent flagged exactly that
+    shape as broken, which is how the live Azure deployment reported
+    ``status: "error"`` while working correctly.
+    """
+
+    def test_host_alone_is_not_an_error(self, no_databricks_env):
+        no_databricks_env.setenv("DATABRICKS_HOST", "https://example.databricks.net")
+        with _unusable():
+            status, _ = _check_databricks_auth()
+        assert status == "warning", (
+            "DATABRICKS_HOST is the OIDC login input too; setting it does not "
+            "assert that workspace API credentials should exist"
+        )
+
+    def test_host_plus_oidc_client_is_not_an_error(self, no_databricks_env):
+        no_databricks_env.setenv("DATABRICKS_HOST", "https://example.databricks.net")
+        no_databricks_env.setenv("ONTOBRICKS_OIDC_CLIENT_ID", "abc")
+        no_databricks_env.setenv("ONTOBRICKS_OIDC_CLIENT_SECRET", "shh")
+        with _unusable():
+            status, _ = _check_databricks_auth()
+        assert status == "warning"
+
+    def test_host_plus_a_credential_is_still_an_error(self, no_databricks_env):
+        """The host does not excuse a half-configured service principal."""
+        no_databricks_env.setenv("DATABRICKS_HOST", "https://example.databricks.net")
+        no_databricks_env.setenv("DATABRICKS_CLIENT_ID", "sp-id-without-a-secret")
+        with _unusable():
+            status, detail = _check_databricks_auth()
+        assert status == "error"
+        assert "DATABRICKS_CLIENT_ID" in detail

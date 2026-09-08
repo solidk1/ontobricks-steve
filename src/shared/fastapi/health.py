@@ -176,11 +176,16 @@ def _check_databricks_auth() -> tuple[str, str]:
     """
     from back.core.databricks.DatabricksAuth import DatabricksAuth
 
-    #: Any of these being set means the operator *intended* to reach a
-    #: workspace, so unusable credentials are a misconfiguration. None of
-    #: them being set is a Databricks-free deployment, which is supported.
+    #: Any of these being set means the operator *intended* workspace API
+    #: access, so unusable credentials are a misconfiguration. None of them
+    #: being set is a Databricks-free deployment, which is supported.
+    #:
+    #: ``DATABRICKS_HOST`` is deliberately **not** here. It is also the input
+    #: :class:`OIDCClient` derives its login endpoints from, so a deployment
+    #: using Databricks purely for SSO sets it and nothing else — a legitimate
+    #: configuration that this check flagged as broken. These four are set for
+    #: no reason other than API access.
     _INTENT_VARS = (
-        "DATABRICKS_HOST",
         "DATABRICKS_CLIENT_ID",
         "DATABRICKS_CLIENT_SECRET",
         "DATABRICKS_TOKEN",

@@ -100,17 +100,24 @@ class TestCheckDirectoryWritable:
 
 
 class TestCheckDatabricksAuth:
-    def test_app_mode_missing_creds_is_error(self, monkeypatch):
-        monkeypatch.setenv("DATABRICKS_APP_PORT", "8000")
-        monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
+    # These two asserted that *no* credentials is an error. Since Databricks
+    # became an optional connector that state is a supported choice and warns
+    # instead -- see tests/units/core/test_health_databricks_optional.py. What
+    # they were really about is a *half*-configured workspace, which is still
+    # an error, so each now sets one credential variable and leaves the rest
+    # missing. (``DATABRICKS_APP_PORT`` is gone with the Apps platform; nothing
+    # reads it any more.)
+
+    def test_half_configured_service_principal_is_error(self, monkeypatch):
+        monkeypatch.setenv("DATABRICKS_CLIENT_ID", "sp-id-without-a-secret")
         monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
         monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
         status, detail = health._check_databricks_auth()
         assert status == "error"
         assert "DATABRICKS_CLIENT_ID" in detail
 
-    def test_local_mode_missing_token_is_error(self, monkeypatch):
-        monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+    def test_unresolvable_cli_profile_is_error(self, monkeypatch):
+        monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "no-such-profile")
         monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
         status, detail = health._check_databricks_auth()
         assert status == "error"
