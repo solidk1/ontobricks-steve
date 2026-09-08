@@ -72,7 +72,7 @@
                                 <i class="bi bi-arrow-clockwise"></i>
                             </button>
                         </div>
-                        <small class="text-muted" id="warehouseHelp">Required for Unity Catalog operations. Stored globally for all users.</small>
+                        <small class="text-muted" id="warehouseHelp">The warehouse used for <strong>Unity Catalog</strong> work: browsing catalogs/schemas/tables, reading source tables during ingestion, and <code>ai_parse_document</code>. Stored globally for all users. Optional — the registry, graph DB and reasoning run on PostgreSQL without it. This is <em>not</em> the same setting as <strong>Back end → Lakehouse → SQL Warehouse</strong>, which chooses where graph triples are stored.</small>
                     </div>
 
                     <div class="mb-0">
@@ -161,9 +161,14 @@
                             <!-- ── TAB 2 · SQL Warehouse ── -->
                             <div class="tab-pane fade" id="dtpane-warehouse" role="tabpanel" aria-labelledby="dttab-warehouse">
                                 <p class="small text-muted mb-3">
-                                    Used only when <strong>Lakehouse</strong> is the graph backend — graph queries,
+                                    Used <strong>only</strong> when <strong>Lakehouse</strong> is the graph backend — graph queries,
                                     health probes, and Lakehouse builds run against this warehouse. Click <strong>Apply</strong>
                                     to persist the selection in the registry.
+                                    <br>
+                                    Separate from <strong>Configuration → Databricks → SQL Warehouse</strong>, which is the
+                                    Unity Catalog / ingestion warehouse. There is no fallback between the two: they can point
+                                    at different warehouses on purpose, and leaving this one empty does not inherit that one.
+                                    If your graph backend is PostgreSQL or Neo4j, this setting does nothing.
                                 </p>
                                 <label for="deltaWarehouseSelect" class="form-label small fw-semibold mb-1">Warehouse</label>
                                 <div id="deltaWarehouseLoading"
@@ -232,8 +237,8 @@
                 <div class="content-section">
                     <div class="section-header d-flex justify-content-between align-items-center mb-3">
                         <div>
-                            <h4 class="mb-1"><i class="ob-brand-icon ob-icon-postgresql me-2"></i>Lakebase</h4>
-                            <p class="text-muted mb-0 small">Configure the Lakebase (Postgres) connection and bulk-loading mode</p>
+                            <h4 class="mb-1"><i class="ob-brand-icon ob-icon-postgresql me-2"></i>PostgreSQL</h4>
+                            <p class="text-muted mb-0 small">Configure the PostgreSQL graph connection and bulk-loading mode. Any PostgreSQL 14+ server, including Databricks Lakebase.</p>
                         </div>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn btn-primary btn-save-settings">
@@ -245,7 +250,7 @@
                     <!-- Loading banner (shown while lazy-loading engine config) -->
                     <div id="lakebaseSectionBanner" class="alert alert-light border d-none align-items-center justify-content-center gap-2 py-3 mb-3" role="status" aria-live="polite">
                         <span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span>
-                        <span class="text-muted small">Loading Lakebase settings…</span>
+                        <span class="text-muted small">Loading PostgreSQL settings…</span>
                     </div>
 
                     <div id="lakebaseGraphPanel" style="display:none;">
@@ -292,7 +297,8 @@
                                 </p>
                                 <div class="alert alert-info py-2 px-3 small mb-3">
                                     <i class="bi bi-info-circle me-1"></i>
-                                    <strong>Architecture note:</strong> the app always connects via the <strong>bound Lakebase</strong>
+                                    <span id="pgAuthModeHint" class="d-block mb-2 text-muted"></span>
+                                    <strong>Architecture note:</strong> the app always connects via the <strong>configured PostgreSQL server</strong> (<code>PGHOST</code>)
                                     (PGHOST set by the platform resource binding). The project and branch selected here are used
                                     only by the <em>Create Graph DB</em> provisioner. The <strong>database</strong> and
                                     <strong>schema</strong> fields directly control where graph triples are stored.
@@ -301,7 +307,7 @@
 
                                 <!-- Row 1: Project + Branch -->
                                 <div class="row g-3 mb-3">
-                                    <div class="col-12 col-lg-6">
+                                    <div class="col-12 col-lg-6 lakebase-only" id="lakebaseProjectField">
                                         <label for="lakebaseProject" class="form-label small fw-semibold mb-1">Autoscaling project</label>
                                         <div class="input-group input-group-sm">
                                             <select class="form-select form-select-sm" id="lakebaseProject" aria-describedby="lakebaseProjectHelp">
@@ -311,9 +317,9 @@
                                                 <i class="bi bi-arrow-down-circle"></i>
                                             </button>
                                         </div>
-                                        <div id="lakebaseProjectHelp" class="form-text small mt-1 mb-0 text-muted">Lakebase Autoscaling project.</div>
+                                        <div id="lakebaseProjectHelp" class="form-text small mt-1 mb-0 text-muted">Databricks Lakebase Autoscaling project. Not applicable to a plain PostgreSQL server.</div>
                                     </div>
-                                    <div class="col-12 col-lg-6">
+                                    <div class="col-12 col-lg-6 lakebase-only" id="lakebaseBranchField">
                                         <label for="lakebaseBranch" class="form-label small fw-semibold mb-1">Branch</label>
                                         <select class="form-select form-select-sm" id="lakebaseBranch" disabled aria-describedby="lakebaseBranchHelp">
                                             <option value="">(select a project first)</option>

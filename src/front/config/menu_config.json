@@ -431,7 +431,7 @@
                     "items": [
                         {
                             "id": "lakebase",
-                            "label": "Lakebase",
+                            "label": "PostgreSQL",
                             "icon": "ob-brand-icon ob-icon-postgresql",
                             "default": false,
                             "requires": null

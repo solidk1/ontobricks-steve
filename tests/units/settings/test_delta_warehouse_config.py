@@ -37,7 +37,7 @@ class TestGlobalConfigDeltaWarehouse:
 
 
 class TestResolveDeltaWarehouseId:
-    def test_prefers_delta_warehouse_over_global(self):
+    def test_prefers_delta_warehouse_over_global(self, configured_registry_env):
         domain = MagicMock()
         settings = MagicMock()
         with patch.object(

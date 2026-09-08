@@ -74,26 +74,44 @@ document.addEventListener('DOMContentLoaded', function () {
             const tokenBadge = document.getElementById('tokenBadge');
             const authModeDisplay = document.getElementById('authModeDisplay');
 
-            if (data.auth_mode === 'oauth') {
+            // auth_mode comes from DatabricksAuth: 'app' is service-principal
+            // M2M OAuth, 'pat' a personal access token, 'cli' a ~/.databrickscfg
+            // profile, 'none' nothing usable. None of these mean the Databricks
+            // Apps platform, which OntoBricks no longer runs on -- the labels
+            // said otherwise long after the deploy path was removed.
+            if (data.auth_mode === 'app' || data.auth_mode === 'oauth') {
                 tokenBadge.className = 'badge bg-success';
-                tokenBadge.innerHTML = '<i class="bi bi-shield-check"></i> OAuth configured';
-                authModeDisplay.textContent = data.token || '';
-                document.getElementById('tokenHelp').textContent = 'Using OAuth Service Principal (Databricks Apps mode)';
+                tokenBadge.innerHTML = '<i class="bi bi-shield-check"></i> Service principal';
+                authModeDisplay.textContent = '';
+                document.getElementById('tokenHelp').textContent = 'OAuth machine-to-machine, from DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET';
             } else if ((data.auth_mode === 'token' || data.auth_mode === 'pat') && data.token) {
                 tokenBadge.className = 'badge bg-success';
                 tokenBadge.innerHTML = '<i class="bi bi-check-circle"></i> Token configured';
                 authModeDisplay.textContent = '';
                 document.getElementById('tokenHelp').textContent = data.from_env ? 'From environment variable' : 'From session';
-            } else if (data.auth_mode === 'app') {
+            } else if (data.auth_mode === 'cli') {
                 tokenBadge.className = 'badge bg-success';
-                tokenBadge.innerHTML = '<i class="bi bi-cloud-check"></i> Databricks App';
+                tokenBadge.innerHTML = '<i class="bi bi-terminal"></i> CLI profile';
                 authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').textContent = 'Using Databricks Apps authentication';
+                document.getElementById('tokenHelp').textContent = 'From a Databricks CLI profile in ~/.databrickscfg (local development)';
             } else {
-                tokenBadge.className = 'badge bg-danger';
-                tokenBadge.innerHTML = '<i class="bi bi-x-circle"></i> Not configured';
+                tokenBadge.className = 'badge bg-secondary';
+                tokenBadge.innerHTML = '<i class="bi bi-dash-circle"></i> Not configured';
                 authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').innerHTML = '<i class="bi bi-exclamation-triangle text-warning"></i> Set DATABRICKS_TOKEN or use Databricks Apps';
+                document.getElementById('tokenHelp').innerHTML = 'Optional. Set <code>DATABRICKS_CLIENT_ID</code> + <code>DATABRICKS_CLIENT_SECRET</code> to enable Unity Catalog browsing, warehouse ingestion and Volume documents. The registry, graph DB and reasoning run on PostgreSQL without it.';
+            }
+
+            // Autoscaling project / branch exist only on Databricks Lakebase.
+            // On a plain PostgreSQL server they are permanently empty selects,
+            // which is what made the Back end panel read as "still Lakebase".
+            document.querySelectorAll('.lakebase-only').forEach((el) => {
+                el.hidden = !data.postgres_is_lakebase;
+            });
+            const pgAuth = document.getElementById('pgAuthModeHint');
+            if (pgAuth && data.postgres_auth_mode) {
+                pgAuth.textContent = data.postgres_auth_mode === 'entra'
+                    ? 'Authenticating with Microsoft Entra ID tokens (ONTOBRICKS_PG_AUTH=entra).'
+                    : 'Authenticating with a password (ONTOBRICKS_PG_AUTH=password, PGPASSWORD).';
             }
 
             currentWarehouseId = data.warehouse_id;
@@ -148,7 +166,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     select.appendChild(opt);
                 });
             } else if (data.error) {
-                select.innerHTML = '<option value="">Error: ' + escapeHtmlSettings(data.error) + '</option>';
+                // data.error is the machine code ('validation', 'not_found');
+                // data.message is the sentence written for a human. Rendering
+                // the code is why this picker read "Error: validation".
+                select.innerHTML = '<option value="">' + escapeHtmlSettings(data.message || data.error) + '</option>';
             } else {
                 select.innerHTML = '<option value="">No warehouses available</option>';
             }
@@ -240,7 +261,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     select.appendChild(opt);
                 });
             } else if (data.error) {
-                select.innerHTML = '<option value="">Error: ' + escapeHtmlSettings(data.error) + '</option>';
+                // data.error is the machine code ('validation', 'not_found');
+                // data.message is the sentence written for a human. Rendering
+                // the code is why this picker read "Error: validation".
+                select.innerHTML = '<option value="">' + escapeHtmlSettings(data.message || data.error) + '</option>';
             } else {
                 select.innerHTML = '<option value="">No warehouses available</option>';
             }

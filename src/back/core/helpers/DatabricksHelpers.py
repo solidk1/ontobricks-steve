@@ -100,7 +100,9 @@ class DatabricksHelpers:
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
         registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
 
-        if host and registry_cfg.get("catalog") and registry_cfg.get("schema"):
+        # Neither the Databricks host nor the UC Volume triplet gates this:
+        # global config is a Postgres table read through the registry store.
+        if global_config_service._registry_usable(registry_cfg):
             try:
                 wid = global_config_service.get_warehouse_id(host, token, registry_cfg)
                 if wid:
@@ -131,7 +133,9 @@ class DatabricksHelpers:
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
         registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
 
-        if host and registry_cfg.get("catalog") and registry_cfg.get("schema"):
+        # Neither the Databricks host nor the UC Volume triplet gates this:
+        # global config is a Postgres table read through the registry store.
+        if global_config_service._registry_usable(registry_cfg):
             try:
                 wid = global_config_service.get_delta_warehouse_id(
                     host, token, registry_cfg
@@ -153,7 +157,9 @@ class DatabricksHelpers:
         host, token = DatabricksHelpers.get_databricks_host_and_token(domain, settings)
         registry_cfg = DatabricksHelpers._resolve_registry_cfg(domain, settings)
 
-        if host and registry_cfg.get("catalog") and registry_cfg.get("schema"):
+        # Neither the Databricks host nor the UC Volume triplet gates this:
+        # global config is a Postgres table read through the registry store.
+        if global_config_service._registry_usable(registry_cfg):
             try:
                 getter = getattr(global_config_service, getter_name)
                 val = getter(host, token, registry_cfg)

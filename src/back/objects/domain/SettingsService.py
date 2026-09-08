@@ -53,6 +53,18 @@ from back.objects.session import (
 logger = get_logger(__name__)
 
 
+def _pg_auth_mode() -> str:
+    """The configured PostgreSQL auth mode, for display only.
+
+    ``PostgresAuth`` accepts ``entra`` or ``password``; anything else raises
+    there. Surfaced so the Settings panel can say how the app authenticates
+    instead of implying a Databricks resource binding.
+    """
+    import os
+
+    return (os.environ.get("ONTOBRICKS_PG_AUTH") or "entra").lower()
+
+
 class SettingsService:
     """Configuration, registry, permissions, and build schedules."""
 
@@ -189,16 +201,31 @@ class SettingsService:
         warehouse_id = resolve_warehouse_id(domain, settings)
 
         has_config = bool(host and (token or settings.databricks_token))
-        is_app_mode = bool(settings.databricks_host)
 
-        auth_mode = "none"
-        auth_display = "Not configured"
+        # ``is_app_mode`` used to be ``bool(settings.databricks_host)``, i.e. "a
+        # host is set, therefore we are running as a Databricks App". That held
+        # only on the Apps platform. Off it, DATABRICKS_HOST is just a workspace
+        # URL -- and on a deployment that sets it purely for OIDC login, this
+        # reported ``auth_mode="app"`` with no credentials anywhere, so the UI
+        # showed a green "Databricks App" badge while /health correctly said
+        # Databricks was not configured. Two implementations of the same
+        # question disagreeing; this one now defers to the real one.
+        from back.core.databricks.DatabricksAuth import DatabricksAuth
+
+        auth = DatabricksAuth()
+        is_app_mode = auth.has_sp_credentials
+        _DISPLAY = {
+            "app": "Service principal (OAuth M2M)",
+            "pat": "Personal Access Token",
+            "cli": "Databricks CLI profile",
+            "none": "Not configured",
+        }
         if token:
             auth_mode = "token"
             auth_display = "Personal Access Token"
-        elif is_app_mode:
-            auth_mode = "app"
-            auth_display = "Databricks App"
+        else:
+            auth_mode = auth.auth_mode
+            auth_display = _DISPLAY.get(auth_mode, "Not configured")
 
         warehouse_locked = SettingsService.is_warehouse_locked(settings)
 
@@ -206,8 +233,22 @@ class SettingsService:
             "host": host,
             "token": "***" if token else None,
             "warehouse_id": warehouse_id,
-            "from_env": is_app_mode,
+            # ``from_env`` answers "did this token come from the environment
+            # rather than the user's session?", which the UI uses to caption the
+            # token badge. It was aliased to ``is_app_mode`` back when a set
+            # DATABRICKS_HOST implied the Apps platform injected everything.
+            "from_env": bool(
+                settings.databricks_token and not domain.databricks.get("token")
+            ),
             "is_app_mode": is_app_mode,
+            # Lets the Back end -> PostgreSQL panel hide the Autoscaling
+            # project / branch inputs, which are Databricks Lakebase concepts a
+            # plain PostgreSQL server does not have. Without this the panel
+            # showed two permanently empty selects and read as "still Lakebase".
+            "postgres_auth_mode": _pg_auth_mode(),
+            "postgres_is_lakebase": bool(
+                os.environ.get("LAKEBASE_PROJECT") or os.environ.get("LAKEBASE_BRANCH")
+            ),
             "auth_mode": auth_mode,
             "auth_display": auth_display,
             "has_config": has_config,
@@ -705,6 +746,11 @@ class SettingsService:
                 "initialized": False,
                 "populated": False,
                 "instance": None,
+                "auth_mode": "",
+                # Autoscaling project / branch are Lakebase-only concepts; a
+                # plain PostgreSQL server has neither, so the UI hides those
+                # fields rather than showing two permanently empty inputs.
+                "is_lakebase": False,
             }
 
         host = os.environ.get("PGHOST", "")
@@ -738,6 +784,8 @@ class SettingsService:
             "initialized": status["initialized"],
             "populated": status["populated"],
             "instance": None,
+            "auth_mode": _pg_auth_mode(),
+            "is_lakebase": bool(project or branch),
         }
 
     @staticmethod

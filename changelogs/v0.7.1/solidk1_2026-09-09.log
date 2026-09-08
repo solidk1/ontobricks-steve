@@ -233,3 +233,117 @@ Verified before deleting: the folder was never in the Help Center index, and all
 
 `uv run --frozen pytest -q -m "not scenario"` → **5037 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure, unrelated.
+
+## Settings panel: four wrong things the live deployment exposed
+
+### Context
+
+Reviewing Settings on the Azure deployment turned up four defects, all the same
+shape as the registry bug: a value or label whose meaning changed when the Apps
+platform and Lakebase stopped being the only options, with nothing asserting the
+new meaning.
+
+The most consequential was a host collision. `DATABRICKS_HOST` was doing two
+incompatible jobs at once, and one variable cannot hold two hosts.
+
+### Changes
+
+1. **`OIDCClient` — the OIDC issuer and the workspace host are now separate.**
+   Endpoints derived from `DATABRICKS_HOST`, but a custom app integration
+   registered in the *account* console is issued by the account host (verified:
+   `oneenvazure.azuredatabricks.net` discovery returns issuer
+   `accounts.azuredatabricks.net/oidc/accounts/…`), while Unity Catalog, SQL
+   warehouses and SCIM require the *workspace* host
+   (`adb-7405611364794897.17.azuredatabricks.net`). The account/vanity host
+   answers OIDC discovery correctly and returns **HTTP 303** for every
+   `/api/2.0/...` path. So pointing `DATABRICKS_HOST` at it made login work and
+   broke both warehouse listing and SCIM `/Me`; pointing it at the workspace
+   would have broken login. New `ONTOBRICKS_OIDC_HOST` (falls back to
+   `DATABRICKS_HOST`), and a `workspace_host` property that SCIM now uses. This
+   is the real cause of the SCIM failure worked around earlier today.
+2. **The "Databricks App" badge.** `SettingsService` computed
+   `is_app_mode = bool(settings.databricks_host)` — a host is set, therefore we
+   must be a Databricks App. So a container with no credentials showed a green
+   "Databricks App / Using Databricks Apps authentication" badge while
+   `/health` correctly reported Databricks unconfigured: two implementations of
+   the same question disagreeing. It now defers to `DatabricksAuth.auth_mode`,
+   and `settings.js` labels service principal / token / CLI profile / not
+   configured, with no branch claiming the Apps platform. `from_env` was aliased
+   to `is_app_mode` and now means what its name says.
+3. **"Error: validation" in the warehouse picker.** The error envelope is
+   `{error: <machine code>, message: <human text>}` and the JS rendered
+   `data.error`, so `ValidationError("Databricks not configured")` displayed as
+   the literal string "Error: validation". Both pickers now render `message`.
+4. **Global config was gated on the UC Volume triplet.** `GlobalConfigService.load`
+   returned `_empty()` unless `catalog` *and* `schema` were set, but `_store_for`
+   deletes host/token outright and builds a Postgres store from the `PG*`
+   environment, and `global_config` is a Postgres table. On a Volume-free
+   deployment the admin's saved SQL warehouse, graph-engine config and
+   `registry_cache_ttl` were therefore never read — silently, since `load` just
+   returned empty and every caller fell through to its env default. Five gates
+   fixed (2 in `GlobalConfigService`, 3 in `DatabricksHelpers`, which also
+   required a Databricks host to read a Postgres table) via a new
+   `_registry_usable` predicate. **15 further sites share this pattern and are
+   listed below rather than changed blind.**
+5. **The Back end panel was still a Lakebase panel, not just mislabelled.** Its
+   *Autoscaling project* and *Branch* inputs are Databricks Lakebase concepts;
+   `PostgresAuth` accepts only `entra` or `password` and has no Lakebase mode, so
+   on Azure Postgres those were two permanently empty selects. They are now
+   hidden unless the server actually is Lakebase (`postgres_is_lakebase` on
+   `/settings/current`), the panel states the auth mode in words, the sidebar
+   label and heading read **PostgreSQL**, and the "the app always connects via
+   the bound Lakebase" note now names `PGHOST`. The section `id` stays
+   `lakebase` — it is wired to `#lakebase-section`, `settings.js` switching and
+   existing deep links.
+6. **The two SQL Warehouse settings are explained.** Not duplication:
+   Configuration → Databricks is the Unity Catalog / ingestion warehouse
+   (4-level precedence in `DatabricksHelpers.resolve_warehouse_id`), Back end →
+   Lakehouse → SQL Warehouse chooses where graph triples live
+   (`resolve_lakehouse_warehouse_id`, no fallback). Each help text now names the
+   other and says there is no inheritance between them.
+
+### Tests
+
+- `tests/units/auth/test_oidc_host_split.py` (new, 9) — issuer vs workspace
+  endpoints, SCIM on the workspace, single-host fallback, scheme normalisation.
+  **3 fail against the single-host derivation.**
+- `tests/units/settings/test_global_config_without_volume.py` (new, 9) — the
+  `_registry_usable` truth table and that `load` reaches the store with no
+  Volume and no Databricks host. **2 fail against the Volume gate.**
+- `tests/units/front/test_backend_brand_icons.py` — the expected panel labels
+  were hardcoded, so renaming the sidebar entry failed it for the wrong reason:
+  the pairing was right, the test copy was stale. It now reads labels from
+  `menu_config.json`, enforcing the coupling its name claims.
+- `tests/units/auth/test_oidc_flow.py` — the missing-config test deleted only
+  one host variable; with a fallback in place that left the client configured.
+- Four tests given `configured_registry_env` now that a usable registry is a
+  Postgres question.
+
+### Known follow-up: 15 more Volume-gated sites
+
+`git grep 'registry_cfg.get("catalog")'` still returns 15 sites in
+`PermissionService` (2), `scheduler` (3), `SettingsService` (3),
+`DatabricksHelpers` (4 non-global-config), `DigitalTwin` (1), `DatabricksAuth`
+(1). Each needs checking individually — some may genuinely need the Volume —
+and the five fixed here were verified one at a time. Not changed blind.
+
+### Modified files
+
+- `src/back/objects/identity/OIDCClient.py`
+- `src/back/objects/domain/SettingsService.py`
+- `src/back/objects/session/GlobalConfigService.py`
+- `src/back/core/helpers/DatabricksHelpers.py`
+- `src/front/templates/settings.html`
+- `src/front/static/config/js/settings.js`
+- `src/front/config/menu_config.json`
+- `tests/units/auth/test_oidc_host_split.py` (new)
+- `tests/units/settings/test_global_config_without_volume.py` (new)
+- `tests/units/auth/test_oidc_flow.py`
+- `tests/units/front/test_backend_brand_icons.py`
+- `tests/units/settings/test_graph_engine_config.py`
+- `tests/units/settings/test_delta_warehouse_config.py`
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5055 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure.

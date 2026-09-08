@@ -45,14 +45,22 @@ def test_backend_menu_uses_brand_icon_classes():
 
 
 def test_backend_headers_match_menu_brand_icons():
+    """The panel heading must match the sidebar label, whatever that label is.
+
+    The expected labels used to be hardcoded here, so renaming the sidebar
+    entry (``Lakebase`` -> ``PostgreSQL``, once Lakebase became one Postgres
+    endpoint among many) failed this test for the wrong reason: the pairing was
+    still correct, the copy in the test was simply stale. Reading the label from
+    ``menu_config.json`` makes the test enforce the coupling its name claims.
+    """
     template = _SETTINGS.read_text(encoding="utf-8")
-    expected_headers = {
-        "Lakebase": "ob-icon-postgresql",
-        "Lakehouse": "ob-icon-lakehouse",
-        "Neo4j": "ob-icon-neo4j",
-    }
-    for label, modifier in expected_headers.items():
-        assert f'<i class="ob-brand-icon {modifier} me-2"></i>{label}</h4>' in template
+    items = _backend_items()
+    for item_id, (modifier, _) in _EXPECTED.items():
+        label = items[item_id]["label"]
+        assert f'<i class="ob-brand-icon {modifier} me-2"></i>{label}</h4>' in template, (
+            f"menu item {item_id!r} is labelled {label!r}; the settings.html "
+            f"header for it must use that label and the {modifier!r} icon"
+        )
 
 
 def test_brand_icon_assets_are_local_and_colored():

@@ -44,6 +44,21 @@ class GlobalConfigService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _registry_usable(registry_cfg: Dict[str, str]) -> bool:
+        """Whether the structured registry can be read/written.
+
+        A Postgres question, deliberately: see :meth:`_store_for`, which
+        sources credentials from the ``PG*`` environment and ignores the
+        Databricks host entirely.
+        """
+        from back.objects.registry import RegistryCfg
+
+        try:
+            return RegistryCfg.from_dict(dict(registry_cfg or {})).is_configured
+        except Exception:  # noqa: BLE001 — status paths must not raise
+            return False
+
+    @staticmethod
     def _store_for(host: str, token: str, registry_cfg: Dict[str, str]):
         """Build the Lakebase :class:`RegistryStore` for *registry_cfg*.
 
@@ -80,7 +95,13 @@ class GlobalConfigService:
         ):
             return self._cache
 
-        if not registry_cfg.get("catalog") or not registry_cfg.get("schema"):
+        # The Volume triplet is NOT what this needs: ``_store_for`` ignores
+        # host/token and builds a Postgres store from the ``PG*`` environment,
+        # and ``global_config`` is a Postgres table. Gating on catalog/schema
+        # meant a deployment with no Unity Catalog Volume silently loaded an
+        # empty global config -- so the admin's saved warehouse, graph-engine
+        # config and cache TTL were never read, with no error anywhere.
+        if not self._registry_usable(registry_cfg):
             return self._empty()
 
         try:
@@ -195,10 +216,12 @@ class GlobalConfigService:
         updates: Dict[str, Any],
     ) -> Tuple[bool, str]:
         """Merge *updates* into the global config and persist via the store."""
-        if not registry_cfg.get("catalog") or not registry_cfg.get("schema"):
+        if not self._registry_usable(registry_cfg):
             return (
                 False,
-                "Registry not configured — set catalog and schema in Settings first",
+                "Registry not configured — no reachable PostgreSQL registry. "
+                "Set PGHOST / PGDATABASE / PGUSER and ONTOBRICKS_PG_SCHEMA, "
+                "then run Initialize.",
             )
 
         data = self.load(host, token, registry_cfg, force=True)

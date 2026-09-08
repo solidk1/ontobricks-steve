@@ -30,7 +30,10 @@ def oidc_env(monkeypatch):
 
 class TestConfiguration:
     def test_unconfigured_reports_what_is_missing(self, monkeypatch):
+        # Both host variables have to go: the issuer host falls back to
+        # DATABRICKS_HOST, so deleting only one leaves the client configured.
         for var in (
+            "ONTOBRICKS_OIDC_HOST",
             "DATABRICKS_HOST",
             "ONTOBRICKS_OIDC_CLIENT_ID",
             "ONTOBRICKS_OIDC_REDIRECT_URI",
@@ -39,7 +42,7 @@ class TestConfiguration:
         client = OIDCClient()
         assert client.is_configured is False
         assert set(client.missing_config()) == {
-            "DATABRICKS_HOST",
+            "ONTOBRICKS_OIDC_HOST (or DATABRICKS_HOST)",
             "ONTOBRICKS_OIDC_CLIENT_ID",
             "ONTOBRICKS_OIDC_REDIRECT_URI",
         }

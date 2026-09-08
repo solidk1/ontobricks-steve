@@ -7,11 +7,22 @@ URI. Databricks is therefore the identity provider, and one login yields the
 user's email, their groups, and a Databricks user access token — the last of
 which is what enables per-user Unity Catalog enforcement on interactive queries.
 
-Endpoints are derived from ``DATABRICKS_HOST``:
+Endpoints are derived from ``ONTOBRICKS_OIDC_HOST``, falling back to
+``DATABRICKS_HOST``:
 
 * authorize — ``{host}/oidc/v1/authorize``
 * token     — ``{host}/oidc/v1/token``
 * identity  — SCIM ``/api/2.0/preview/scim/v2/Me``
+
+The two are separable because they are often **different hosts**. A custom app
+integration registered in the *account* console is issued by the account host,
+whereas Unity Catalog and SQL warehouse calls must go to the *workspace* host
+(``adb-<id>.<n>.azuredatabricks.net``). Some Azure deployments also front the
+account with a vanity domain that answers OIDC discovery but returns HTTP 303
+for every workspace API path. Pointing ``DATABRICKS_HOST`` at such a host to
+make login work therefore broke warehouse listing, and pointing it at the
+workspace broke login. Set ``ONTOBRICKS_OIDC_HOST`` to wherever the app
+integration lives and leave ``DATABRICKS_HOST`` as the workspace.
 
 PKCE (S256) is mandatory, and ``state`` is verified on callback, so an
 intercepted authorization code is useless and the callback cannot be forged
@@ -53,7 +64,9 @@ class OIDCClient:
     """Authorization-code + PKCE client for Databricks as the IdP."""
 
     def __init__(self) -> None:
-        self.host = _env("DATABRICKS_HOST").rstrip("/")
+        self.host = (
+            _env("ONTOBRICKS_OIDC_HOST") or _env("DATABRICKS_HOST")
+        ).rstrip("/")
         if self.host and not self.host.startswith("http"):
             self.host = f"https://{self.host}"
         self.client_id = _env("ONTOBRICKS_OIDC_CLIENT_ID")
@@ -72,12 +85,27 @@ class OIDCClient:
         """Names of the settings that still need to be provided."""
         missing = []
         if not self.host:
-            missing.append("DATABRICKS_HOST")
+            missing.append("ONTOBRICKS_OIDC_HOST (or DATABRICKS_HOST)")
         if not self.client_id:
             missing.append("ONTOBRICKS_OIDC_CLIENT_ID")
         if not self.redirect_uri:
             missing.append("ONTOBRICKS_OIDC_REDIRECT_URI")
         return missing
+
+    @property
+    def workspace_host(self) -> str:
+        """Host for **workspace** REST calls (SCIM, UC, warehouses).
+
+        Distinct from :attr:`host`, which is the OIDC issuer. An account-level
+        or vanity host answers OIDC discovery but returns HTTP 303 for every
+        ``/api/2.0/...`` path, so SCIM has to go to the workspace explicitly.
+        Falls back to the issuer host when only one is configured, which is the
+        single-host case where they are the same thing anyway.
+        """
+        host = (_env("DATABRICKS_HOST") or self.host).rstrip("/")
+        if host and not host.startswith("http"):
+            host = f"https://{host}"
+        return host
 
     @property
     def authorize_endpoint(self) -> str:
@@ -229,7 +257,7 @@ class OIDCClient:
         me: dict[str, Any] = {}
         try:
             resp = requests.get(
-                f"{self.host}/api/2.0/preview/scim/v2/Me",
+                f"{self.workspace_host}/api/2.0/preview/scim/v2/Me",
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "User-Agent": HTTP_USER_AGENT,

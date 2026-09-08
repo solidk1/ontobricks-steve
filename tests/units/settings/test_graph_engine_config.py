@@ -83,7 +83,7 @@ class TestGlobalConfigStaleWhileRevalidate:
             "default_base_uri": "https://example.com",
         }
 
-    def test_serves_stale_cache_on_backend_failure(self):
+    def test_serves_stale_cache_on_backend_failure(self, configured_registry_env):
         svc = GlobalConfigService()
         good = self._good_cfg()
 
@@ -282,7 +282,7 @@ class TestBulkLoadingSyncModeRegistryRoundTrip:
         store = _FakeGlobalConfigStore()
         return svc, store
 
-    def test_sync_mode_round_trips_app_managed_and_managed_synced(self):
+    def test_sync_mode_round_trips_app_managed_and_managed_synced(self, configured_registry_env):
         svc, store = self._svc_with_store()
         with patch.object(svc, "_store_for", return_value=store):
             # 1) Persist Managed sync (+ options)
