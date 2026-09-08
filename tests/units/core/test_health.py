@@ -189,7 +189,17 @@ class TestCheckWarehouse:
 
 
 def _fake_cfg(catalog="main", schema="bronze", volume="reg"):
-    return SimpleNamespace(
+    """A **real** ``RegistryCfg``, not a stand-in.
+
+    This was a ``SimpleNamespace`` until ``has_volume`` was added, at which
+    point every probe reading the new property raised ``AttributeError``
+    against the fake while working fine in production. A hand-rolled double
+    of a frozen dataclass has no upside and silently omits whatever the real
+    class grows next, so it builds the real thing.
+    """
+    from back.objects.registry import RegistryCfg
+
+    return RegistryCfg(
         catalog=catalog,
         schema=schema,
         volume=volume,

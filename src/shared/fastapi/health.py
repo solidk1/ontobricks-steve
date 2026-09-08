@@ -176,14 +176,42 @@ def _check_databricks_auth() -> tuple[str, str]:
     """
     from back.core.databricks.DatabricksAuth import DatabricksAuth
 
+    #: Any of these being set means the operator *intended* to reach a
+    #: workspace, so unusable credentials are a misconfiguration. None of
+    #: them being set is a Databricks-free deployment, which is supported.
+    _INTENT_VARS = (
+        "DATABRICKS_HOST",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CONFIG_PROFILE",
+    )
+
     auth = DatabricksAuth()
     if not auth.has_valid_auth():
+        configured = [v for v in _INTENT_VARS if os.getenv(v)]
+        if not configured:
+            # Databricks is an optional connector. Reporting _ERROR here made
+            # /health report status="error" forever on a container + Postgres
+            # deployment, which is exactly the shape the decoupling work made
+            # first-class -- and it made the top-level `status` field useless
+            # for monitoring, since it could never go green.
+            return (
+                _WARNING,
+                "Databricks not configured (optional). Unity Catalog Volume "
+                "documents, SQL warehouse ingestion and Foundation Model "
+                "endpoints are unavailable; the registry, graph DB and "
+                "reasoning run on PostgreSQL.",
+            )
         return (
             _ERROR,
-            "No usable Databricks credentials. Set DATABRICKS_CLIENT_ID + "
+            "Databricks is partially configured ("
+            + ", ".join(configured)
+            + ") but credentials are not usable. Set DATABRICKS_CLIENT_ID + "
             "DATABRICKS_CLIENT_SECRET (service principal), or DATABRICKS_TOKEN, "
             "or configure a Databricks CLI profile in ~/.databrickscfg "
-            "(run `databricks auth login`)",
+            "(run `databricks auth login`). Unset them all to run without "
+            "Databricks.",
         )
     if auth.auth_mode == "app":
         try:
@@ -259,11 +287,16 @@ def _resolve_registry_cfg(settings: Settings):
 
 def _check_registry_cfg(settings: Settings) -> tuple[str, str]:
     cfg = _resolve_registry_cfg(settings)
-    if not (cfg.catalog and cfg.schema and cfg.volume):
+    if not cfg.has_volume:
+        # ``has_volume``, not ``is_configured``: this probe is about the
+        # optional UC Volume for binary document uploads, not the registry
+        # itself, which lives in Postgres and is probed separately.
         return (
             _WARNING,
-            "Registry catalog/schema/volume not fully resolved — set REGISTRY_VOLUME_PATH "
-            "or bind a Volume resource to the Databricks App",
+            "No Unity Catalog Volume configured (optional) — document uploads "
+            "are unavailable. Set REGISTRY_CATALOG / REGISTRY_SCHEMA / "
+            "REGISTRY_VOLUME, or REGISTRY_VOLUME_PATH, to enable them. The "
+            "registry itself is unaffected; see the 'postgres' check.",
         )
     return (
         _OK,
@@ -492,7 +525,10 @@ def _check_postgres_permissions(settings: Settings) -> tuple[str, str]:
     if reason == "no_usage":
         return _ERROR, str(err)
     if reason in ("no_registries_table", "no_registry_row"):
-        return _WARNING, f"Lakebase not initialized ({reason}) — permission probe partial: {err}"
+        return (
+            _WARNING,
+            f"Registry not initialized ({reason}) — permission probe partial: {err}",
+        )
     if reason != "ok":
         return _ERROR, f"Lakebase probe unavailable ({reason}): {err}"
 

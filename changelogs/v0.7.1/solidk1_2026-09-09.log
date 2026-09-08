@@ -89,3 +89,55 @@ The single failure is pre-existing and unrelated:
 fails on `LookupError: Resource 'wordnet' not found`. The NLTK corpus cannot be
 downloaded from this sandbox; CI does not install the `pitfalls` extra, so it
 skips there. Not a regression from this change.
+
+## A Databricks-free deployment no longer reports /health status "error"
+
+### Context
+
+With the registry fix deployed, `/health` on Azure returned `status: "error"` on
+an otherwise healthy app. The sole error was `databricks.auth`: *"No usable
+Databricks credentials"*. But Databricks is now an optional connector, and this
+deployment has none by design — Postgres carries the registry, the graph DB and
+reasoning.
+
+That is not cosmetic. `deploy/azure/Dockerfile` instructs operators to read the
+JSON `status` field rather than the HTTP code, so a field that can never go
+green makes the documented monitoring signal worthless.
+
+### Changes
+
+1. `src/shared/fastapi/health.py` — `_check_databricks_auth` now separates
+   *absent* from *broken*. No `DATABRICKS_*` variable set at all is a supported
+   configuration and returns `warning`, naming the features that are therefore
+   unavailable. Any of `DATABRICKS_HOST` / `CLIENT_ID` / `CLIENT_SECRET` /
+   `TOKEN` / `CONFIG_PROFILE` set while credentials are unusable stays an
+   `error`, now naming the variable found and saying how to opt out.
+2. `src/shared/fastapi/health.py` — `_check_registry_cfg` uses the new
+   `has_volume` property instead of hand-rolling the triplet test, and its
+   warning no longer tells operators to "bind a Volume resource to the
+   Databricks App". It states the Volume is optional, names the real variables,
+   and points at the `postgres` check for registry health.
+3. `src/shared/fastapi/health.py` — the permission probe says "Registry not
+   initialized" rather than "Lakebase not initialized".
+4. `tests/units/core/test_health_databricks_optional.py` (new, 10 tests) — the
+   absent/partial split, that the warning names what is unavailable, and that
+   the error names the offending variable. **8 of the 10 fail against the
+   previous unconditional error.**
+5. `tests/units/core/test_health.py` — `_fake_cfg` now builds a **real**
+   `RegistryCfg` instead of a `SimpleNamespace`. The namespace silently lacked
+   `has_volume`, so two probes raised `AttributeError` against the fake while
+   working in production. A hand-rolled double of a frozen dataclass has no
+   upside and omits whatever the real class grows next. All 17 call sites are
+   unchanged.
+
+### Modified files
+
+- `src/shared/fastapi/health.py`
+- `tests/units/core/test_health.py`
+- `tests/units/core/test_health_databricks_optional.py` (new)
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5010 passed, 1 failed,
+295 skipped**. The failure is the same pre-existing, unrelated NLTK `wordnet`
+lookup in `test_pitfalls_service.py`.
