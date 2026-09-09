@@ -24,7 +24,7 @@ handles JSON-shaped data only.
 
 The historical JSON-on-Volume backend (``VolumeRegistryStore``) was
 removed in v0.4.0. Operators with on-Volume registry data must run
-``scripts/migrate-registry-to-lakebase.sh`` once before upgrading.
+the registry *Initialize* action once before upgrading.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
     <div class="section-header d-flex justify-content-between align-items-center mb-4">
         <div>
             <h4 class="mb-1"><i class="bi bi-archive me-2"></i>Registry Location</h4>
-            <p class="text-muted mb-0 small">Registry data (domains, versions, permissions, schedules, global config) lives in <strong>Lakebase</strong> (Postgres). The Unity Catalog Volume only stores domain-scoped binary artefacts (the <code>documents/</code> uploads imported by the ontology designer).</p>
+            <p class="text-muted mb-0 small">Registry data (domains, versions, permissions, schedules, global config) lives in <strong>PostgreSQL</strong>. The Unity Catalog Volume only stores domain-scoped binary artefacts (the <code>documents/</code> uploads imported by the ontology designer).</p>
         </div>
     </div>
 
@@ -31,7 +31,7 @@
                             <div class="text-muted mt-1" style="font-size:0.72rem;line-height:1.4">
                                 This UC schema hosts the <strong>Delta Lake views</strong> that expose Knowledge Graph triples
                                 to SQL queries (e.g. <code>triples</code>, <code>entities</code>, <code>relationships</code>)
-                                and the <strong>Lakebase-backed registry tables</strong> that store domains, versions,
+                                and the <strong>PostgreSQL-backed registry tables</strong> that store domains, versions,
                                 permissions, and global configuration.
                                 The app service principal needs <code>USE CATALOG</code>, <code>USE SCHEMA</code>,
                                 and <code>SELECT</code> (plus <code>CREATE TABLE</code> / <code>MODIFY</code> for the registry).
@@ -54,7 +54,7 @@
                             <div class="text-muted mt-1" style="font-size:0.72rem;line-height:1.4">
                                 This Unity Catalog <strong>managed Volume</strong> stores the binary artefacts uploaded
                                 through the ontology designer (PDF, Word, images in each domain's <code>documents/</code> folder).
-                                It is <em>not</em> used for registry rows (those live in Lakebase).
+                                It is <em>not</em> used for registry rows (those live in PostgreSQL).
                                 The app service principal needs <code>READ VOLUME</code> and <code>WRITE VOLUME</code>
                                 privileges to upload and serve document files.
                             </div>
@@ -77,7 +77,7 @@
     <div id="lakebasePanel" class="mb-3">
         <div class="border rounded p-3 bg-body-tertiary">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <strong class="small"><i class="ob-brand-icon ob-icon-postgresql me-1"></i> Lakebase Connection</strong>
+                <strong class="small"><i class="ob-brand-icon ob-icon-postgresql me-1"></i> PostgreSQL Connection</strong>
                 <div class="d-flex align-items-center gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" id="btnRepairRegistryPerms"
                             data-requires-app="admin"
@@ -120,18 +120,9 @@
 
             <small class="text-muted d-block mt-2">
                 <i class="bi bi-info-circle me-1"></i>
-                Connection parameters come from the Databricks App database resource binding (read-only). The OAuth token is minted automatically.
+                Connection parameters come from the <code>PG*</code> environment (read-only here). Credentials are obtained per connection using the configured auth mode.
             </small>
 
-            <div class="alert alert-info small d-flex align-items-start mb-0 mt-3 py-2 px-3" role="alert">
-                <i class="bi bi-terminal me-2 mt-1"></i>
-                <div>
-                    Already running on a Volume-only registry? Use
-                    <code>scripts/migrate-registry-to-lakebase.sh</code> to copy
-                    your existing JSON config into Lakebase. Domain-scoped
-                    <code>documents/</code> uploads stay on the Volume.
-                </div>
-            </div>
         </div>
     </div>
 
@@ -141,7 +132,7 @@
     <div id="lbChecksPanel" style="display:none;" class="mb-3">
         <div class="border rounded p-3 bg-body-tertiary">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <strong class="small"><i class="bi bi-shield-check me-1 text-primary"></i>Lakebase Permission Checks</strong>
+                <strong class="small"><i class="bi bi-shield-check me-1 text-primary"></i>PostgreSQL Permission Checks</strong>
                 <span id="lbChecksSummaryBadge"></span>
             </div>
             <div class="small text-muted mb-2" id="lbChecksContext"></div>

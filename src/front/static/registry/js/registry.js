@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', function () {
             const regHelp = document.getElementById('registryHelp');
             if (regHelp) {
                 regHelp.innerHTML = registryLocked
-                    ? '<i class="bi bi-lock-fill text-muted me-1"></i> Configured via Databricks App resource binding (read-only)'
+                    ? '<i class="bi bi-lock-fill text-muted me-1"></i> Configured from the deployment environment (read-only)'
                     : '<i class="bi bi-gear text-muted me-1"></i> Configured via environment variables (<code>.env</code>) — restart the app to change';
             }
             updateRegistryLabel();
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (lb.project) {
                 projectHint.style.display = '';
                 projectHint.innerHTML = lb.host
-                    ? '<i class="bi bi-link-45deg me-1"></i>from app resource binding'
+                    ? '<i class="bi bi-link-45deg me-1"></i>from the PG* environment'
                     : '<i class="bi bi-link-45deg me-1"></i>from LAKEBASE_PROJECT';
             } else {
                 projectHint.style.display = 'none';
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (lb.branch) {
                 branchHint.style.display = '';
                 branchHint.innerHTML = lb.host
-                    ? '<i class="bi bi-link-45deg me-1"></i>from app resource binding'
+                    ? '<i class="bi bi-link-45deg me-1"></i>from the PG* environment'
                     : '<i class="bi bi-link-45deg me-1"></i>from LAKEBASE_BRANCH';
             } else {
                 branchHint.style.display = 'none';
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
             } else if (lb.database) {
                 dbHint.style.display = '';
                 dbHint.innerHTML = lb.host
-                    ? '<i class="bi bi-link-45deg me-1"></i>from app resource binding'
+                    ? '<i class="bi bi-link-45deg me-1"></i>from the PG* environment'
                     : '<i class="bi bi-link-45deg me-1"></i>from LAKEBASE_DATABASE';
             } else {
                 dbHint.style.display = 'none';
@@ -150,29 +150,34 @@ document.addEventListener('DOMContentLoaded', function () {
         // These elements only exist on the Settings → Registry tab.
         if (!schemaLabel && !volumeLabel) return;
 
+        // The catalog/schema/volume LABELS describe the optional Unity Catalog
+        // Volume, so they stay gated on the triplet.
+        const empty = '<span class="text-muted">—</span>';
         if (registryCfg.catalog && registryCfg.schema) {
-            const lb = registryCfg.postgres || {};
-            // Schema line: catalog.schema
             const schemaPath = escapeHtml(registryCfg.catalog + '.' + registryCfg.schema);
             if (schemaLabel) schemaLabel.innerHTML = '<span class="font-monospace">' + schemaPath + '</span>';
-            // Volume line: volume name only
             const volName = registryCfg.volume || 'OntoBricksRegistry';
             if (volumeLabel) volumeLabel.innerHTML = '<span class="font-monospace">' + escapeHtml(volName) + '</span>';
-            if (initBtn) {
-                initBtn.style.display = '';
-                if (registryCfg.configured) {
-                    initBtn.className = 'btn btn-sm btn-outline-secondary';
-                    initBtn.innerHTML = '<i class="bi bi-arrow-up-circle me-1"></i> Apply upgrades';
-                } else {
-                    initBtn.className = 'btn btn-sm btn-outline-success';
-                    initBtn.innerHTML = '<i class="bi bi-plus-circle me-1"></i> Initialize';
-                }
-            }
         } else {
-            const empty = '<span class="text-muted">—</span>';
-            if (schemaLabel) schemaLabel.innerHTML = '<i class="bi bi-exclamation-triangle text-warning me-1"></i><span class="text-muted">Not configured</span>';
+            if (schemaLabel) schemaLabel.innerHTML = '<i class="bi bi-dash-circle text-muted me-1"></i><span class="text-muted">No Volume configured (optional)</span>';
             if (volumeLabel) volumeLabel.innerHTML = empty;
-            if (initBtn) initBtn.style.display = 'none';
+        }
+
+        // The Initialize BUTTON creates the registry tables in PostgreSQL, so it
+        // is shown whenever Postgres is reachable. It used to be gated on the
+        // Volume triplet alongside the labels above, which meant a Postgres-only
+        // deployment was told "Click Initialize" by a panel that had hidden the
+        // button -- no way forward from the UI at all.
+        if (initBtn) {
+            const pgBound = !!(registryCfg.postgres && registryCfg.postgres.bound);
+            initBtn.style.display = pgBound ? '' : 'none';
+            if (registryCfg.configured) {
+                initBtn.className = 'btn btn-sm btn-outline-secondary';
+                initBtn.innerHTML = '<i class="bi bi-arrow-up-circle me-1"></i> Apply upgrades';
+            } else {
+                initBtn.className = 'btn btn-sm btn-outline-success';
+                initBtn.innerHTML = '<i class="bi bi-plus-circle me-1"></i> Initialize';
+            }
         }
     }
 

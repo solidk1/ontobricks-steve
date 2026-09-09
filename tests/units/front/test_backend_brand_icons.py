@@ -135,9 +135,9 @@ def test_graph_backend_cards_are_brand_icon_aware():
     assert "_psSetBackendBrandIcon(" in validation_js
 
 
-def test_registry_lakebase_card_uses_postgresql_icon():
+def test_registry_postgres_card_uses_postgresql_icon():
     html = _REGISTRY_CONFIG.read_text(encoding="utf-8")
     assert (
-        '<i class="ob-brand-icon ob-icon-postgresql me-1"></i> Lakebase Connection'
+        '<i class="ob-brand-icon ob-icon-postgresql me-1"></i> PostgreSQL Connection'
         in html
     )

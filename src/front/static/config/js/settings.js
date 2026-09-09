@@ -73,6 +73,41 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    /**
+     * Collapse per-field save failures into something readable.
+     *
+     * Entries arrive as "Field: reason". Joining them with "\n" produced one
+     * unbroken wall of text, because notifications render as HTML and newlines
+     * collapse to spaces -- six fields rejected for the same reason read as
+     * "Base URI: Only admins can... Cache TTL: Only admins can..." with no
+     * visible boundary between them.
+     *
+     * Identical reasons are grouped, so the common case (one cause, many
+     * fields) becomes a single line listing the fields.
+     */
+    function summarizeSaveErrors(errors) {
+        const byReason = new Map();
+        errors.forEach((raw) => {
+            const text = String(raw || '').trim();
+            const at = text.indexOf(':');
+            const field = at > 0 ? text.slice(0, at).trim() : '';
+            const reason = at > 0 ? text.slice(at + 1).trim() : text;
+            if (!byReason.has(reason)) byReason.set(reason, []);
+            if (field) byReason.get(reason).push(field);
+        });
+
+        const parts = [];
+        byReason.forEach((fields, reason) => {
+            parts.push(fields.length
+                ? `${reason} (${fields.length}: ${fields.join(', ')})`
+                : reason);
+        });
+        const head = errors.length === 1
+            ? 'A setting could not be saved. '
+            : `${errors.length} settings could not be saved. `;
+        return head + parts.join(' — ');
+    }
+
     function escapeHtmlSettings(str) { return escapeHtml(str); }
 
     // The graph backend *selection* moved to a mandatory per-domain choice
@@ -234,6 +269,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.getElementById('btnRefreshWarehouses')?.addEventListener('click', () => loadWarehouseSelect(currentWarehouseId));
     document.getElementById('btnSaveWorkspaceHost')?.addEventListener('click', saveWorkspaceHost);
+    document.getElementById('workspaceHostMore')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        const d = document.getElementById('workspaceHostDetails');
+        if (!d) return;
+        d.hidden = !d.hidden;
+        e.target.textContent = d.hidden ? 'Details' : 'Hide';
+    });
     document.getElementById('workspaceHostInput')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); saveWorkspaceHost(); }
     });
@@ -3239,7 +3281,7 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Save';
 
         if (errors.length > 0) {
-            showNotification('Some settings failed to save:\n' + errors.join('\n'), 'error');
+            showNotification(summarizeSaveErrors(errors), 'error');
         } else {
             showNotification('All settings saved', 'success', 2000);
         }

@@ -177,16 +177,23 @@ class SettingsService:
         if not RuntimeEnv.auth_enabled():
             return
 
-        _, host, token, _ = SettingsService._resolve_context(session_mgr, settings)
+        _, host, token, registry_cfg = SettingsService._resolve_context(
+            session_mgr, settings
+        )
+        # registry_cfg was resolved and then thrown away here, which is why the
+        # admin check could only ever consult the Databricks App ACL.
         if not permission_service.is_admin(
             email,
             host,
             token,
             settings.ontobricks_app_name,
             user_token=user_token,
+            registry_cfg=registry_cfg,
         ):
             raise AuthorizationError(
-                "Only admins (CAN MANAGE) can change the SQL Warehouse"
+                "Only an OntoBricks admin can change this setting. Ask an "
+                "existing admin to grant you the admin role under "
+                "Settings → Teams."
             )
 
     @staticmethod

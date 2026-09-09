@@ -430,3 +430,92 @@ names both hosts.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5077 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure.
+
+## Two dead ends in the Settings UI, and the mess around them
+
+### Context
+
+Two things the panel asked for were impossible to do:
+
+* Every save was refused with *"Only admins (CAN MANAGE) can change the SQL
+  Warehouse"* — on a page showing the user's own **Admin** badge in the sidebar.
+* The Registry panel said *"Click **Initialize** to create the registry tables"*
+  while having hidden that very button.
+
+Both are the same failure as everything else this release: a check keyed on
+Databricks Apps / Unity Catalog facts that no longer hold, with the *other* half
+of the UI reading from the source that does.
+
+### Changes
+
+1. **`PermissionService.is_admin` — the registry is now the authority.** It read
+   only `CAN_MANAGE` on the Databricks App ACL
+   (`GET /api/2.0/permissions/apps/<name>`). Off the Apps platform there is no
+   app to hold an ACL, so all three paths returned "could not determine",
+   `bool(None)` became `False`, and **nobody could be an admin for writes** no
+   matter what `app_roles` said — which is precisely the table the sidebar's
+   Admin badge is read from. `app_roles` is consulted first; the ACL remains a
+   fallback for deployments still on the platform. An empty `app_name` no longer
+   short-circuits before the role lookup.
+   `require_admin_error` had resolved `registry_cfg` and then discarded it,
+   which is why only the ACL was ever reachable; it passes it now. The message
+   no longer cites `CAN MANAGE` (an Apps ACL level) or names the SQL Warehouse
+   whatever setting was actually refused — it says who to ask instead.
+2. **The Initialize button follows PostgreSQL, not the Volume.**
+   `updateRegistryLabel` hid it in the `catalog && schema` else-branch. It
+   creates the *PostgreSQL* registry tables, so it is now gated on
+   `postgres.bound`. The Volume labels stay gated on the triplet, since they
+   describe the Volume, and read "No Volume configured (optional)" rather than
+   "Not configured".
+3. **Save failures are readable.** Per-field errors were joined with `\n` into a
+   notification that renders as HTML, so six identical refusals became one
+   unbroken wall of text. `summarizeSaveErrors` groups identical reasons and
+   lists the affected fields.
+4. **The workspace-host help text is trimmed.** Three dense paragraphs went into
+   the panel in the previous commit; that was too much and wrapped badly. One
+   line now, with the rest behind a **Details** toggle.
+5. **Registry panel copy.** "Lakebase" → "PostgreSQL" in the heading, the
+   connection card and the permission-check card; "Connection parameters come
+   from the Databricks App database resource binding … The OAuth token is minted
+   automatically" now describes the `PG*` environment; three "from app resource
+   binding" captions now say "from the PG* environment"; the lock note reads
+   "Configured from the deployment environment".
+6. **A callout told operators to run `scripts/migrate-registry-to-lakebase.sh`**,
+   deleted with the bundle in v0.7.1. Removed, along with two backend docstrings
+   citing it.
+
+### Tests
+
+- `tests/units/registry/test_admin_from_app_roles.py` (new, 9) — an `app_roles`
+  admin is admin with no Databricks app and no `app_name`; non-admin roles are
+  not; the ACL still grants and denies as a fallback; legacy callers with no
+  `registry_cfg` still reach it; the denial message cites neither `CAN MANAGE`
+  nor the SQL Warehouse. **2 fail with the ACL authoritative again.**
+- `tests/units/front/test_frontend_canonical_values.py` —
+  `TestActionableEmptyStates` (4).
+
+  Worth recording: the first version of the Initialize test **passed against the
+  reverted bug**. It scanned a window of source for "postgres" and "bound", and
+  the explanatory comment I had just written contained both words. It was
+  rewritten to assert the guard *expression* assigned to
+  `initBtn.style.display`, plus a third test that `pgBound` is derived from the
+  payload rather than folded to a constant. Both controls now fail: 2 when the
+  Volume gate returns, 1 when `pgBound` becomes `true`.
+
+### Modified files
+
+- `src/back/objects/registry/PermissionService.py`
+- `src/back/objects/domain/SettingsService.py`
+- `src/back/objects/registry/store/__init__.py`
+- `src/front/static/registry/js/registry.js`
+- `src/front/static/config/js/settings.js`
+- `src/front/templates/settings.html`
+- `src/front/templates/partials/registry/_registry_configuration.html`
+- `tests/units/registry/test_admin_from_app_roles.py` (new)
+- `tests/units/front/test_frontend_canonical_values.py`
+- `tests/units/front/test_backend_brand_icons.py`
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5089 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure.

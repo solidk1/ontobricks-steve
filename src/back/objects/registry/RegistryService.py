@@ -13,7 +13,7 @@ Unity Catalog Volume triplet (``catalog``/``schema``/``volume``) is
 ``documents/`` uploads imported by
 the ontology designer. The historical JSON-on-Volume backend was
 removed in v0.4.0; existing deployments must run
-``scripts/migrate-registry-to-lakebase.sh`` once to copy their data
+the registry *Initialize* action once to create the tables
 into Lakebase.
 
 New registries store domain folders under ``/domains/``.  For backward

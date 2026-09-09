@@ -56,20 +56,17 @@
                         </div>
                         <div id="workspaceHostResult" class="small mt-2 d-none"></div>
                         <small class="text-muted d-block mt-2" id="workspaceHostHelp">
-                            The <strong>workspace</strong> REST endpoint, used for Unity Catalog, SQL warehouses and SCIM.
-                            Saved for all users; leave empty to fall back to <code>DATABRICKS_HOST</code>.
+                            Workspace REST endpoint for Unity Catalog and SQL warehouses. Empty falls back to
+                            <code>DATABRICKS_HOST</code>.
+                            <a href="#" id="workspaceHostMore" class="ms-1">Details</a>
                             <span id="workspaceHostSource" class="d-block mt-1"></span>
-                            <span class="d-block mt-1">
-                                On Azure this is the <em>per-workspace</em> URL
-                                (<code>https://adb-&lt;workspace-id&gt;.&lt;n&gt;.azuredatabricks.net</code>) &mdash; the
-                                <code>?o=</code> number in your browser URL is the workspace id. An account console, or a
-                                vanity domain in front of one, will be rejected: it answers logins but returns HTTP&nbsp;303
-                                for every workspace API call.
-                            </span>
-                            <span class="d-block mt-1">
-                                The <strong>login</strong> issuer is separate and stays in the environment
-                                (<code>ONTOBRICKS_OIDC_HOST</code>), since it is needed before anyone can sign in to reach
-                                this page.
+                            <span id="workspaceHostDetails" class="d-block mt-2" hidden>
+                                Use the per-workspace URL, not the account console &mdash; on Azure
+                                <code>https://adb-&lt;workspace-id&gt;.&lt;n&gt;.azuredatabricks.net</code>, where the
+                                workspace id is the <code>?o=</code> number in your browser URL. An account or vanity host
+                                is rejected on save: it accepts logins but returns HTTP&nbsp;303 for every API call.
+                                The login issuer is a separate setting and stays in the environment as
+                                <code>ONTOBRICKS_OIDC_HOST</code>.
                             </span>
                         </small>
                     </div>

@@ -225,18 +225,26 @@ class PermissionService:
         app_name: str,
         *,
         user_token: str = "",
+        registry_cfg: Optional[Dict[str, str]] = None,
+        groups: Optional[List[str]] = None,
     ) -> bool:
-        """Check if *email* has CAN_MANAGE on the Databricks App.
+        """Whether *email* is an OntoBricks admin.
 
-        Tries every available auth path until one gives a definitive
-        answer (``True`` or ``False``).  A ``None`` return from a check
-        means "could not determine" (timeout, 403, network error) and
-        the next path is attempted.
+        The registry ``app_roles`` table is the **authority**. The Databricks
+        App ``CAN_MANAGE`` ACL is only a fallback, for deployments still running
+        on the Apps platform.
 
-        Order: user token REST → SDK (SP) → SP token REST.
+        That order used to be reversed — in fact the ACL was the only source. Off
+        the Apps platform there is no app to hold an ACL, so every check returned
+        ``False`` and *nobody could be an admin for writes* no matter what
+        ``app_roles`` said. The Settings UI showed the user's Admin badge (read
+        from ``app_roles``) directly above a panel that refused every save.
+
+        A ``None`` from an ACL path means "could not determine" (timeout, 403,
+        network error) and the next is tried: user token REST → SDK → SP token.
         """
-        if not email or not app_name:
-            logger.debug("is_admin: skipped (email=%r, app_name=%r)", email, app_name)
+        if not email:
+            logger.debug("is_admin: skipped (no email)")
             return False
 
         now = time.time()
@@ -245,6 +253,22 @@ class PermissionService:
             return cached[0]
 
         result: bool | None = None
+
+        # Authoritative source: the app's own role table.
+        if registry_cfg is not None:
+            role = self._app_role_from_registry(
+                email, host, token, registry_cfg, groups=groups
+            )
+            if role == ROLE_ADMIN:
+                logger.info("Admin check for %s: True (app_roles)", email)
+                self._admin_cache[email] = (True, now)
+                return True
+
+        if not app_name:
+            # No registry admin grant and no Databricks App to ask.
+            logger.debug("is_admin: no app_roles grant and no app_name")
+            self._admin_cache[email] = (False, now)
+            return False
 
         if user_token and result is None:
             check = self._check_admin_rest(email, host, user_token, app_name)

@@ -293,3 +293,64 @@ class TestRetiredDeploymentCopy:
         head = js[: js.index("loadRegistryConfig();")]
         assert "postgres_schema:" in head
         assert "lakebase_schema:" not in head
+
+
+class TestActionableEmptyStates:
+    """A panel must not instruct a click on a control it has hidden.
+
+    The Registry panel told a Postgres-only deployment *"Click **Initialize** to
+    create the registry tables"* while `updateRegistryLabel` had set that
+    button's `display` to `none`, because its visibility was gated on the Unity
+    Catalog triplet — the same Volume/registry confusion as everywhere else,
+    except here it left no way forward from the UI at all.
+
+    The button initializes PostgreSQL, so it follows the Postgres connection.
+    """
+
+    _REG_JS = _STATIC / "registry/js/registry.js"
+
+    def _display_assignments(self) -> list[str]:
+        """Every right-hand side assigned to the Initialize button's display."""
+        js = self._REG_JS.read_text()
+        return re.findall(r"initBtn\.style\.display\s*=\s*([^;]+);", js)
+
+    def test_initialize_visibility_is_decided_by_the_postgres_connection(self):
+        """Assert the guard *expression*, not the presence of nearby words.
+
+        The first version of this test scanned a window of source for
+        "postgres" and "bound" and passed against the reverted bug, because the
+        explanatory comment contained both. Pinning the assignment is brittle
+        about formatting but is the only thing here that actually discriminates
+        without a JS test runner.
+        """
+        assigns = self._display_assignments()
+        assert assigns, "no assignment to initBtn.style.display found"
+        assert any("pgBound" in a for a in assigns), (
+            f"Initialize visibility must follow the Postgres connection; "
+            f"found {assigns!r}"
+        )
+
+    def test_initialize_visibility_does_not_consult_the_volume(self):
+        assigns = self._display_assignments()
+        for a in assigns:
+            assert "catalog" not in a and "volume" not in a, (
+                f"Initialize creates the PostgreSQL registry tables, so its "
+                f"visibility must not depend on the Unity Catalog Volume: {a!r}"
+            )
+
+    def test_pgbound_is_derived_from_the_payload(self):
+        """Guards against `pgBound` becoming a constant that satisfies the above."""
+        js = self._REG_JS.read_text()
+        m = re.search(r"const pgBound\s*=\s*([^;]+);", js)
+        assert m, "pgBound not found"
+        expr = m.group(1)
+        assert "postgres" in expr and "bound" in expr, expr
+
+    def test_no_panel_points_at_a_deleted_script(self):
+        """``scripts/migrate-registry-to-lakebase.sh`` went with the bundle."""
+        offenders = [
+            f"{p.relative_to(_TEMPLATES)}"
+            for p in _TEMPLATES.rglob("*.html")
+            if "migrate-registry-to-lakebase" in p.read_text()
+        ]
+        assert not offenders, offenders
