@@ -290,28 +290,40 @@ class DatabricksHelpers:
         return f"{app_name}-graph-analytics" if app_name else ""
 
     @staticmethod
-    def get_databricks_client(domain, settings):
-        """Get Databricks client from domain session or settings.
+    def get_databricks_client(domain, settings, *, user_token: str = ""):
+        """Build a Databricks client, or ``None`` when nothing can authenticate.
 
-        In Databricks Apps mode, the SDK handles authentication automatically,
-        so we don't need explicit host/token.
+        *user_token* is the signed-in user's Databricks access token from the
+        OIDC login. When present it takes precedence, so workspace calls run
+        **as that user** and Unity Catalog enforces their own grants — which is
+        the reason the login requests the ``all-apis`` scope in the first place
+        (see :class:`OIDCClient`).
+
+        Passing it also removes a false requirement: without it a deployment had
+        to configure a service principal before anyone could so much as list SQL
+        warehouses, even though every signed-in user already held a token that
+        could.
 
         Args:
             domain: DomainSession instance
             settings: Settings instance from FastAPI
+            user_token: the caller's Databricks token, when the route has one
 
         Returns:
             DatabricksClient instance or None if not configured
         """
         dbcfg = _domain_databricks(domain)
-        host = dbcfg.get("host") or settings.databricks_host
-        token = dbcfg.get("token") or settings.databricks_token
+        host = dbcfg.get("host") or DatabricksHelpers._global_workspace_host(
+            domain, settings
+        ) or settings.databricks_host
+        token = user_token or dbcfg.get("token") or settings.databricks_token
         warehouse_id = DatabricksHelpers.resolve_warehouse_id(domain, settings)
         use_cloud_fetch = DatabricksHelpers.resolve_use_cloud_fetch(domain, settings)
 
-        # Credentials resolve implicitly from the service principal —
-        # always create a client and let the SDK authenticate.
-        if _databricks.has_implicit_credentials():
+        # An explicit token (the user's, or a configured PAT) wins over the
+        # service principal: acting as the caller is both more correct and more
+        # restrictive than acting as the app's own identity.
+        if host and token:
             return _databricks.DatabricksClient(
                 host=host,
                 token=token,
@@ -319,7 +331,9 @@ class DatabricksHelpers:
                 use_cloud_fetch=use_cloud_fetch,
             )
 
-        if host and token:
+        # Credentials resolve implicitly from the service principal —
+        # always create a client and let the SDK authenticate.
+        if _databricks.has_implicit_credentials():
             return _databricks.DatabricksClient(
                 host=host,
                 token=token,

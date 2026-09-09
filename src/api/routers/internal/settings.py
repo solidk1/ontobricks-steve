@@ -80,11 +80,14 @@ async def save_config(
 
 @router.post("/test-connection")
 async def test_connection_post(
+    request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
     """Test Databricks connection (POST)."""
-    return await config_service.test_connection(session_mgr, settings)
+    return await config_service.test_connection(
+        session_mgr, settings, user_token=_settings_request_identity(request)[2]
+    )
 
 
 # ===========================================
@@ -94,11 +97,15 @@ async def test_connection_post(
 
 @router.get("/warehouses")
 async def get_warehouses(
+    request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
-    """Get available SQL warehouses."""
-    return await config_service.fetch_warehouses(session_mgr, settings)
+    """Get available SQL warehouses, as the signed-in user."""
+    _email, _display_name, user_token, _role, _domain_role = (
+        _settings_request_identity(request)
+    )
+    return await config_service.fetch_warehouses(session_mgr, settings, user_token)
 
 
 @router.post("/select-warehouse")
@@ -178,25 +185,32 @@ async def select_delta_warehouse(
 
 @router.get("/catalogs")
 async def get_catalogs(
+    request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
     """Get available Unity Catalog catalogs."""
-    return await config_service.fetch_catalogs(session_mgr, settings)
+    return await config_service.fetch_catalogs(
+        session_mgr, settings, user_token=_settings_request_identity(request)[2]
+    )
 
 
 @router.get("/schemas")
 async def get_schemas(
+    request: Request,
     catalog: str,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
     """Get schemas in a catalog (query param version)."""
-    return await config_service.fetch_schemas(catalog, session_mgr, settings)
+    return await config_service.fetch_schemas(
+        catalog, session_mgr, settings, user_token=_settings_request_identity(request)[2]
+    )
 
 
 @router.get("/schemas/{catalog}")
 async def get_schemas_path(
+    request: Request,
     catalog: str,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
@@ -207,22 +221,28 @@ async def get_schemas_path(
         session_mgr,
         settings,
         log_label="Get schemas (path)",
+        user_token=_settings_request_identity(request)[2],
     )
 
 
 @router.get("/volumes")
 async def get_volumes(
+    request: Request,
     catalog: str,
     schema: str,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
     """Get volumes in a schema (query param version)."""
-    return await config_service.fetch_volumes(catalog, schema, session_mgr, settings)
+    return await config_service.fetch_volumes(
+        catalog, schema, session_mgr, settings,
+        user_token=_settings_request_identity(request)[2],
+    )
 
 
 @router.get("/volumes/{catalog}/{schema}")
 async def get_volumes_path(
+    request: Request,
     catalog: str,
     schema: str,
     session_mgr: SessionManager = Depends(get_session_manager),
@@ -235,22 +255,28 @@ async def get_volumes_path(
         session_mgr,
         settings,
         log_label="Get volumes (path)",
+        user_token=_settings_request_identity(request)[2],
     )
 
 
 @router.get("/uc-assets")
 async def get_uc_assets(
+    request: Request,
     catalog: str,
     schema: str,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
     """List Unity Catalog tables and views in a schema (with table_type)."""
-    return await config_service.fetch_uc_assets(catalog, schema, session_mgr, settings)
+    return await config_service.fetch_uc_assets(
+        catalog, schema, session_mgr, settings,
+        user_token=_settings_request_identity(request)[2],
+    )
 
 
 @router.get("/uc-functions")
 async def get_uc_functions(
+    request: Request,
     catalog: str,
     schema: str,
     session_mgr: SessionManager = Depends(get_session_manager),
@@ -258,7 +284,8 @@ async def get_uc_functions(
 ):
     """List Unity Catalog functions in a schema (with parameter metadata)."""
     return await config_service.fetch_uc_functions(
-        catalog, schema, session_mgr, settings
+        catalog, schema, session_mgr, settings,
+        user_token=_settings_request_identity(request)[2],
     )
 
 
@@ -280,6 +307,7 @@ async def get_registry(
 
 @router.get("/registry/check")
 async def check_registry_access(
+    request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
@@ -293,7 +321,9 @@ async def check_registry_access(
     Each check runs independently; a failure in one does not stop the others.
     """
     uc_result, lb_result = await asyncio.gather(
-        config_service.check_registry_access(session_mgr, settings),
+        config_service.check_registry_access(
+            session_mgr, settings, user_token=_settings_request_identity(request)[2]
+        ),
         config_service.check_lakebase_permissions(session_mgr, settings),
         return_exceptions=True,
     )

@@ -322,11 +322,16 @@ class SettingsService:
 
     @staticmethod
     async def test_connection(
-        session_mgr: SessionManager, settings: Settings
+        session_mgr: SessionManager,
+        settings: Settings,
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         """Test Databricks connectivity; returns success/message dict."""
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
 
             if not client:
                 raise ValidationError(
@@ -354,13 +359,28 @@ class SettingsService:
 
     @staticmethod
     async def fetch_warehouses(
-        session_mgr: SessionManager, settings: Settings
+        session_mgr: SessionManager,
+        settings: Settings,
+        user_token: str = "",
     ) -> Dict[str, Any]:
-        """List warehouses from Databricks (``warehouses`` key on success)."""
+        """List warehouses from Databricks (``warehouses`` key on success).
+
+        Runs as the signed-in user when *user_token* is supplied, so the list is
+        the warehouses that user can actually use. Previously this ran only as
+        the app's service principal, which meant a deployment with no service
+        principal could not list warehouses at all — even though every logged-in
+        user held a token with the ``all-apis`` scope that could.
+        """
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
-                raise ValidationError("Databricks not configured")
+                raise ValidationError(
+                    "No Databricks credentials available. Sign in to Databricks, "
+                    "or set DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET for "
+                    "a service principal."
+                )
             return {"warehouses": await run_blocking(client.get_warehouses)}
         except OntoBricksError:
             raise
@@ -576,10 +596,15 @@ class SettingsService:
 
     @staticmethod
     async def fetch_catalogs(
-        session_mgr: SessionManager, settings: Settings
+        session_mgr: SessionManager,
+        settings: Settings,
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
                 raise ValidationError("Databricks not configured")
             return {"catalogs": await run_blocking(client.get_catalogs)}
@@ -597,10 +622,13 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
         *,
+        user_token: str = "",
         log_label: str = "Get schemas",
     ) -> Dict[str, Any]:
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
                 raise ValidationError("Databricks not configured")
             return {"schemas": await run_blocking(client.get_schemas, catalog)}
@@ -617,9 +645,13 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
         log_label: str = "Get volumes",
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
                 raise ValidationError("Databricks not configured")
             return {"volumes": await run_blocking(client.get_volumes, catalog, schema)}
@@ -636,10 +668,14 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
         log_label: str = "Get UC assets",
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         """List tables and views in *catalog*.*schema* (with ``table_type``)."""
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
                 raise ValidationError("Databricks not configured")
             assets = await run_blocking(
@@ -659,6 +695,8 @@ class SettingsService:
         session_mgr: SessionManager,
         settings: Settings,
         log_label: str = "Get UC functions",
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         """List user-defined functions in *catalog*.*schema*.
 
@@ -667,7 +705,9 @@ class SettingsService:
         surfaced for client-side filtering.
         """
         try:
-            client = get_databricks_client(get_domain(session_mgr), settings)
+            client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
             if not client:
                 raise ValidationError("Databricks not configured")
             functions = await run_blocking(client.list_functions, catalog, schema)
@@ -714,7 +754,10 @@ class SettingsService:
 
     @staticmethod
     async def check_registry_access(
-        session_mgr: SessionManager, settings: Settings
+        session_mgr: SessionManager,
+        settings: Settings,
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         """Verify that the configured UC schema and Volume exist and are accessible.
 
@@ -749,7 +792,9 @@ class SettingsService:
                 "Registry not configured — set REGISTRY_CATALOG / REGISTRY_SCHEMA / REGISTRY_VOLUME"
             )
 
-        client = get_databricks_client(get_domain(session_mgr), settings)
+        client = get_databricks_client(
+                get_domain(session_mgr), settings, user_token=user_token
+            )
         if not client:
             raise InfrastructureError("Databricks client not available")
 

@@ -519,3 +519,68 @@ of the UI reading from the source that does.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5089 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure.
+
+## Unity Catalog calls run as the signed-in user
+
+### Context
+
+The SQL Warehouse picker reported "Databricks not configured" on a page the user
+had just authenticated to, and the advice was to add a service principal. That
+advice was wrong.
+
+The OIDC login requests the `all-apis` scope and keeps the resulting Databricks
+access token specifically so workspace calls can be made as the caller —
+`OIDCClient`'s own docstring calls this "per-user Unity Catalog enforcement on
+interactive queries". The token was reaching the request (`_permissions.py` and
+`select_warehouse` both read it) but `fetch_warehouses` never asked for it. It
+built a client from the *session or environment* token only, so with no service
+principal `get_databricks_client` returned `None` — while every signed-in user
+held a token that would have worked.
+
+No credentials were missing. A parameter was.
+
+### Changes
+
+1. `src/back/core/helpers/DatabricksHelpers.py` — `get_databricks_client` takes a
+   keyword-only `user_token`. An explicit token now short-circuits **before** the
+   implicit service-principal branch, so acting as the caller wins over acting as
+   the app: more correct, and more restrictive, since Unity Catalog then applies
+   the caller's own grants. A duplicated `if host and token` block left by the
+   reorder was removed.
+2. `src/back/objects/domain/SettingsService.py` — `fetch_warehouses`,
+   `test_connection`, `fetch_catalogs`, `fetch_schemas`, `fetch_volumes`,
+   `fetch_uc_assets`, `fetch_uc_functions` and `check_registry_access` all accept
+   and forward it (7 call sites). The "not configured" message now names both
+   ways to authenticate instead of only the service principal.
+3. `src/api/routers/internal/settings.py` — the nine corresponding routes gained
+   `request: Request` and pass `_settings_request_identity(request)[2]`.
+
+### Deliberately **not** changed
+
+~17 other `get_databricks_client` callers are background or session-less paths —
+scheduled builds, `DigitalTwin` build steps, `NodeContextService`, and
+`health.py`, which passes a `None` domain. There is no user on those, so they
+legitimately need a service principal, and giving them a token they cannot have
+would be meaningless. Only user-initiated routes were changed.
+
+### Tests
+
+`tests/units/settings/test_acts_as_signed_in_user.py` (new, 14) — the token
+reaches the client; it beats both the environment token and the implicit service
+principal; a client is built from a user token *alone* (the exact regression);
+`fetch_warehouses` forwards it; and a static check that all nine interactive
+routes actually supply one, because plumbing a parameter nothing populates would
+be inert. **Controls: 3 fail when the client ignores the token, 1 when a single
+route stops forwarding it.**
+
+### Modified files
+
+- `src/back/core/helpers/DatabricksHelpers.py`
+- `src/back/objects/domain/SettingsService.py`
+- `src/api/routers/internal/settings.py`
+- `tests/units/settings/test_acts_as_signed_in_user.py` (new)
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5104 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure.
