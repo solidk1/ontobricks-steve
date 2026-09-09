@@ -1020,7 +1020,10 @@ class SettingsService:
     @staticmethod
     @staticmethod
     def initialize_registry_result(
-        session_mgr: SessionManager, settings: Settings
+        session_mgr: SessionManager,
+        settings: Settings,
+        *,
+        user_token: str = "",
     ) -> Dict[str, Any]:
         try:
             domain = get_domain(session_mgr)
@@ -1036,12 +1039,25 @@ class SettingsService:
             )
             if not svc.cfg.is_configured:
                 raise ValidationError(
-                    "Registry catalog, schema, and volume must be configured first"
+                    "No reachable PostgreSQL registry. Set PGHOST / PGDATABASE / "
+                    "PGUSER and ONTOBRICKS_PG_SCHEMA, then try again."
                 )
 
-            client = get_databricks_client(domain, settings)
-            if not client:
-                raise ValidationError("Databricks not configured")
+            # The Databricks client is needed ONLY to create the optional Unity
+            # Catalog Volume for binary document uploads; ``svc.initialize``
+            # skips that step when it is ``None``. Requiring one unconditionally
+            # made Initialize impossible on a Postgres-only deployment — the
+            # panel correctly said "connected to PostgreSQL, click Initialize"
+            # and then refused with "Databricks not configured".
+            client = get_databricks_client(domain, settings, user_token=user_token)
+            if not client and svc.cfg.has_volume:
+                raise ValidationError(
+                    "A Unity Catalog Volume is configured "
+                    f"({svc.cfg.catalog}.{svc.cfg.schema}.{svc.cfg.volume}) but no "
+                    "Databricks credentials are available to create it. Sign in to "
+                    "Databricks, configure a service principal, or clear the Volume "
+                    "settings to run PostgreSQL-only."
+                )
 
             ok, msg = svc.initialize(client)
             if not ok:

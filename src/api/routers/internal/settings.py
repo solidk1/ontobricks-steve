@@ -4,6 +4,7 @@ Internal API -- Settings / configuration JSON endpoints.
 Moved from app/frontend/settings/routes.py during the front/back split.
 """
 
+import functools
 import asyncio
 import json
 
@@ -342,18 +343,29 @@ async def check_registry_access(
 
 @router.post("/registry/initialize")
 async def initialize_registry(
+    request: Request,
     session_mgr: SessionManager = Depends(get_session_manager),
     settings: Settings = Depends(get_settings),
 ):
-    """Create the registry Volume (and root marker) if they do not exist.
+    """Create the PostgreSQL registry tables, and the UC Volume if configured.
 
-    On the Lakebase backend this also self-serves the project/schema/UC
-    grants the app + MCP service principals need (in-app port of
-    plain ``GRANT`` statements); the per-SP outcome is
-    returned under the ``permissions`` key.
+    Idempotent: missing tables are created and pending column upgrades applied.
+    The Unity Catalog Volume step is skipped entirely when no Volume is
+    configured, which is the normal case off Databricks.
+
+    Runs as the signed-in user so Volume creation is subject to their own Unity
+    Catalog grants. Where a Volume is bound, the project/schema/UC grants the
+    app and MCP service principals need are self-served here too; the per-SP
+    outcome is returned under the ``permissions`` key.
     """
+    user_token = _settings_request_identity(request)[2]
     return await run_blocking(
-        config_service.initialize_registry_result, session_mgr, settings
+        functools.partial(
+            config_service.initialize_registry_result,
+            session_mgr,
+            settings,
+            user_token=user_token,
+        )
     )
 
 

@@ -3162,7 +3162,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const errors = [];
 
-        // 1. Save warehouse (skip when locked by Databricks App resource)
+        // 1. Save warehouse (skip when fixed by the deployment environment)
         const whId = document.getElementById('settingsWarehouseSelect').value;
         if (whId && !warehouseLocked) {
             try {

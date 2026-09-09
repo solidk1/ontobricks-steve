@@ -584,3 +584,67 @@ route stops forwarding it.**
 
 `uv run --frozen pytest -q -m "not scenario"` → **5104 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure.
+
+## Initialize works without Databricks
+
+### Context
+
+The Registry panel said *"connected to PostgreSQL but schema `ontobricks_registry`
+is not initialized yet. Click **Initialize**"*, and clicking it failed with
+**"Error: Databricks not configured"**.
+
+`initialize_registry_result` demanded a Databricks client unconditionally. The
+only thing that client does is create the optional Unity Catalog Volume — and
+`RegistryService.initialize` already skips that step when the client is `None`
+and the triplet is unset. The requirement was invented one layer above the code
+that knew better, and it made the registry impossible to create off Databricks:
+the panel instructed a click that could not succeed.
+
+### Changes
+
+1. `src/back/objects/domain/SettingsService.py` —
+   - The client is now required only when a Volume **is** configured
+     (`svc.cfg.has_volume`), since then there is genuinely something to create.
+     The refusal names the Volume and the three ways out (sign in, service
+     principal, or clear the Volume settings).
+   - `None` is passed through to `svc.initialize`, letting the layer that knows
+     the Volume step is optional make that call.
+   - The unreachable-registry message said "Registry catalog, schema, and volume
+     must be configured first", which is not what `is_configured` checks any
+     more. It names `PGHOST` / `PGDATABASE` / `PGUSER` /
+     `ONTOBRICKS_PG_SCHEMA` now.
+   - Accepts `user_token`, so Volume creation is subject to the signed-in user's
+     own Unity Catalog grants.
+2. `src/api/routers/internal/settings.py` — the route supplies the token
+   (via `functools.partial`, since `run_blocking` forwards positional args) and
+   its docstring no longer describes the Volume as the primary thing being
+   created.
+3. `src/front/templates/settings.html` — the PostgreSQL **Health** tab said
+   "Confirms the App-bound Postgres instance…". It now names the configured
+   server and adds that the graph schema is created by the first Knowledge Graph
+   build, so *"schema does not exist yet"* is the expected state on a new
+   deployment rather than something to chase.
+4. `src/front/static/config/js/settings.js` — last "locked by Databricks App
+   resource" comment reworded.
+
+### Tests
+
+`tests/units/settings/test_initialize_without_databricks.py` (new, 7) —
+initialize succeeds with no client and hands the `None` through; a real client is
+still used when present; a configured Volume without credentials refuses and the
+message names the volume plus the ways out; the unreachable-registry message
+names the Postgres variables and no longer demands a catalog and volume.
+**2 fail against the unconditional requirement.**
+
+### Modified files
+
+- `src/back/objects/domain/SettingsService.py`
+- `src/api/routers/internal/settings.py`
+- `src/front/templates/settings.html`
+- `src/front/static/config/js/settings.js`
+- `tests/units/settings/test_initialize_without_databricks.py` (new)
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5111 passed, 1 failed,
+295 skipped**. Same pre-existing NLTK `wordnet` failure.
