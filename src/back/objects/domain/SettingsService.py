@@ -209,51 +209,24 @@ class SettingsService:
 
         has_config = bool(host and (token or settings.databricks_token))
 
-        # ``is_app_mode`` used to be ``bool(settings.databricks_host)``, i.e. "a
-        # host is set, therefore we are running as a Databricks App". That held
-        # only on the Apps platform. Off it, DATABRICKS_HOST is just a workspace
-        # URL -- and on a deployment that sets it purely for OIDC login, this
-        # reported ``auth_mode="app"`` with no credentials anywhere, so the UI
-        # showed a green "Databricks App" badge while /health correctly said
-        # Databricks was not configured. Two implementations of the same
-        # question disagreeing; this one now defers to the real one.
-        from back.core.databricks.DatabricksAuth import DatabricksAuth
-
-        auth = DatabricksAuth()
-        is_app_mode = auth.has_sp_credentials
-        _DISPLAY = {
-            "app": "Service principal (OAuth M2M)",
-            "pat": "Personal Access Token",
-            "cli": "Databricks CLI profile",
-            "none": "Not configured",
-        }
-        if token:
-            auth_mode = "token"
-            auth_display = "Personal Access Token"
-        else:
-            auth_mode = auth.auth_mode
-            auth_display = _DISPLAY.get(auth_mode, "Not configured")
-
         warehouse_locked = SettingsService.is_warehouse_locked(settings)
 
         return {
             "host": host,
-            "token": "***" if token else None,
             "warehouse_id": warehouse_id,
-            # ``from_env`` answers "did this token come from the environment
-            # rather than the user's session?", which the UI uses to caption the
-            # token badge. It was aliased to ``is_app_mode`` back when a set
-            # DATABRICKS_HOST implied the Apps platform injected everything.
-            "from_env": bool(
-                settings.databricks_token and not domain.databricks.get("token")
-            ),
-            "is_app_mode": is_app_mode,
-            # Lets the Back end -> PostgreSQL panel hide the Autoscaling
-            # project / branch inputs, which are Databricks Lakebase concepts a
-            # plain PostgreSQL server does not have. Without this the panel
-            # showed two permanently empty selects and read as "still Lakebase".
-            # Where the host actually came from, so the panel can distinguish
-            # "this is just the deployment default" from "an admin overrode it".
+            # The Settings page no longer reports a Databricks "Authentication"
+            # state. Interactive Unity Catalog work runs as the signed-in user's
+            # own token, so a panel saying "Not configured" sat above a warehouse
+            # picker that was working -- the status was both redundant and wrong.
+            # A service principal still matters for background jobs, which is a
+            # deployment concern, not something to display here; /health reports
+            # it under ``databricks.auth``.
+            #
+            # ``postgres_is_lakebase`` lets the Back end -> PostgreSQL panel hide
+            # the Autoscaling project / branch inputs, which are Databricks
+            # Lakebase concepts a plain PostgreSQL server does not have.
+            # ``host_source`` distinguishes "the deployment default" from "an
+            # admin overrode it".
             "host_env_default": settings.databricks_host or "",
             "host_source": (
                 "session"
@@ -268,8 +241,6 @@ class SettingsService:
             "postgres_is_lakebase": bool(
                 os.environ.get("LAKEBASE_PROJECT") or os.environ.get("LAKEBASE_BRANCH")
             ),
-            "auth_mode": auth_mode,
-            "auth_display": auth_display,
             "has_config": has_config,
             "warehouse_locked": warehouse_locked,
         }
@@ -1162,11 +1133,35 @@ class SettingsService:
         rcfg = RegistryCfg.from_session(session_mgr, settings)
         if not rcfg.is_configured:
             return None
+
+        # Nothing to grant, so don't try and don't report a failure. These
+        # grants hand Unity Catalog and cross-app privileges to *other* service
+        # principals; with no Databricks credentials there is no UC to grant on
+        # and no second principal to grant to. Attempting it anyway produced a
+        # red "Permission Grants: failed / Databricks SDK unavailable" panel
+        # directly under "Registry is operational", which reads like Initialize
+        # itself failed. It had not — the grants are explicitly best-effort.
+        from back.core.databricks.DatabricksConnector import DatabricksConnector
+
+        if not DatabricksConnector.has_implicit_credentials():
+            return {
+                "skipped": True,
+                "reason": (
+                    "No Databricks service principal configured, so there are no "
+                    "Unity Catalog privileges to grant. The PostgreSQL registry "
+                    "needs none: the app owns the schema it created."
+                ),
+            }
+
         app_names = SettingsService._registry_grant_app_names(settings)
         if not app_names:
-            raise ValidationError(
-                "Could not determine the app name to grant — set ONTOBRICKS_APP_NAME."
-            )
+            return {
+                "skipped": True,
+                "reason": (
+                    "No app name configured (ONTOBRICKS_APP_NAME), so there is no "
+                    "service principal to grant to."
+                ),
+            }
         try:
             from back.objects.registry.store import RegistryFactory  # noqa: PLC0415
 

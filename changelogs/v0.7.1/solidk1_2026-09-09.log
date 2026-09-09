@@ -648,3 +648,106 @@ names the Postgres variables and no longer demands a catalog and volume.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5111 passed, 1 failed,
 295 skipped**. Same pre-existing NLTK `wordnet` failure.
+
+## NLTK corpora, the Authentication panel, and the Permission Grants scare
+
+### 1. NLTK — the suite is green for the first time
+
+`test_run_all_keyword` had been failing all release with
+`LookupError: Resource 'wordnet' not found`. The corpus was missing, but that was
+the symptom; there were three defects behind it.
+
+**The skip guard checked the wrong thing.** It skipped on
+`not find_spec("nltk")` — is the *package* importable. WordNet is **data**, which
+`pip install nltk` does not bring: NLTK fetches it from
+`raw.githubusercontent.com` on first use. So with nltk installed and the corpus
+absent the test ran and died on the download; in CI, which installs no `pitfalls`
+extra, it skipped. The test had therefore **never actually run anywhere**. The
+guard now checks the corpora and reports which one and how to fetch it, so the
+skip is honest in both directions.
+
+**`ensure_nltk_resource` hid its own failure.** It called
+`nltk.download(name, quiet=True)` and ignored the returned bool, so a blocked
+download looked like success and the caller died one line later on a twenty-line
+`LookupError` about search paths. A function whose entire purpose is to *ensure* a
+resource never verified that it had. It re-checks now and raises
+`InfrastructureError` naming the corpus and the `python -m nltk.downloader`
+command.
+
+**One call site never ensured anything.** `_get_antonyms_and_parents`
+(`runner.py:499`) imported wordnet directly while its two siblings called
+`ensure_nltk_resource` first, so reaching it by any other route produced the raw
+NLTK error. A test now asserts no `from nltk` import in the runner lacks a
+preceding ensure call.
+
+**And the production risk is closed.** `deploy/azure/Dockerfile` bakes the
+corpora when the `pitfalls` extra is installed, guarded on nltk being importable
+so the default build is untouched. It verifies them in the same layer, so a
+blocked download fails the *build* rather than a user's first analysis. The
+comment that documented the runtime download has been replaced — it was me
+recording a defect instead of fixing it.
+
+Not a regression from this release; it predates the decoupling work.
+
+### 2. The Databricks Authentication panel is gone
+
+It read **"Not configured — set DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET"**
+directly above a warehouse picker that was working, because interactive Unity
+Catalog calls now run as the signed-in user's own token. The status was both
+redundant and false. A service principal still matters for background jobs, but
+that is a deployment concern and `/health` reports it under `databricks.auth`.
+
+Removed: the panel and the `envNotice` banner ("Using credentials from
+environment", equally untrue now), the badge-rendering branch in `settings.js`,
+and the payload keys nothing read any more — `token`, `auth_mode`,
+`auth_display`, `from_env`, `is_app_mode`. `has_config` stays (two opt-in e2e
+tests assert it) and the `is_app_mode` in `base.html` is a Jinja global from
+`dependencies.py`, unrelated to the payload.
+
+### 3. "Permission Grants: failed" under "Registry is operational"
+
+Initialize **succeeded** — the panel said the registry was operational and the
+button changed to *Apply upgrades*. What was red was an optional sub-step
+granting Unity Catalog and cross-app privileges to *other* service principals,
+which is meaningless with no Databricks credentials: nothing to grant on, nobody
+to grant to. The code comment already said these are "never fatal to Initialize
+itself", but the UI rendered the outcome as a failure of the whole action.
+
+`_grant_registry_permissions` now returns `{"skipped": True, "reason": ...}`
+instead of attempting and failing, and the renderer shows **not applicable** in
+grey rather than **failed** in red.
+
+### Tests
+
+- `tests/units/ontology/test_nltk_resource_contract.py` (new, 10) — present
+  resource needs no download; a successful download is verified with a second
+  `find`; a silent failure raises and the message names the corpus and the
+  pre-seed command; a network error is wrapped not leaked; the
+  CVE-2026-54293 path guard still runs before any download; and no `from nltk`
+  import in the runner lacks a preceding ensure. **Controls: 5 fail with the
+  swallowed failure restored, 1 with the import un-guarded.**
+- `tests/units/api/test_ui_rendering.py` — `test_token_status` asserted the
+  removed element; replaced with `test_no_databricks_authentication_panel`,
+  which asserts all four of its ids are gone.
+
+### Modified files
+
+- `src/back/core/external/pitfalls/utils.py`
+- `src/back/core/external/pitfalls/runner.py`
+- `src/back/objects/domain/SettingsService.py`
+- `src/front/templates/settings.html`
+- `src/front/static/config/js/settings.js`
+- `src/front/static/config/js/settings-registry-configuration.js`
+- `deploy/azure/Dockerfile`
+- `tests/units/ontology/test_pitfalls_service.py`
+- `tests/units/ontology/test_nltk_resource_contract.py` (new)
+- `tests/units/api/test_ui_rendering.py`
+
+### Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5111 passed, 0 failed,
+306 skipped**.
+
+**First fully green run of this release.** The 11 newly-skipped tests are the
+pitfalls semantic checks, skipped for a stated and fixable reason
+(`python -m nltk.downloader wordnet vader_lexicon`) rather than failing.

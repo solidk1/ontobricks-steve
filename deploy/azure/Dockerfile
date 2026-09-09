@@ -54,11 +54,24 @@ WORKDIR /app
 #
 #   az acr build ... --build-arg EXTRAS="--extra lakebase --extra pitfalls" ...
 #
-# Note it also needs NLTK corpora (wordnet, vader_lexicon) at runtime, which are
-# downloaded on first use and are not baked into the image.
+# Its NLTK corpora (wordnet, vader_lexicon) are baked in by the step below when
+# the extra is present, so nothing is fetched at runtime.
 ARG EXTRAS="--extra lakebase"
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev ${EXTRAS}
+
+# NLTK corpora, baked in only when the pitfalls extra is actually installed.
+#
+# They are DATA, not code: `pip install nltk` does not bring them, and the
+# library fetches them from raw.githubusercontent.com on first use. A container
+# with restricted egress therefore fails on the first pitfalls analysis, at
+# runtime, in front of a user. Baking them makes the image self-contained and
+# the feature deterministic.
+#
+# Guarded on nltk being importable so the default (lakebase-only) build stays
+# unaffected and does not need the network here either.
+ENV NLTK_DATA=/usr/local/share/nltk_data
+RUN if /app/.venv/bin/python -c "import nltk" 2>/dev/null; then         /app/.venv/bin/python -m nltk.downloader -d "$NLTK_DATA" wordnet vader_lexicon         && /app/.venv/bin/python -c "import nltk; nltk.data.find('corpora/wordnet'); nltk.data.find('sentiment/vader_lexicon')";     else         echo "nltk not installed (EXTRAS=${EXTRAS}); skipping corpora";     fi
 
 # ── Application ─────────────────────────────────────────────────────────────
 COPY run.py ./

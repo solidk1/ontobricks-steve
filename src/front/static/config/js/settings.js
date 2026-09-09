@@ -144,36 +144,6 @@ document.addEventListener('DOMContentLoaded', function () {
             const response = await fetch('/settings/current', { credentials: 'same-origin' });
             const data = await response.json();
 
-            const tokenBadge = document.getElementById('tokenBadge');
-            const authModeDisplay = document.getElementById('authModeDisplay');
-
-            // auth_mode comes from DatabricksAuth: 'app' is service-principal
-            // M2M OAuth, 'pat' a personal access token, 'cli' a ~/.databrickscfg
-            // profile, 'none' nothing usable. None of these mean the Databricks
-            // Apps platform, which OntoBricks no longer runs on -- the labels
-            // said otherwise long after the deploy path was removed.
-            if (data.auth_mode === 'app' || data.auth_mode === 'oauth') {
-                tokenBadge.className = 'badge bg-success';
-                tokenBadge.innerHTML = '<i class="bi bi-shield-check"></i> Service principal';
-                authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').textContent = 'OAuth machine-to-machine, from DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET';
-            } else if ((data.auth_mode === 'token' || data.auth_mode === 'pat') && data.token) {
-                tokenBadge.className = 'badge bg-success';
-                tokenBadge.innerHTML = '<i class="bi bi-check-circle"></i> Token configured';
-                authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').textContent = data.from_env ? 'From environment variable' : 'From session';
-            } else if (data.auth_mode === 'cli') {
-                tokenBadge.className = 'badge bg-success';
-                tokenBadge.innerHTML = '<i class="bi bi-terminal"></i> CLI profile';
-                authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').textContent = 'From a Databricks CLI profile in ~/.databrickscfg (local development)';
-            } else {
-                tokenBadge.className = 'badge bg-secondary';
-                tokenBadge.innerHTML = '<i class="bi bi-dash-circle"></i> Not configured';
-                authModeDisplay.textContent = '';
-                document.getElementById('tokenHelp').innerHTML = 'Optional. Set <code>DATABRICKS_CLIENT_ID</code> + <code>DATABRICKS_CLIENT_SECRET</code> to enable Unity Catalog browsing, warehouse ingestion and Volume documents. The registry, graph DB and reasoning run on PostgreSQL without it.';
-            }
-
             // Autoscaling project / branch exist only on Databricks Lakebase.
             // On a plain PostgreSQL server they are permanently empty selects,
             // which is what made the Back end panel read as "still Lakebase".
@@ -223,9 +193,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
 
-            if (data.from_env) {
-                document.getElementById('envNotice').style.display = 'block';
-            }
         } catch (error) {
             console.error('Error loading config:', error);
         }

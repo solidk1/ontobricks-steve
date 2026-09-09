@@ -492,6 +492,10 @@ class OntologyPatternToolkit:
         return [extract_label(uri, clean=True) for uri in sorted(uris, key=str)]
 
     def _get_antonyms_and_parents(self, term: str) -> List[Dict[str, str]]:
+        # Its siblings (run_p4_1, the sentiment check) ensure the corpus first;
+        # this one assumed a caller had, so reaching it by any other route gave
+        # a raw NLTK LookupError instead of an actionable message.
+        ensure_nltk_resource("corpora/wordnet", "wordnet")
         from nltk.corpus import wordnet as wn
 
         antonyms: List[Dict[str, str]] = []

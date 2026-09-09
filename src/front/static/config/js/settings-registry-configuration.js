@@ -240,6 +240,22 @@
         var warnings = perm.warnings || [];
         var ok = perm.success !== false && warnings.length === 0;
 
+        // Not applicable is not a failure. These grants hand Unity Catalog and
+        // cross-app privileges to other service principals; with no Databricks
+        // credentials there is nothing to grant. Rendering that as a red
+        // "failed" badge under "Registry is operational" made a successful
+        // Initialize look broken.
+        if (perm.skipped) {
+            if (summary) {
+                summary.innerHTML = '<span class="badge bg-secondary">not applicable</span>';
+            }
+            body.innerHTML = '<div class="text-muted small">'
+                + '<i class="bi bi-dash-circle me-1"></i>'
+                + _esc(perm.reason || 'No grants needed.') + '</div>';
+            panel.style.display = '';
+            return true;
+        }
+
         if (summary) {
             if (perm.success === false) {
                 summary.innerHTML = '<span class="badge bg-danger">failed</span>';

@@ -7,11 +7,40 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rdflib import Graph
 
-# Marker: tests that require the pitfalls optional deps (sentence-transformers, sklearn, nltk)
-_PITFALLS_DEPS = pytest.mark.skipif(
-    not __import__("importlib").util.find_spec("nltk"),
-    reason="pitfalls optional deps not installed (pip install .[pitfalls])",
-)
+def _missing_pitfalls_requirement() -> str:
+    """Why the pitfalls tests cannot run here, or "" when they can.
+
+    This checked ``find_spec("nltk")`` — i.e. is the *package* importable. But
+    the semantic checks need WordNet, which is **data** that ``pip install nltk``
+    does not bring: it is fetched from ``raw.githubusercontent.com`` on first
+    use. So with nltk installed and the corpus absent the guard let the test run
+    and it died on the download, while CI (which installs no ``pitfalls`` extra)
+    skipped and stayed green — meaning the test had never actually run there.
+
+    Checking the corpus makes the skip honest in both directions.
+    """
+    import importlib.util
+
+    for spec in ("nltk", "sentence_transformers", "sklearn"):
+        if not importlib.util.find_spec(spec):
+            return f"{spec} not installed (uv sync --extra pitfalls)"
+
+    import nltk
+
+    for resource, name in (("corpora/wordnet", "wordnet"),
+                           ("sentiment/vader_lexicon", "vader_lexicon")):
+        try:
+            nltk.data.find(resource)
+        except LookupError:
+            return (
+                f"NLTK corpus {name!r} not downloaded "
+                f"(python -m nltk.downloader {name})"
+            )
+    return ""
+
+
+_MISSING = _missing_pitfalls_requirement()
+_PITFALLS_DEPS = pytest.mark.skipif(bool(_MISSING), reason=_MISSING or "ok")
 
 
 # ── Synthetic TTL fixture ─────────────────────────────────────────────────────

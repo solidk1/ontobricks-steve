@@ -58,13 +58,55 @@ def _assert_safe_nltk_resource(resource_path: str) -> None:
 
 
 def ensure_nltk_resource(resource_path: str, download_name: str) -> None:
+    """Make *resource_path* available, or raise saying why it is not.
+
+    The corpora are **data**, downloaded from ``raw.githubusercontent.com`` on
+    first use — ``pip install nltk`` does not bring them. Any environment with
+    restricted egress (a hardened container, CI, a sandbox) therefore cannot
+    fetch them at runtime.
+
+    This used to call ``nltk.download(..., quiet=True)`` and ignore the returned
+    bool, so a failed download looked like success and the caller blew up one
+    line later with a twenty-line ``LookupError`` traceback about search paths —
+    a function whose entire purpose is to *ensure* a resource, not verifying
+    that it had. It now re-checks and raises something that names the corpus and
+    how to pre-seed it.
+    """
     import nltk  # optional dep — only needed for semantic checks
+
+    from back.core.errors import InfrastructureError
 
     _assert_safe_nltk_resource(resource_path)
     try:
         nltk.data.find(resource_path)
+        return
     except LookupError:
+        pass
+
+    try:
         nltk.download(download_name, quiet=True)
+    except Exception as exc:  # noqa: BLE001 — vendor/network surface
+        raise InfrastructureError(
+            f"NLTK corpus {download_name!r} is not installed and could not be "
+            "downloaded",
+            detail=(
+                f"{exc}. Pre-seed it in the image or environment with: "
+                f"python -m nltk.downloader {download_name}"
+            ),
+        ) from exc
+
+    # Verify rather than assume: nltk.download returns False on failure.
+    try:
+        nltk.data.find(resource_path)
+    except LookupError as exc:
+        raise InfrastructureError(
+            f"NLTK corpus {download_name!r} is unavailable",
+            detail=(
+                "The download reported no usable data, which normally means "
+                "egress to raw.githubusercontent.com is blocked. Pre-seed it "
+                f"with: python -m nltk.downloader {download_name}"
+            ),
+        ) from exc
 
 
 def normalize_pattern_id(raw_id: str) -> str:

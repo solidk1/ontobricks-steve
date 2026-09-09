@@ -34,10 +34,6 @@
                         </button>
                     </div>
 
-                    <div id="envNotice" class="alert alert-info hidden-initial">
-                        <i class="bi bi-info-circle"></i> Using credentials from environment
-                    </div>
-
                     <div class="mb-4">
                         <label for="workspaceHostInput" class="form-label fw-semibold">
                             Databricks Workspace Host
@@ -69,17 +65,6 @@
                                 <code>ONTOBRICKS_OIDC_HOST</code>.
                             </span>
                         </small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label fw-semibold">Authentication</label>
-                        <div id="tokenStatus" class="d-flex align-items-center gap-2">
-                            <span class="badge bg-secondary" id="tokenBadge">
-                                <i class="bi bi-question-circle"></i> Checking...
-                            </span>
-                            <span class="text-muted small" id="authModeDisplay"></span>
-                        </div>
-                        <small class="text-muted" id="tokenHelp">Set via environment variable DATABRICKS_TOKEN or OAuth (Databricks Apps)</small>
                     </div>
 
                     <div class="mb-4">

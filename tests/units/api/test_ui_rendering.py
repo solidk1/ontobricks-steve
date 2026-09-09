@@ -263,9 +263,17 @@ class TestSettingsPage:
         assert "ONTOBRICKS_OIDC_HOST" in html
         assert "DATABRICKS_HOST" in html
 
-    def test_token_status(self, client):
+    def test_no_databricks_authentication_panel(self, client):
+        """The Settings page no longer reports a Databricks auth state.
+
+        It showed "Not configured" above a working warehouse picker, because
+        interactive Unity Catalog work runs as the signed-in user's own token. A
+        service principal still matters for background jobs, but that is a
+        deployment concern and ``/health`` reports it under ``databricks.auth``.
+        """
         html = _html(client, "/settings")
-        assert _find(_tags(html), id_="tokenStatus") is not None
+        for gone in ("tokenStatus", "tokenBadge", "authModeDisplay", "tokenHelp"):
+            assert _find(_tags(html), id_=gone) is None, f"{gone} should be gone"
 
     def test_warehouse_select(self, client):
         html = _html(client, "/settings")
