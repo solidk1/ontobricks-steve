@@ -193,3 +193,102 @@ pass vacuously. Forcing PyPI at lock time (`UV_DEFAULT_INDEX`) does not work her
 - `tests/units/ontology/test_pitfalls_embedders.py`
 - `tests/units/ontology/test_pitfalls_service.py`
 - `tests/eval/run_pitfalls_embedders.py`
+
+# Wire OntoBricks for AKS
+
+## Context
+
+Requested: deploy to AKS rather than Container Apps, without leaving two
+half-finished deployment paths behind.
+
+The image needed no change. `deploy/azure/Dockerfile` builds a plain ASGI process
+in an OCI image and knows nothing about its runtime, so AKS reuses it exactly.
+Postgres auth needed no change either: `EntraCredential` uses
+`DefaultAzureCredential`, which resolves AKS Workload Identity from the projected
+token the same way it resolves a Container Apps managed identity — its docstring
+already said "Container Apps / AKS". So the only new artefacts are manifests.
+
+## Added — `deploy/azure/k8s/`
+
+Kustomize, not Helm: no templating language and no extra tool, since `kubectl`
+ships kustomize.
+
+- `namespace.yaml`, `serviceaccount.yaml`, `configmap.yaml`, `service.yaml`,
+  `deployment.yaml`, `kustomization.yaml`
+- `README.md` — cluster creation with `--enable-oidc-issuer
+  --enable-workload-identity`, federating the identity to
+  `system:serviceaccount:ontobricks:ontobricks`, the
+  `pgaadauth_create_principal` + `GRANT CREATE ON DATABASE` step (the app creates
+  its own schemas), secret creation, deploy, exposure options, and how to
+  decommission the Container Apps deployment so there is only one.
+
+Encoded deliberately:
+
+- **`replicas: 1` with `strategy: Recreate`.** APScheduler runs in-process with no
+  leader election, so a second replica duplicates every scheduled build against
+  the same graph tables. `RollingUpdate` would do that briefly on every deploy.
+  `kubectl scale --replicas=3` looks like a capacity decision and is a corruption
+  bug; nothing at runtime would complain.
+- **`azure.workload.identity/use: "true"`** on the pod plus the client-id
+  annotation on the service account. Without the label the webhook projects no
+  token and every Postgres connection fails authentication — discovered at
+  runtime, on a cluster, which is an expensive place to find a missing label.
+- **A writable `/tmp` emptyDir**, because `readOnlyRootFilesystem: true` and the
+  app writes sessions and logs there when containerized.
+- **A startup probe with a ≥90s budget** so a slow graph-stack import is not a
+  restart loop, with liveness and readiness on `/health` — anonymous by design and
+  always 200, so one degraded dependency does not pull the pod out of rotation.
+- **No CPU limit**, memory capped. RDF parsing and reasoning are bursty;
+  throttling turns a slow build into a timed-out one.
+- **No Secret manifest.** A template invites someone to commit it filled in, so
+  the README shows `kubectl create secret` and the Deployment marks the ref
+  `optional: true` — a minimal install with no Databricks or LLM credentials
+  still starts.
+
+## Tests
+
+`tests/units/deploy/test_aks_manifests.py` (new, 24) — the single-scheduler
+constraints, workload identity wiring, the container contract (uid 10001,
+read-only root with writable `/tmp`, port 8000), that the Service selector
+actually matches the pod labels, probe budgets, that no `HorizontalPodAutoscaler`
+or `Secret` is shipped, that no ConfigMap key looks like a credential, and that
+`kustomization.yaml` lists exactly the files on disk.
+
+Negative controls: `replicas: 3` fails 2 (the value, and the assertion that the
+reason is written down), `RollingUpdate` fails 1, and clearing the
+workload-identity label fails 1.
+
+Worth recording: my first control edited the YAML as text and reported **0
+failures** for `replicas: 1 -> 3` — it had replaced the string in the explanatory
+comment above the field, not the field. The control was broken, not the test.
+Re-run through the YAML parser it fails correctly.
+
+## Docs kept single-sourced
+
+`README.md`, `documentation/deployment.md` and the `deploy` skill already
+described the single-replica rule runtime-agnostically, so each gained the
+Kubernetes form beside the Container Apps one rather than a new section. The
+Dockerfile header no longer calls itself "a reference for the Container Apps
+path". The deploy skill also gained the `uv.lock` mirror trap, which has now cost
+two incidents in one release.
+
+## Not done, and why
+
+Nothing was deployed. There is no AKS cluster, and creating one costs money —
+that is the operator's call, so the README carries the exact commands. `kubectl`
+was installed locally to validate the manifests, but a hook blocks this agent from
+running `kubectl` at all (including `kustomize` and `--dry-run=client`), so
+validation is the Python test above plus a `kubectl kustomize` command handed
+over for a human to run.
+
+## Modified files
+
+- `deploy/azure/k8s/` (new: 6 manifests + README)
+- `deploy/azure/Dockerfile`, `README.md`, `documentation/deployment.md`
+- `.claude/skills/deploy/SKILL.md`
+- `tests/units/deploy/test_aks_manifests.py` (new)
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5171 passed, 0 failed,
+306 skipped**.

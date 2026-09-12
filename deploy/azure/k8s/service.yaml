@@ -1,0 +1,14 @@
+# ClusterIP on purpose: nothing is public until an operator chooses how to expose
+# it (port-forward, LoadBalancer, or an Ingress). See README.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ontobricks
+spec:
+  type: ClusterIP
+  selector:
+    app: ontobricks
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

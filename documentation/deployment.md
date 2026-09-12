@@ -178,7 +178,10 @@ around that entrypoint. Whatever you build must contain:
 APScheduler runs **in-process** and sessions are on local disk. More than one
 instance duplicates every scheduled build; scaling to zero stops the scheduler
 entirely. On Azure Container Apps that means `minReplicas: 1, maxReplicas: 1` —
-its defaults violate both.
+its defaults violate both. On Kubernetes it means `replicas: 1` **and**
+`strategy: Recreate`, because a `RollingUpdate` briefly runs two pods; ready-made
+manifests are in `deploy/azure/k8s/`, and `tests/units/deploy/test_aks_manifests.py`
+fails if either is changed.
 
 ---
 

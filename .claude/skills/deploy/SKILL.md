@@ -74,7 +74,18 @@ Beyond the source and `uv.lock`:
 **Single replica.** APScheduler runs in-process and sessions are on local disk.
 More than one instance duplicates every scheduled build; scaling to zero stops
 the scheduler entirely. On Azure Container Apps that means
-`minReplicas: 1, maxReplicas: 1` — its defaults violate both.
+`minReplicas: 1, maxReplicas: 1`; on Kubernetes, `replicas: 1` **and**
+`strategy: Recreate` (a `RollingUpdate` briefly runs two pods). The defaults of
+both violate this. `deploy/azure/k8s/` holds AKS manifests that encode it, guarded
+by `tests/units/deploy/test_aks_manifests.py`.
+
+**Lockfile, before any build.** `uv.lock` must reference
+`files.pythonhosted.org` only. A Databricks machine's `~/.config/uv/uv.toml` sets
+an internal mirror as the default index, so *any* `uv lock` rewrites every URL;
+`uv sync --frozen` then succeeds locally and the container dies ~45s after a
+"successful" start on the first uncached wheel. Rewrite the host back and verify
+hashes against real downloads. `tests/units/core/test_uv_lock_is_publishable.py`
+fails if a poisoned lock is committed.
 
 ## Post-deploy
 

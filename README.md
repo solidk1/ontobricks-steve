@@ -114,7 +114,9 @@ markdown from it at runtime) and, for `PGSSLMODE=verify-full`, the Azure root CA
 > **Single replica.** APScheduler runs in-process and sessions are on local
 > disk, so run exactly one instance. More than one duplicates every scheduled
 > build; scaling to zero stops the scheduler entirely. On Azure Container Apps
-> that means `minReplicas: 1, maxReplicas: 1` — its defaults violate both.
+> that means `minReplicas: 1, maxReplicas: 1`; on Kubernetes, `replicas: 1` and
+> `strategy: Recreate` — the defaults of both violate this. See
+> `deploy/azure/k8s/` for AKS manifests that encode it.
 
 ### Authentication
 

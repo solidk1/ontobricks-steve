@@ -1,0 +1,39 @@
+# Non-secret configuration. Secrets live in a Secret named `ontobricks`
+# (see README) so nothing sensitive is ever in this repo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ontobricks
+data:
+  # --- PostgreSQL: registry, graph DB and reasoning all run here -------------
+  PGHOST: "REPLACE.postgres.database.azure.com"
+  PGPORT: "5432"
+  PGDATABASE: "ontobricks"
+  # The Entra principal name for the managed identity above, which is what
+  # pgaadauth_create_principal was called with.
+  PGUSER: "REPLACE_WITH_MANAGED_IDENTITY_NAME"
+  # Azure mandates TLS. `require` is the floor; `verify-full` is better and works
+  # because the image installs ca-certificates.
+  PGSSLMODE: "require"
+  ONTOBRICKS_PG_AUTH: "entra"
+  ONTOBRICKS_PG_SCHEMA: "ontobricks_registry"
+
+  # --- Databricks (optional) -------------------------------------------------
+  # Two different hosts, deliberately. DATABRICKS_HOST is the *workspace* REST
+  # endpoint (Unity Catalog, SQL warehouses, SCIM). ONTOBRICKS_OIDC_HOST is where
+  # the OAuth app integration is registered, which for an account-level
+  # integration is the account or vanity host. An account host answers OIDC
+  # discovery and returns HTTP 303 for every /api/2.0 path, so one variable
+  # cannot be both.
+  DATABRICKS_HOST: ""
+  ONTOBRICKS_OIDC_HOST: ""
+  ONTOBRICKS_OIDC_CLIENT_ID: ""
+  # Must exactly match the redirect URI registered on the Databricks app.
+  ONTOBRICKS_OIDC_REDIRECT_URI: ""
+
+  # --- LLM / embeddings (optional) ------------------------------------------
+  ONTOBRICKS_LLM_BASE_URL: ""
+  ONTOBRICKS_LLM_MODEL: ""
+  # Needed only by the four semantic ontology-pitfall checks. gte-large-en is the
+  # measured recommendation; see tests/eval/run_pitfalls_embedders.py.
+  ONTOBRICKS_EMBEDDING_MODEL: ""

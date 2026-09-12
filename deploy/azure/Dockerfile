@@ -1,8 +1,10 @@
-# OntoBricks — container image for Azure Container Apps (or any OCI runtime).
+# OntoBricks — container image for any OCI runtime.
 #
 # The repo deliberately ships no Dockerfile at its root: OntoBricks is a plain
 # ASGI process and the image is the operator's to own. This one lives under
-# deploy/azure/ as a working reference for the Container Apps path.
+# deploy/azure/ as a working reference, and is runtime-agnostic: the same image
+# runs on AKS (manifests in deploy/azure/k8s/), Azure Container Apps, ECS or a
+# plain VM. Nothing below is specific to any of them.
 #
 # Build it from the REPO ROOT, not this directory:
 #   az acr build -r <registry> -t ontobricks:$(git rev-parse --short HEAD) \

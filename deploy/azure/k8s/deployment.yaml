@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ontobricks
+spec:
+  # ── replicas: 1 is a correctness constraint, not a capacity choice ──────────
+  # APScheduler runs in-process. A second replica runs a second scheduler, so
+  # every scheduled build happens twice, concurrently, against the same graph
+  # tables. There is no leader election. Do not add an HPA to this Deployment;
+  # scaling out requires extracting the scheduler first.
+  replicas: 1
+  strategy:
+    # RollingUpdate would briefly run two pods, which is the state above. Recreate
+    # accepts a few seconds of downtime to guarantee one scheduler at a time.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ontobricks
+  template:
+    metadata:
+      labels:
+        app: ontobricks
+        # Tells the AKS webhook to project the federated token this pod's service
+        # account is bound to. Without it DefaultAzureCredential finds nothing and
+        # every PostgreSQL connection fails on authentication.
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: ontobricks
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ontobricks
+          # Replaced at deploy time with the git-sha tag:
+          #   kubectl set image deployment/ontobricks ontobricks=<acr>/ontobricks:<sha>
+          image: ontobricks:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: ontobricks
+            - secretRef:
+                name: ontobricks
+                # A minimal install has no Databricks or LLM credentials, so the
+                # Secret may hold only SECRET_KEY -- or be absent entirely during
+                # a first bring-up.
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # readOnlyRootFilesystem is on, and the app writes sessions, logs and
+            # scratch files under /tmp when containerized.
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              # No CPU limit: RDF parsing and reasoning are bursty, and throttling
+              # them turns a slow build into a timed-out one. Memory is capped
+              # because a runaway graph should be killed, not swap the node.
+              memory: 2Gi
+          # /health is anonymous by design (bypassed by PermissionMiddleware and
+          # CSRF) and always returns 200 -- the JSON `status` carries the detail.
+          # That is the right shape for a probe: one degraded dependency, such as
+          # an uninitialized registry, must not pull the pod out of rotation.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            # Generous: first start imports rdflib and the graph stack. Liveness
+            # does not begin until this passes, so a slow boot is not a restart
+            # loop.
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      # Let an in-flight build finish rather than truncating it mid-write.
+      terminationGracePeriodSeconds: 60
