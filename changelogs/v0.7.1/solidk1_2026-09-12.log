@@ -110,3 +110,86 @@ all. Documented in `pyproject.toml` as one job.
 
 `uv.lock` untouched, no proxy URLs, and `uv sync --frozen --no-dev --extra
 lakebase` (what the Dockerfile runs) still exits 0.
+
+# Remove PyTorch entirely, and the opt-in that existed because of it
+
+Follow-up to the change above, on request: with the endpoint path measured as
+*more* accurate than the in-process model, keeping the latter meant maintaining a
+PyTorch dependency to get worse results.
+
+## Changes
+
+1. `embedders.py` — `LocalEmbedder` deleted. `resolve_embedder()` returns the
+   endpoint embedder or raises naming `ONTOBRICKS_EMBEDDING_MODEL`; there is no
+   fallback.
+2. `pyproject.toml` — the `pitfalls` extra is **nltk only**. `sentence-transformers`,
+   `scikit-learn` and `scipy` are gone. **31 packages left `uv.lock`**, including
+   torch, transformers, triton, safetensors, tokenizers and huggingface-hub.
+3. **The dead `torch>=2.13.0` constraint is gone from `[tool.uv]`.** It was a
+   Dependabot floor bounding nothing once torch left the graph — and it was the
+   direct cause of the resolution failure noted earlier: torch 2.14 requires a
+   `cuda-toolkit[cublas]==13.0.3` that does not exist, for the Python >= 3.15 end
+   of `requires-python`. With it removed, `uv lock` resolves 249 packages cleanly,
+   so the extra split that was blocked before became possible in the same move.
+4. **A dead `model_name` parameter removed end to end** — HTTP request body →
+   `PitfallsService.run_analysis` → `OntologyPatternToolkit.__init__` → a field
+   read by nothing. The embedder comes from the environment now.
+5. **`run_patterns` isolates per-check failures.** It was a dict comprehension, so
+   any single check raising lost all nineteen results. Survivable only while the
+   whole toolkit shared one dependency gate; now that fifteen checks need nothing
+   beyond the base install, an unconfigured endpoint or a missing corpus costs
+   those checks and not the analysis. Failures are recorded as
+   `{"skipped": true, "error": ...}`.
+6. `deploy/azure/Dockerfile`, `.env.example`, the pitfalls skip guard and the
+   agent's `_NON_ML_PATTERNS` comment all updated — the last named
+   "ML (sentence-transformers)" as the reason those patterns are loop-safe, when
+   the real reason is that they make no network call.
+
+## A latent bug this surfaced
+
+`_get_embedder` called `resolve_embedder(self.model_name)` after
+`resolve_embedder` had lost that parameter — a `TypeError` on the first semantic
+check. Nothing caught it: the shape tests only read source text, and the new
+per-check isolation would have recorded it as `{"skipped": true}`, converting a
+plain bug into a silently missing check. Fixed, with a test that resolves an
+embedder through the runner rather than inspecting source, and one asserting
+`resolve_embedder` stays callable with no arguments.
+
+## uv.lock: poisoned a second time, and now guarded
+
+Re-locking rewrote all 3797 URLs to `pypi-proxy.dev.databricks.com` again. Root
+cause identified: `~/.config/uv/uv.toml` on this machine sets that mirror as the
+**default index**, so *any* `uv lock` here does it. `uv sync --frozen` then
+succeeds locally, which is precisely why such a lock gets committed; it fails in
+the container on the first uncached wheel, ~45s after a "successful" start.
+
+Rewritten to `files.pythonhosted.org` (the mirror is path- and hash-identical) and
+verified by downloading 8 random wheels and matching their sha256 against the
+lock — 8/8. `--extra lakebase` and `--extra pitfalls` both install clean.
+
+`tests/units/core/test_uv_lock_is_publishable.py` (new, 9) now fails on any
+non-PyPI URL, on `pypi-proxy` anywhere in the file, on torch/transformers/triton/
+sentence-transformers reappearing, and on a `torch>=` constraint returning. It
+includes a check that the URL regex matches more than 500 entries, so it cannot
+pass vacuously. Forcing PyPI at lock time (`UV_DEFAULT_INDEX`) does not work here:
+`pypi.org/simple` is not reachable from this sandbox, only
+`files.pythonhosted.org` is.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5147 passed, 0 failed,
+306 skipped**. Live eval re-run after the refactor: aggregate **1.0**,
+`gte-large-en` F1 1.00, 0 missed synonyms.
+
+## Modified files
+
+- `src/back/core/external/pitfalls/embedders.py`
+- `src/back/core/external/pitfalls/runner.py`
+- `src/back/core/external/pitfalls/PitfallsService.py`
+- `src/api/routers/internal/ontology.py`
+- `src/agents/agent_ontology_assistant/tools.py`
+- `pyproject.toml`, `uv.lock`, `.env.example`, `deploy/azure/Dockerfile`
+- `tests/units/core/test_uv_lock_is_publishable.py` (new)
+- `tests/units/ontology/test_pitfalls_embedders.py`
+- `tests/units/ontology/test_pitfalls_service.py`
+- `tests/eval/run_pitfalls_embedders.py`

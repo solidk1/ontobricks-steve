@@ -106,14 +106,13 @@ class PitfallsService:
         self,
         graph: Graph,
         patterns: Optional[List[str]] = None,
-        model_name: str = "all-MiniLM-L6-v2",
     ) -> Dict[str, Any]:
         """Serialize *graph* to a temp TTL file then run pitfall analysis.
 
         Returns a dict with keys: metadata, selected_pitfalls, results, grouped_results.
         Structural, logical and naming checks need nothing beyond the base
         install. The four semantic checks need an embedder — an endpoint via
-        ``ONTOBRICKS_EMBEDDING_MODEL``, or the ``pitfalls-local`` extra — and the
+        ``ONTOBRICKS_EMBEDDING_MODEL`` — and the
         WordNet-based checks need the ``pitfalls`` extra plus its corpora. Each
         raises for itself, so the rest still run.
         Raises ValueError for unknown pattern IDs.
@@ -137,7 +136,7 @@ class PitfallsService:
             logger.debug("PitfallsService: serialized graph to %s", tmp_path)
 
             from back.core.external.pitfalls.runner import OntologyPatternToolkit as _Toolkit
-            toolkit = _Toolkit(tmp_path, model_name=model_name)
+            toolkit = _Toolkit(tmp_path)
             selected = _Toolkit.available_patterns() if "all" in [p.upper() for p in patterns] else patterns
             results = toolkit.run_patterns(selected)
 

@@ -2307,7 +2307,6 @@ async def analyze_pitfalls(
 
     data = await request.json()
     patterns = data.get("patterns", ["all"])
-    model_name = data.get("model_name", "all-MiniLM-L6-v2")
 
     domain = get_domain(session_mgr)
 
@@ -2341,7 +2340,7 @@ async def analyze_pitfalls(
             tm.advance_step(task.id, "Running pitfall checks…")
 
             svc = PitfallsService()
-            result = svc.run_analysis(graph, patterns=patterns, model_name=model_name)
+            result = svc.run_analysis(graph, patterns=patterns)
 
             tm.advance_step(task.id, "Finalizing…")
 

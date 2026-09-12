@@ -46,16 +46,13 @@ WORKDIR /app
 # The `lakebase` extra is plain psycopg + psycopg-pool (historical name) and is
 # required for every Postgres target, so it is never optional.
 #
-# `pitfalls` is opt-in and deliberately NOT default: it pulls
-# sentence-transformers, which pulls torch, taking the image from ~1GB to
-# **6.02 GB** (measured). At that size every cold start and every rollout stalls
-# on PullingImage, which is exactly what happened the first time this was built
-# with it enabled. Turn it on only if you need the ontology pitfalls detector:
+# `pitfalls` adds only nltk, for the WordNet-based ontology checks. It no longer
+# pulls sentence-transformers/PyTorch — the semantic checks call an
+# OpenAI-compatible embeddings endpoint (ONTOBRICKS_EMBEDDING_MODEL) instead, so
+# this extra costs megabytes rather than the 6.02 GB it once did:
 #
 #   az acr build ... --build-arg EXTRAS="--extra lakebase --extra pitfalls" ...
 #
-# Its NLTK corpora (wordnet, vader_lexicon) are baked in by the step below when
-# the extra is present, so nothing is fetched at runtime.
 ARG EXTRAS="--extra lakebase"
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev ${EXTRAS}

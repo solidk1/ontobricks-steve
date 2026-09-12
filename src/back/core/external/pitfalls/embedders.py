@@ -14,11 +14,15 @@ therefore opt-in, so in practice the semantic checks never ran.
 The work is embedding a few hundred short strings — a service call, not a reason
 to ship a deep-learning runtime. :class:`EndpointEmbedder` posts to the
 OpenAI-compatible ``/embeddings`` path on the provider already configured for
-chat, and :class:`LocalEmbedder` keeps the original path for offline use.
-
-Both expose one method, ``encode(texts) -> np.ndarray`` of shape
+chat, exposing one method, ``encode(texts) -> np.ndarray`` of shape
 ``(len(texts), dim)``, which is the entire surface ``runner.py`` uses. The checks,
 their thresholds and the 0.4/0.6 label/description weighting are untouched.
+
+There is deliberately **no in-process fallback**. Keeping one would mean keeping
+PyTorch in the dependency graph for a path measured to be *less* accurate than
+the endpoint (F1 0.50 vs 1.00 at the same threshold), which is a cost with no
+benefit. Deployments that cannot reach an embeddings endpoint get the other
+fifteen checks and a clear message naming ``ONTOBRICKS_EMBEDDING_MODEL``.
 
 **A caveat that matters.** The thresholds in ``runner.py`` are absolute constants
 (``threshold: float = 0.8``) tuned against ``all-MiniLM-L6-v2``. A different model
@@ -168,54 +172,15 @@ class EndpointEmbedder:
         return [list(d.get("embedding") or []) for d in ordered]
 
 
-class LocalEmbedder:
-    """The original in-process ``sentence-transformers`` path.
+def resolve_embedder() -> Embedder:
+    """The configured embeddings endpoint, or raise saying what to set.
 
-    Kept for air-gapped installs and as the reference the endpoint embedder is
-    evaluated against. Requires the ``pitfalls-local`` extra (PyTorch).
+    There is no in-process fallback. There used to be
+    (``sentence-transformers``), and it was the reason the container image was
+    6.02 GB and the semantic checks were opt-in — so in practice they never ran.
+    Measured on a labelled probe set, the endpoint path is also *more accurate*
+    than that model was (F1 1.00 vs 0.50 at the same threshold), so keeping it as
+    a fallback would have meant maintaining a PyTorch dependency to get worse
+    results.
     """
-
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
-        self.model_name = model_name
-        self._model = None
-
-    @property
-    def name(self) -> str:
-        return f"local:{self.model_name}"
-
-    def encode(self, texts: Sequence[str], **_kwargs: object) -> np.ndarray:
-        if self._model is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise InfrastructureError(
-                    "The local embedder needs the 'pitfalls-local' extra",
-                    detail=(
-                        "uv sync --extra pitfalls-local, or configure "
-                        "ONTOBRICKS_EMBEDDING_MODEL to use an endpoint instead "
-                        "(no PyTorch required)."
-                    ),
-                ) from exc
-            self._model = SentenceTransformer(self.model_name)
-        return np.asarray(self._model.encode(list(texts), show_progress_bar=False))
-
-
-def resolve_embedder(model_name: str = "all-MiniLM-L6-v2") -> Embedder:
-    """The configured embedder: endpoint when available, else local.
-
-    Endpoint first because it is the path that works in a normal container. The
-    local fallback keeps existing installs behaving exactly as before.
-    """
-    from shared.config.LLMTarget import LLMTarget
-
-    if LLMTarget.embedding_model():
-        embedder = EndpointEmbedder()
-        logger.info("Pitfalls semantic checks using %s", embedder.name)
-        return embedder
-
-    logger.info(
-        "ONTOBRICKS_EMBEDDING_MODEL is not set; falling back to the in-process "
-        "model %s (requires the pitfalls-local extra)",
-        model_name,
-    )
-    return LocalEmbedder(model_name)
+    return EndpointEmbedder()

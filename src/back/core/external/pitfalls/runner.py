@@ -1,7 +1,7 @@
 """OntologyPatternToolkit — 19-pitfall detector (P1.1–P4.7).
 
 Vendored from https://github.com/D2KLab/Ontology-Pitfalls-Detector (Apache-2.0).
-Heavy ML deps (sentence-transformers, scikit-learn, nltk) are imported at module
+Optional deps (nltk for the WordNet checks) are imported at module
 level via try/except so taxonomy constants are always accessible even when the
 optional ``pitfalls`` extra is not installed.
 
@@ -16,8 +16,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from back.core.logging import get_logger
+
 # rdflib is always available (core dep)
 from rdflib import Graph, OWL, RDF, RDFS, URIRef
+
+logger = get_logger(__name__)
 
 # numpy is a base dependency (present via pandas), and cosine similarity is now
 # four lines of it in ``embedders`` -- scikit-learn and scipy were in the
@@ -286,7 +290,7 @@ PITFALL_BY_ID = {entry["pitfall_id"]: entry for entry in PITFALL_TAXONOMY}
 class OntologyPatternToolkit:
     PATTERN_METHODS = dict(PITFALL_RUN_METHODS)
 
-    def __init__(self, ontology_path: str, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(self, ontology_path: str) -> None:
         if not _DEPS_AVAILABLE:
             # numpy, which the base install already provides. This gate used to
             # require the whole PyTorch stack for all 19 checks, so the 15 that
@@ -324,7 +328,6 @@ class OntologyPatternToolkit:
 
         self.all_props = self.oobjprops + self.odataprops
 
-        self.model_name = model_name
         self._embedder: Optional["Embedder"] = None
         self._class_similarity_cache: Optional[Dict[str, Any]] = None
         self._property_similarity_cache: Optional[Dict[str, Any]] = None
@@ -363,7 +366,7 @@ class OntologyPatternToolkit:
     def _get_embedder(self) -> "Embedder":
         """Resolve once per runner: endpoint if configured, else in-process."""
         if self._embedder is None:
-            self._embedder = resolve_embedder(self.model_name)
+            self._embedder = resolve_embedder()
         return self._embedder
 
     def _build_text_embedding_cache(self, texts: Sequence[str]) -> Dict[str, np.ndarray]:
@@ -589,7 +592,29 @@ class OntologyPatternToolkit:
             normalizer=self.normalize_pitfall_id,
         )
 
-        return {pitfall_id: self.run_pattern(pitfall_id) for pitfall_id in selected_pitfalls}
+        results: Dict[str, Dict[str, Any]] = {}
+        for pitfall_id in selected_pitfalls:
+            try:
+                results[pitfall_id] = self.run_pattern(pitfall_id)
+            except (ValueError, KeyError):
+                # A bad pattern id is the caller's error, not a runtime one.
+                raise
+            except Exception as exc:  # noqa: BLE001 — isolate one check's failure
+                # This was a dict comprehension, so any single check raising lost
+                # all nineteen results. That was survivable only while the whole
+                # toolkit was gated on one dependency set; now that the
+                # structural, logical and naming checks need nothing beyond the
+                # base install, an unconfigured embeddings endpoint or a missing
+                # WordNet corpus must cost you those four or five checks, not the
+                # entire analysis.
+                logger.warning("Pitfall %s could not run: %s", pitfall_id, exc)
+                results[pitfall_id] = {
+                    "count": 0,
+                    "items": [],
+                    "skipped": True,
+                    "error": str(exc),
+                }
+        return results
 
     def run_all(self) -> Dict[str, Dict[str, Any]]:
         return self.run_patterns(["all"])

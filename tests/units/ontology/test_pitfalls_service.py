@@ -21,9 +21,11 @@ def _missing_pitfalls_requirement() -> str:
     """
     import importlib.util
 
-    for spec in ("nltk", "sentence_transformers", "sklearn"):
-        if not importlib.util.find_spec(spec):
-            return f"{spec} not installed (uv sync --extra pitfalls)"
+    # sentence_transformers and sklearn used to be required here. They are gone:
+    # the semantic checks call an embeddings endpoint, and cosine similarity is
+    # numpy. Only nltk remains, for the WordNet lexical checks.
+    if not importlib.util.find_spec("nltk"):
+        return "nltk not installed (uv sync --extra pitfalls)"
 
     import nltk
 

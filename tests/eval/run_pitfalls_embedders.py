@@ -18,22 +18,32 @@ a unit test can answer: it needs two real models over the same ontology.
     ONTOBRICKS_LLM_API_KEY=<pat> ONTOBRICKS_EMBEDDING_MODEL=databricks-bge-large-en \
         uv run --frozen python tests/eval/run_pitfalls_embedders.py --live
 
-    # and, where the pitfalls extra is installed, the reference side too
-    … --live --compare-local
 
 What is scored, and why these dimensions:
 
 ``agreement``      Jaccard overlap of the flagged pair sets, endpoint vs local.
                    The headline number: 1.0 means the swap is behaviourally
                    invisible at the current thresholds.
-``rank_agreement`` Spearman-style rank correlation of the similarity scores over
-                   the *same* pairs. Separates "the model ranks pairs the same
-                   but the scale shifted" (retune the threshold) from "the model
-                   disagrees about meaning" (do not swap). This distinction is
-                   the actionable part.
 ``synonym_margin`` On a fixed probe set of known synonym / unrelated label pairs,
                    the gap between the two groups' mean similarity. A model that
                    cannot separate them is unusable here whatever the threshold.
+Measured result, against the three embedding endpoints in ``classic-steve-eastus``
+(threshold 0.8, unchanged):
+
+===============================  ======  ======  =========================
+model                            margin  F1      verdict
+===============================  ======  ======  =========================
+databricks-gte-large-en          0.333   1.00    separable — recommended
+databricks-qwen3-embedding-0-6b  0.298   —       separable, thin gap
+databricks-bge-large-en          0.166   —       overlaps — unusable
+all-MiniLM-L6-v2 (removed)       —       0.50    missed 4 of 6 synonyms
+===============================  ======  ======  =========================
+
+The in-process model this replaced scored 0.50 at the same threshold, so removing
+PyTorch removed the *less* accurate path — which is why the absolute thresholds
+did not need retuning. ``bge-large-en`` would silently report almost nothing: its
+synonym mean (0.77) is below the 0.8 cut.
+
 ``geometry``       Self-similarity is 1, orthogonality is 0, an empty comment
                    yields 0 rather than nan, and the matrix is symmetric and
                    in-bounds. Offline; guards the numpy cosine that replaced
@@ -54,10 +64,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".." / "src"))
 import numpy as np  # noqa: E402
 
 WEIGHTS = {
-    "geometry": 0.20,
-    "synonym_margin": 0.25,
-    "labelled_accuracy": 0.35,
-    "rank_agreement": 0.20,
+    "geometry": 0.25,
+    "synonym_margin": 0.30,
+    "labelled_accuracy": 0.45,
 }
 
 # ``agreement`` (overlap with the incumbent model) was a *scored* dimension in the
@@ -145,13 +154,6 @@ def _flagged(scores: Sequence[float], pairs: Sequence[Tuple[str, str]], threshol
     return {pairs[i] for i, s in enumerate(scores) if s >= threshold}
 
 
-def _spearman(a: Sequence[float], b: Sequence[float]) -> float:
-    """Rank correlation without scipy (which this change removed the need for)."""
-    ra, rb = np.argsort(np.argsort(a)), np.argsort(np.argsort(b))
-    if len(ra) < 2:
-        return 1.0
-    return float(np.corrcoef(ra, rb)[0][1])
-
 
 def _labelled_accuracy(flagged) -> Dict[str, object]:
     """Precision/recall/F1 against the known labels on the probe set."""
@@ -172,28 +174,10 @@ def _labelled_accuracy(flagged) -> Dict[str, object]:
     }
 
 
-def _verdict(endpoint: Dict[str, object], local: Dict[str, object], rank: float) -> str:
-    """Direction matters: more sensitive with no false positives is better."""
-    e_f1, l_f1 = float(endpoint["f1"]), float(local["f1"])
-    if endpoint["false_positives"]:
-        return "CAUTION: the endpoint flags unrelated pairs; raise the threshold"
-    if e_f1 > l_f1:
-        return (
-            f"IMPROVEMENT: endpoint F1 {e_f1:.2f} vs incumbent {l_f1:.2f} at the "
-            "same threshold, with no false positives — thresholds transfer and "
-            "recall improves"
-        )
-    if e_f1 == l_f1:
-        return "EQUIVALENT: thresholds transfer as-is"
-    if rank > 0.9:
-        return "RETUNE: same ranking, shifted scale — lower the threshold"
-    return "DO NOT SWAP: the endpoint misses synonyms the incumbent catches"
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true", help="call the configured endpoint")
-    ap.add_argument("--compare-local", action="store_true", help="also run sentence-transformers")
     ap.add_argument("--threshold", type=float, default=0.8, help="run_p4_2's default")
     args = ap.parse_args()
 
@@ -204,7 +188,7 @@ def main() -> int:
     scores["geometry"] = geo
     results["geometry"] = geo_detail
 
-    endpoint = local = None
+    endpoint = None
     if args.live:
         from back.core.external.pitfalls.embedders import EndpointEmbedder
 
@@ -213,11 +197,6 @@ def main() -> int:
         scores["synonym_margin"] = s
         results["synonym_margin"] = {"embedder": endpoint.name, **detail}
 
-    if args.compare_local:
-        from back.core.external.pitfalls.embedders import LocalEmbedder
-
-        local = LocalEmbedder()
-
     if endpoint is not None:
         all_pairs = SYNONYM_PAIRS + UNRELATED_PAIRS
         e_scores = _pair_scores(endpoint, all_pairs)
@@ -225,24 +204,6 @@ def main() -> int:
         e_acc = _labelled_accuracy(e_flag)
         scores["labelled_accuracy"] = e_acc["f1"]
         results["labelled_accuracy"] = {"embedder": endpoint.name, **e_acc}
-
-        if local is not None:
-            l_scores = _pair_scores(local, all_pairs)
-            l_flag = _flagged(l_scores, all_pairs, args.threshold)
-            l_acc = _labelled_accuracy(l_flag)
-            scores["rank_agreement"] = max(0.0, _spearman(e_scores, l_scores))
-            results["incumbent_comparison"] = {
-                "threshold": args.threshold,
-                "note": (
-                    "Context, not a score. The incumbent is what is being "
-                    "replaced, not ground truth."
-                ),
-                "endpoint": {"flagged": sorted("|".join(p) for p in e_flag), **e_acc},
-                "local": {"flagged": sorted("|".join(p) for p in l_flag), **l_acc},
-                "only_endpoint": sorted("|".join(p) for p in (e_flag - l_flag)),
-                "only_local": sorted("|".join(p) for p in (l_flag - e_flag)),
-                "verdict": _verdict(e_acc, l_acc, scores.get("rank_agreement", 0.0)),
-            }
 
     aggregate = sum(scores[k] * WEIGHTS[k] for k in scores) / sum(
         WEIGHTS[k] for k in scores

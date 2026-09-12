@@ -686,8 +686,10 @@ _SET_INHERITANCE_DEF = {
 # Pitfall check tool
 # =====================================================
 
-# Pitfalls that do not require ML (sentence-transformers) — fast and safe to
-# run inside the agent loop after every mutation.
+# Pitfalls that need no embeddings — pure graph and lexical analysis, so they are
+# fast and involve no network call. Safe to run inside the agent loop after every
+# mutation; the semantic checks (P4.2 / P4.4 / P4.5) hit an embeddings endpoint
+# and are left to the external loop.
 _NON_ML_PATTERNS = [
     "P1.1",
     "P1.2",

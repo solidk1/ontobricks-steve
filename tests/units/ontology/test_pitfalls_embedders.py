@@ -20,15 +20,15 @@ a safe substitution, and the numpy cosine that replaced scikit-learn.
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from back.core.errors import InfrastructureError
+from back.core.errors import InfrastructureError, ValidationError
 from back.core.external.pitfalls.embedders import (
     EndpointEmbedder,
-    LocalEmbedder,
     cosine_similarity,
     resolve_embedder,
 )
@@ -157,14 +157,21 @@ class TestEndpointEmbedder:
 
 
 class TestResolveEmbedder:
-    def test_endpoint_when_a_model_is_configured(self, monkeypatch):
+    """There is no in-process fallback to fall back to."""
+
+    def test_returns_the_endpoint_embedder_when_configured(self, monkeypatch):
         monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://x/v1")
         monkeypatch.setenv("ONTOBRICKS_EMBEDDING_MODEL", "bge-large-en")
         assert isinstance(resolve_embedder(), EndpointEmbedder)
 
-    def test_local_when_no_embedding_model(self, monkeypatch):
+    def test_unconfigured_names_the_variable_to_set(self, monkeypatch):
+        """Previously this silently returned a torch-backed embedder that then
+        failed on encode. The failure now happens at resolve time and says why."""
         monkeypatch.delenv("ONTOBRICKS_EMBEDDING_MODEL", raising=False)
-        assert isinstance(resolve_embedder(), LocalEmbedder)
+        monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://x/v1")
+        with pytest.raises(ValidationError) as exc:
+            resolve_embedder()
+        assert "ONTOBRICKS_EMBEDDING_MODEL" in str(exc.value)
 
     def test_a_chat_model_alone_does_not_imply_embeddings(self, monkeypatch):
         """A chat model cannot serve /embeddings; guessing yields a provider 404
@@ -172,17 +179,31 @@ class TestResolveEmbedder:
         monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://x/v1")
         monkeypatch.setenv("ONTOBRICKS_LLM_MODEL", "some-chat-model")
         monkeypatch.delenv("ONTOBRICKS_EMBEDDING_MODEL", raising=False)
-        assert isinstance(resolve_embedder(), LocalEmbedder)
+        with pytest.raises(ValidationError):
+            resolve_embedder()
 
 
-class TestLocalEmbedderDegrades:
-    def test_missing_torch_stack_names_both_ways_out(self, monkeypatch):
-        monkeypatch.setitem(__import__("sys").modules, "sentence_transformers", None)
-        with pytest.raises(InfrastructureError) as exc:
-            LocalEmbedder().encode(["x"])
-        blob = f"{exc.value} {getattr(exc.value, 'detail', '')}"
-        assert "pitfalls-local" in blob or "extra" in blob
-        assert "ONTOBRICKS_EMBEDDING_MODEL" in blob
+class TestNoTorchAnywhere:
+    """The point of removing the fallback: nothing imports PyTorch."""
+
+    @pytest.mark.parametrize("module", ["sentence_transformers", "torch", "sklearn"])
+    def test_pitfalls_package_never_imports(self, module):
+        from pathlib import Path
+
+        pkg = Path("src/back/core/external/pitfalls")
+        offenders = [
+            f"{f.name}:{n}"
+            for f in pkg.glob("*.py")
+            for n, line in enumerate(f.read_text().splitlines(), 1)
+            if re.match(rf"\s*(import|from)\s+{module}\b", line)
+        ]
+        assert not offenders, offenders
+
+    def test_local_embedder_is_gone(self):
+        from pathlib import Path
+
+        src = Path("src/back/core/external/pitfalls/embedders.py").read_text()
+        assert "LocalEmbedder" not in src
 
 
 class TestRunnerUsesTheSeam:
@@ -201,3 +222,58 @@ class TestRunnerUsesTheSeam:
         src = Path("src/back/core/external/pitfalls/runner.py").read_text()
         assert "_get_model" not in src
         assert "resolve_embedder" in src
+
+
+class TestRunnerCallsTheEmbedderCorrectly:
+    """Exercise the wiring, not just its shape.
+
+    ``_get_embedder`` called ``resolve_embedder(self.model_name)`` after
+    ``resolve_embedder`` had lost that parameter — a TypeError on the first
+    semantic check. Nothing caught it: the shape tests only read source, and the
+    new per-check isolation would have recorded it as ``{"skipped": true}``,
+    turning a plain bug into a silently missing check.
+    """
+
+    def test_get_embedder_takes_no_arguments_it_cannot_pass(self, monkeypatch):
+        import inspect
+
+        from back.core.external.pitfalls import embedders
+
+        assert not [
+            p
+            for p in inspect.signature(embedders.resolve_embedder).parameters.values()
+            if p.default is inspect.Parameter.empty
+        ], "resolve_embedder must be callable with no arguments"
+
+    def test_the_runner_resolves_an_embedder_without_error(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ONTOBRICKS_LLM_BASE_URL", "https://x/v1")
+        monkeypatch.setenv("ONTOBRICKS_EMBEDDING_MODEL", "bge-large-en")
+        ttl = tmp_path / "o.ttl"
+        ttl.write_text(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
+            "<http://e/A> a owl:Class .\n"
+        )
+        from back.core.external.pitfalls.runner import OntologyPatternToolkit
+
+        toolkit = OntologyPatternToolkit(str(ttl))
+        embedder = toolkit._get_embedder()
+        assert isinstance(embedder, EndpointEmbedder)
+
+    def test_a_failing_check_does_not_lose_the_others(self, monkeypatch, tmp_path):
+        """Per-check isolation: an unconfigured endpoint costs four checks, not
+        the whole analysis."""
+        monkeypatch.delenv("ONTOBRICKS_EMBEDDING_MODEL", raising=False)
+        ttl = tmp_path / "o.ttl"
+        ttl.write_text(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
+            "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+            "<http://e/A> a owl:Class .\n"
+            "<http://e/B> a owl:Class ; rdfs:subClassOf <http://e/A> .\n"
+        )
+        from back.core.external.pitfalls.runner import OntologyPatternToolkit
+
+        results = OntologyPatternToolkit(str(ttl)).run_patterns(["P2.2", "P4.2"])
+        assert set(results) == {"P2.2", "P4.2"}
+        assert results["P2.2"].get("skipped") is not True, "P2.2 needs no embeddings"
+        assert results["P4.2"].get("skipped") is True
+        assert "ONTOBRICKS_EMBEDDING_MODEL" in results["P4.2"]["error"]
