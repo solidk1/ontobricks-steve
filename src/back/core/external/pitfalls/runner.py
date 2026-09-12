@@ -19,16 +19,22 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 # rdflib is always available (core dep)
 from rdflib import Graph, OWL, RDF, RDFS, URIRef
 
-# Optional ML deps — imported lazily; None when the pitfalls extra is not installed.
+# numpy is a base dependency (present via pandas), and cosine similarity is now
+# four lines of it in ``embedders`` -- scikit-learn and scipy were in the
+# dependency set for that single function. Embeddings themselves come from an
+# ``Embedder``, which is either a service call or the original in-process model;
+# neither is imported here, so this module no longer implies PyTorch.
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity
+
+    from .embedders import Embedder, cosine_similarity, resolve_embedder
+
     _DEPS_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover — numpy absent means a broken install
     np = None  # type: ignore[assignment]
-    SentenceTransformer = None  # type: ignore[assignment,misc]
+    Embedder = None  # type: ignore[assignment,misc]
     cosine_similarity = None  # type: ignore[assignment]
+    resolve_embedder = None  # type: ignore[assignment]
     _DEPS_AVAILABLE = False
 
 from .utils import (
@@ -282,9 +288,12 @@ class OntologyPatternToolkit:
 
     def __init__(self, ontology_path: str, model_name: str = "all-MiniLM-L6-v2") -> None:
         if not _DEPS_AVAILABLE:
+            # numpy, which the base install already provides. This gate used to
+            # require the whole PyTorch stack for all 19 checks, so the 15 that
+            # never touch embeddings were unavailable too.
             raise ImportError(
-                "Pitfall detection requires optional dependencies. "
-                "Install with: pip install .[pitfalls]"
+                "Pitfall detection requires numpy, which should be present in "
+                "any working install."
             )
 
         self.ontology_path = Path(ontology_path).expanduser().resolve()
@@ -316,7 +325,7 @@ class OntologyPatternToolkit:
         self.all_props = self.oobjprops + self.odataprops
 
         self.model_name = model_name
-        self._model: Optional[SentenceTransformer] = None
+        self._embedder: Optional["Embedder"] = None
         self._class_similarity_cache: Optional[Dict[str, Any]] = None
         self._property_similarity_cache: Optional[Dict[str, Any]] = None
 
@@ -351,22 +360,23 @@ class OntologyPatternToolkit:
             "datatype_properties": len(self.odataprops),
         }
 
-    def _get_model(self) -> SentenceTransformer:
-        if self._model is None:
-            self._model = SentenceTransformer(self.model_name)
-        return self._model
+    def _get_embedder(self) -> "Embedder":
+        """Resolve once per runner: endpoint if configured, else in-process."""
+        if self._embedder is None:
+            self._embedder = resolve_embedder(self.model_name)
+        return self._embedder
 
     def _build_text_embedding_cache(self, texts: Sequence[str]) -> Dict[str, np.ndarray]:
         unique_texts = sorted(set(text for text in texts if text))
         if not unique_texts:
             return {}
 
-        embeddings = self._get_model().encode(unique_texts, show_progress_bar=False)
+        embeddings = self._get_embedder().encode(unique_texts)
         return {text: embeddings[idx] for idx, text in enumerate(unique_texts)}
 
     def _embedding_for(self, text: str, cache: Dict[str, np.ndarray]) -> np.ndarray:
         if text not in cache:
-            cache[text] = self._get_model().encode([text], show_progress_bar=False)[0]
+            cache[text] = self._get_embedder().encode([text])[0]
         return cache[text]
 
     def _text_similarity(self, text_a: str, text_b: str, cache: Dict[str, np.ndarray]) -> float:
@@ -384,8 +394,8 @@ class OntologyPatternToolkit:
             comments = list(self.graph.objects(cls_uri, RDFS.comment))
             class_descriptions.append(str(comments[0]) if comments else "")
 
-        label_embeddings = self._get_model().encode(class_labels, show_progress_bar=False)
-        description_embeddings = self._get_model().encode(class_descriptions, show_progress_bar=False)
+        label_embeddings = self._get_embedder().encode(class_labels)
+        description_embeddings = self._get_embedder().encode(class_descriptions)
 
         label_similarity = cosine_similarity(label_embeddings)
         description_similarity = cosine_similarity(description_embeddings)
@@ -423,8 +433,8 @@ class OntologyPatternToolkit:
             }
             return self._property_similarity_cache
 
-        p10_label_emb = self._get_model().encode(prop_labels, show_progress_bar=False)
-        p10_desc_emb = self._get_model().encode(prop_descriptions, show_progress_bar=False)
+        p10_label_emb = self._get_embedder().encode(prop_labels)
+        p10_desc_emb = self._get_embedder().encode(prop_descriptions)
 
         p10_label_sim = cosine_similarity(p10_label_emb)
         p10_desc_sim = cosine_similarity(p10_desc_emb)

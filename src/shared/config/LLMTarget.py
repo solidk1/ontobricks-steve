@@ -44,8 +44,10 @@ ENV_BASE_URL = "ONTOBRICKS_LLM_BASE_URL"
 ENV_API_KEY = "ONTOBRICKS_LLM_API_KEY"
 ENV_MODEL = "ONTOBRICKS_LLM_MODEL"
 ENV_MODELS = "ONTOBRICKS_LLM_MODELS"
+ENV_EMBEDDING_MODEL = "ONTOBRICKS_EMBEDDING_MODEL"
 
 _CHAT_PATH = "/chat/completions"
+_EMBEDDINGS_PATH = "/embeddings"
 
 
 def _env(name: str) -> str:
@@ -81,6 +83,15 @@ class LLMTarget:
         """The URL to POST to. There is only one."""
         return f"{self.base_url}{_CHAT_PATH}"
 
+    def embeddings_url(self) -> str:
+        """The OpenAI-compatible embeddings URL on the same provider.
+
+        Sharing ``base_url`` and ``api_key`` with chat is deliberate: an operator
+        configures one provider, not two. Only the model differs, because an
+        embedding model is a different model.
+        """
+        return f"{self.base_url}{_EMBEDDINGS_PATH}"
+
     def headers(self) -> dict[str, str]:
         """Request headers, omitting ``Authorization`` when there is no key.
 
@@ -104,6 +115,33 @@ class LLMTarget:
     def is_configured() -> bool:
         """True when a provider is configured. Nothing else implies one."""
         return bool(_env(ENV_BASE_URL))
+
+    @staticmethod
+    def embedding_model() -> str:
+        """The declared embedding model, or "" when none is configured.
+
+        Separate from ``ONTOBRICKS_LLM_MODEL`` because a chat model cannot serve
+        ``/embeddings``. Absent, callers that need embeddings must degrade rather
+        than guess a model name — guessing produces a 404 from the provider that
+        reads like the endpoint is broken.
+        """
+        return _env(ENV_EMBEDDING_MODEL)
+
+    @staticmethod
+    def for_embeddings() -> "LLMTarget":
+        """Resolve the embeddings target, or raise naming what is missing."""
+        base = _normalise_base(_env(ENV_BASE_URL))
+        model = _env(ENV_EMBEDDING_MODEL)
+        missing = [
+            name
+            for name, value in ((ENV_BASE_URL, base), (ENV_EMBEDDING_MODEL, model))
+            if not value
+        ]
+        if missing:
+            raise ValidationError(
+                "Embeddings are not configured: set " + " and ".join(missing)
+            )
+        return LLMTarget(base_url=base, api_key=_env(ENV_API_KEY), model=model)
 
     @staticmethod
     def models() -> list[str]:

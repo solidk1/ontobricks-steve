@@ -1,0 +1,112 @@
+# Pitfall semantic checks: embeddings from an endpoint, not PyTorch
+
+## Context
+
+Four of the nineteen ontology-pitfall checks — P4.2 (synonyms in superclasses),
+P4.4 (subclasses with the same semantics as their superclass), P4.5 (synonyms in
+properties) and the P10 candidate pass — compare label and comment *meaning* by
+cosine similarity. Upstream did that with `sentence-transformers` in-process,
+which brings PyTorch: the image goes from 0.50 GB to **6.02 GB** (measured), and
+at that size cold starts and rollouts stall on `PullingImage`. So the extra was
+opt-in, and in practice the semantic checks never ran in a deployment.
+
+Embedding a few hundred short strings is a service call.
+
+## Changes
+
+1. `src/back/core/external/pitfalls/embedders.py` (new) — the seam is one method,
+   `encode(texts) -> ndarray`. `EndpointEmbedder` posts to the OpenAI-compatible
+   `/embeddings` path on the provider already configured for chat (batched at 96,
+   MLflow-traced, ordered by the response `index` because providers do not
+   guarantee order, empty strings kept as zero-vector slots rather than sent).
+   `LocalEmbedder` keeps the original path for air-gapped installs. Checks,
+   thresholds and the 0.4/0.6 label/description weighting are untouched.
+2. `cosine_similarity` is now four lines of numpy in that module —
+   scikit-learn and scipy were in the dependency set for that single function,
+   and numpy is already present in the base install via pandas. Zero vectors get
+   a 1e-12 norm floor so an absent `rdfs:comment` yields 0 similarity instead of
+   poisoning a matrix with `nan`.
+3. `src/shared/config/LLMTarget.py` — `embeddings_url()`, `embedding_model()` and
+   `for_embeddings()`, sharing `base_url`/`api_key` with chat because an operator
+   configures one provider. `ONTOBRICKS_EMBEDDING_MODEL` is separate from
+   `ONTOBRICKS_LLM_MODEL` because a chat model cannot serve `/embeddings`, and
+   guessing a name yields a provider 404 that reads as a broken endpoint.
+4. `src/back/core/external/pitfalls/runner.py` — six `encode` call sites moved to
+   the seam; no `sentence_transformers` or `sklearn` import remains, so importing
+   the runner no longer pulls PyTorch (verified).
+5. **`_DEPS_AVAILABLE` was over-gating.** It required the whole torch stack for
+   *all nineteen* checks, so the fifteen that never touch embeddings were
+   unavailable without it too. It now means "numpy present", and each family
+   raises for itself: the WordNet checks name the `pitfalls` extra, the semantic
+   checks name either the endpoint variable or the local extra.
+
+## The eval, and what it found
+
+`tests/eval/run_pitfalls_embedders.py` (new). The thresholds are absolute
+constants (`threshold: float = 0.8`) tuned for `all-MiniLM-L6-v2`, so a different
+model can flag a different set of pairs with an identical algorithm. Measured
+against the three embedding endpoints in `classic-steve-eastus`, on a labelled
+probe set of synonym vs unrelated ontology labels:
+
+| model | margin | min synonym | max unrelated | verdict |
+|---|---|---|---|---|
+| `databricks-gte-large-en` | **0.333** | 0.807 | 0.593 | separable — **recommended** |
+| `databricks-qwen3-embedding-0-6b` | 0.298 | 0.616 | 0.591 | separable, thin gap |
+| `databricks-bge-large-en` | 0.166 | 0.644 | 0.679 | **overlaps — unusable** |
+
+Full comparison against the incumbent at the unchanged 0.8 threshold:
+
+| | precision | recall | F1 | missed synonyms |
+|---|---|---|---|---|
+| `gte-large-en` (endpoint) | 1.00 | **1.00** | **1.00** | 0 |
+| `all-MiniLM-L6-v2` (in-process) | 1.00 | 0.33 | 0.50 | **4 of 6** |
+
+So the endpoint path is not merely lighter — with `gte-large-en` it is *more
+accurate than the model it replaces*, which is why the thresholds needed no
+retuning. `bge-large-en` would silently report almost nothing: its synonym mean
+(0.77) sits below the 0.8 cut. Aggregate **0.9594**.
+
+### A correction to my own harness
+
+The first version scored `agreement` — Jaccard overlap with the incumbent — at
+weight 0.30, and printed **"DO NOT SWAP: models disagree about meaning"**. That
+was wrong. The endpoint flagged all six known synonyms, the incumbent two, and
+`only_local` was empty: a strict superset, correct on every labelled pair. Scoring
+against the incumbent treats it as ground truth when it is the thing being
+replaced. Since the probe pairs are labelled, accuracy is now measured against the
+labels (`labelled_accuracy`, weight 0.35) and incumbent overlap is reported as
+context. The verdict logic also considers direction, so "more sensitive with no
+false positives" reads as an improvement rather than a disagreement.
+
+## Deliberately not done
+
+The heavy members belong in a separate `pitfalls-local` extra, leaving `pitfalls`
+as nltk-only. I implemented that and reverted it: with `--frozen`, uv reads extras
+from `uv.lock`, not `pyproject.toml`, so a new extra name needs a re-lock — and a
+full re-resolve fails outright, because torch 2.14 depends on a
+`cuda-toolkit[cublas]==13.0.3` that does not exist, for the Python >= 3.15 end of
+`requires-python`. Verified pre-existing against an untouched baseline: the
+committed lock predates those releases. Not worth risking `uv.lock` (which I
+poisoned with proxy URLs once already this release) for a cosmetic rename,
+especially as the goal is met regardless — the endpoint path needs no extra at
+all. Documented in `pyproject.toml` as one job.
+
+## Modified files
+
+- `src/back/core/external/pitfalls/embedders.py` (new)
+- `src/back/core/external/pitfalls/runner.py`
+- `src/back/core/external/pitfalls/PitfallsService.py`
+- `src/back/core/external/pitfalls/utils.py`
+- `src/shared/config/LLMTarget.py`
+- `pyproject.toml` (comment only — the extra is unchanged)
+- `.env.example`
+- `tests/units/ontology/test_pitfalls_embedders.py` (new, 21)
+- `tests/eval/run_pitfalls_embedders.py` (new)
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5132 passed, 0 failed,
+306 skipped**.
+
+`uv.lock` untouched, no proxy URLs, and `uv sync --frozen --no-dev --extra
+lakebase` (what the Dockerfile runs) still exits 0.

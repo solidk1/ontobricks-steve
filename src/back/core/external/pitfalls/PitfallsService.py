@@ -111,15 +111,19 @@ class PitfallsService:
         """Serialize *graph* to a temp TTL file then run pitfall analysis.
 
         Returns a dict with keys: metadata, selected_pitfalls, results, grouped_results.
-        Raises ImportError if the pitfalls optional deps are missing.
+        Structural, logical and naming checks need nothing beyond the base
+        install. The four semantic checks need an embedder — an endpoint via
+        ``ONTOBRICKS_EMBEDDING_MODEL``, or the ``pitfalls-local`` extra — and the
+        WordNet-based checks need the ``pitfalls`` extra plus its corpora. Each
+        raises for itself, so the rest still run.
         Raises ValueError for unknown pattern IDs.
         """
         from back.core.external.pitfalls.runner import OntologyPatternToolkit, _DEPS_AVAILABLE
 
         if not _DEPS_AVAILABLE:
             raise ImportError(
-                "Pitfall detection requires optional dependencies. "
-                "Install with: pip install .[pitfalls]"
+                "Pitfall detection requires numpy, which should be present in "
+                "any working install."
             )
 
         if patterns is None:

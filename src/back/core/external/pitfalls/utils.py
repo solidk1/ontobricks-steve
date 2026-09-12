@@ -72,9 +72,15 @@ def ensure_nltk_resource(resource_path: str, download_name: str) -> None:
     that it had. It now re-checks and raises something that names the corpus and
     how to pre-seed it.
     """
-    import nltk  # optional dep — only needed for semantic checks
-
     from back.core.errors import InfrastructureError
+
+    try:
+        import nltk
+    except ImportError as exc:  # the WordNet checks only
+        raise InfrastructureError(
+            "The WordNet-based pitfall checks need the 'pitfalls' extra",
+            detail="uv sync --extra pitfalls",
+        ) from exc
 
     _assert_safe_nltk_resource(resource_path)
     try:
