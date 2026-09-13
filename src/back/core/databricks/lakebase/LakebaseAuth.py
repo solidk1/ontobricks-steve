@@ -378,7 +378,21 @@ class LakebaseAuth:
 #: across a config reload) does not hand back a stale object.
 _defaults: dict = {}
 
+#: Host suffixes that mean "Azure Database for PostgreSQL", across clouds.
+#:
+#: This was a single global-cloud string, so an Azure China host
+#: (``*.postgres.database.chinacloudapi.cn``) matched nothing and the inference
+#: below fell through to ``lakebase`` — presenting a Databricks Lakebase JWT to
+#: Azure Postgres, which fails in a way that looks like a credential problem
+#: rather than a wrong-cloud one. Sourced from the same table the token audience
+#: uses, so the two cannot drift apart.
 AZURE_PG_SUFFIX = ".postgres.database.azure.com"
+
+
+def _azure_pg_suffixes() -> tuple[str, ...]:
+    from back.core.postgres.EntraCredential import PG_SCOPE_BY_HOST_SUFFIX
+
+    return tuple(PG_SCOPE_BY_HOST_SUFFIX)
 
 
 def resolve_pg_auth_mode() -> str:
@@ -392,16 +406,16 @@ def resolve_pg_auth_mode() -> str:
     * ``password`` — :class:`~back.core.postgres.PostgresAuth` with
       ``PGPASSWORD``.
 
-    Unset (or ``auto``) infers from ``PGHOST``: an
-    ``*.postgres.database.azure.com`` host means Azure Database for PostgreSQL,
-    which Lakebase auth cannot serve, so Entra is chosen. Anything else keeps
-    the previous Lakebase behaviour, so existing deployments are unaffected by
-    this seam being introduced.
+    Unset (or ``auto``) infers from ``PGHOST``: an Azure Database for PostgreSQL
+    host in **any** Azure cloud means Entra, since Lakebase auth cannot serve it.
+    Anything else keeps the previous Lakebase behaviour, so existing deployments
+    are unaffected by this seam being introduced.
     """
     explicit = (os.environ.get("ONTOBRICKS_PG_AUTH") or "").strip().lower()
     if explicit in ("lakebase", "entra", "password"):
         return explicit
-    if (os.environ.get("PGHOST") or "").strip().lower().endswith(AZURE_PG_SUFFIX):
+    host = (os.environ.get("PGHOST") or "").strip().lower()
+    if host.endswith(_azure_pg_suffixes()):
         return "entra"
     return "lakebase"
 

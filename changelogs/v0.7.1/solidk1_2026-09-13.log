@@ -1,0 +1,107 @@
+# Azure China (portal.azure.cn) support
+
+## Context
+
+Requested: deploy to Azure China, with its own resource group, Azure Database for
+PostgreSQL and supporting resources.
+
+Azure China is a **separate cloud**, not a region — its own ARM, Entra authority,
+data-plane domains and accounts. Two values were hardcoded to the global cloud,
+and both would have failed in a way that pointed at the wrong culprit.
+
+## The two real blockers
+
+1. **`OSSRDBMS_SCOPE`** — the Entra audience for Azure Database for PostgreSQL,
+   fixed at `ossrdbms-aad.database.windows.net`. Azure China's is
+   `ossrdbms-aad.database.chinacloudapi.cn`. Request the wrong one and the token is
+   rejected at connection time, which reads as a bad credential rather than a
+   wrong-cloud one.
+
+   Worth recording: the audience is **not** derivable by pattern from the server
+   name. The global server is `*.postgres.database.azure.com` while its audience is
+   `database.windows.net` — different domains. It is a per-cloud constant, which is
+   why this is a lookup table.
+
+2. **`AZURE_PG_SUFFIX`** — a single global string used to *infer* the auth mode
+   from `PGHOST`. A `*.postgres.database.chinacloudapi.cn` host matched nothing and
+   fell through to `lakebase`, presenting a Databricks Lakebase JWT to Azure
+   Postgres. Same misleading symptom.
+
+Both now resolve from one table keyed on the host suffix
+(`PG_SCOPE_BY_HOST_SUFFIX`), covering global, China and US Gov, with
+`ONTOBRICKS_PG_TOKEN_SCOPE` as an override. **Setting `PGHOST` is therefore
+sufficient** — no scope variable — and `resolve_pg_auth_mode` imports the same
+table rather than keeping its own copy, so the two cannot drift.
+
+## What needed no change
+
+- **Entra identity.** `DefaultAzureCredential` reads `AZURE_AUTHORITY_HOST`
+  itself, so the overlay sets it and the code is untouched.
+- **The image.** A plain ASGI process; it does not know which cloud it runs in.
+- **The manifests' structure.** `overlays/china/` is a kustomize overlay patching
+  only endpoints. Single replica, `Recreate`, workload identity, probes and the
+  security context are inherited, because they are properties of the application,
+  not of a cloud — forking them per cloud would mean the next person fixing one
+  finds only one of two copies.
+
+## Added
+
+- `deploy/azure/k8s/overlays/china/` — `kustomization.yaml`,
+  `configmap-china.yaml` (China Postgres host, `login.chinacloudapi.cn` authority),
+  `deployment-china.yaml` (`*.azurecr.cn` image), and a README.
+- The README carries full provisioning: `az cloud set --name AzureChinaCloud`,
+  resource group, ACR, PostgreSQL Flexible Server with Entra-only auth
+  (`--password-auth Disabled`), AKS with OIDC issuer and workload identity, the
+  managed identity plus federated credential, `pgaadauth_create_principal` and
+  `GRANT CREATE ON DATABASE` (the app creates its own schemas), and a
+  pre-deploy check that prints the resolved audience and auth mode from a given
+  `PGHOST`.
+
+## Tests
+
+- `tests/units/postgres/test_sovereign_clouds.py` (new, 23) — per-cloud audience
+  selection, distinctness (a copy-paste error here is invisible until a connection
+  is attempted), the override, case/whitespace handling, that `EntraCredential`
+  picks up the resolved scope, and that auth-mode inference yields `entra` in every
+  Azure cloud while a non-Azure host still yields `lakebase`. One test exists purely
+  to record that the audience is *not* a pattern on the host, since that is
+  counter-intuitive enough to invite a "simplification".
+  **Controls: hardcoding the global scope fails 4; restoring the single suffix fails 2.**
+- `tests/units/deploy/test_aks_manifests.py` — `TestChinaOverlay` (10) asserts the
+  overlay builds on the base, patches rather than re-declares, overrides **no**
+  structural field, and that no global-cloud endpoint is configured.
+
+Two of my own test bugs, recorded because both were the assertion being wrong
+rather than the code:
+
+- I asserted the host's domain appears in its audience. It does not, by design —
+  that is the point above. Replaced with distinctness plus well-formedness, and a
+  test that documents the non-relationship.
+- The "no global endpoint" check grepped raw file text and failed on a comment
+  reading *"in China it is `*.databricks.azure.cn`, **not** `*.azuredatabricks.net`"*.
+  A comment saying "not X" is exactly what belongs there; it now inspects parsed
+  ConfigMap values and container images.
+
+## Explicitly not verified
+
+I have no Azure China access — `AzureChinaCloud` is registered in the CLI but
+inactive, and every logged-in subscription is global. A global Entra identity
+cannot sign into Azure China, so nothing here was tested end to end. The README
+lists what to confirm first: the audience value, whether AKS workload identity is
+available (feature parity lags, with `ONTOBRICKS_PG_AUTH=password` as the
+documented fallback), and region availability. The override exists so a wrong
+audience is a ConfigMap edit, not a code change.
+
+## Modified files
+
+- `src/back/core/postgres/EntraCredential.py`
+- `src/back/core/databricks/lakebase/LakebaseAuth.py`
+- `deploy/azure/k8s/overlays/china/` (new, 4 files)
+- `deploy/azure/k8s/README.md`, `.env.example`, `documentation/deployment.md`
+- `tests/units/postgres/test_sovereign_clouds.py` (new)
+- `tests/units/deploy/test_aks_manifests.py`
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5204 passed, 0 failed,
+306 skipped**.

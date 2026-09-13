@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ontobricks
+data:
+  # Azure China Postgres lives under .postgres.database.chinacloudapi.cn.
+  # Nothing else needs telling: the Entra token audience is derived from this
+  # suffix (back/core/postgres/EntraCredential.py) and so is the auth-mode
+  # inference, so both pick the China values automatically.
+  PGHOST: "REPLACE.postgres.database.chinacloudapi.cn"
+  PGPORT: "5432"
+  PGDATABASE: "ontobricks"
+  PGUSER: "REPLACE_WITH_MANAGED_IDENTITY_NAME"
+  PGSSLMODE: "require"
+  ONTOBRICKS_PG_AUTH: "entra"
+  ONTOBRICKS_PG_SCHEMA: "ontobricks_registry"
+
+  # Entra in Azure China is a different authority. DefaultAzureCredential reads
+  # this variable itself, which is why no code change was needed for the identity
+  # side — only for the Postgres token audience.
+  AZURE_AUTHORITY_HOST: "https://login.chinacloudapi.cn/"
+
+  # Azure Databricks in China is *.databricks.azure.cn, not *.azuredatabricks.net.
+  # Both are optional; leave empty to run without Databricks entirely.
+  DATABRICKS_HOST: ""
+  ONTOBRICKS_OIDC_HOST: ""
+  ONTOBRICKS_OIDC_CLIENT_ID: ""
+  ONTOBRICKS_OIDC_REDIRECT_URI: ""
+
+  ONTOBRICKS_LLM_BASE_URL: ""
+  ONTOBRICKS_LLM_MODEL: ""
+  ONTOBRICKS_EMBEDDING_MODEL: ""

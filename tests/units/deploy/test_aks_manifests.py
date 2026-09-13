@@ -203,3 +203,111 @@ class TestKustomization:
 
     def test_namespace_is_pinned(self):
         assert _load("kustomization.yaml")["namespace"] == "ontobricks"
+
+
+class TestChinaOverlay:
+    """Azure China is an overlay, not a second copy of the manifests.
+
+    The structural constraints (single replica, Recreate, workload identity,
+    probes, security context) are correctness properties of the *application*, not
+    of a cloud. Forking the manifests per cloud would mean the next person fixing
+    one of those has two places to fix and will find one.
+    """
+
+    _CHINA = _K8S / "overlays" / "china"
+
+    def test_the_overlay_builds_on_the_base(self):
+        kust = yaml.safe_load((self._CHINA / "kustomization.yaml").read_text())
+        assert kust["resources"] == ["../.."], (
+            "the overlay must reference the base, not restate it"
+        )
+
+    def test_it_patches_rather_than_replaces(self):
+        kust = yaml.safe_load((self._CHINA / "kustomization.yaml").read_text())
+        assert "patches" in kust
+        assert "namespace.yaml" not in str(kust), "no base resource is re-declared"
+
+    def test_no_structural_field_is_overridden(self):
+        """Replicas, strategy and the workload-identity label must come from the
+        base. Overriding them here is how the constraint gets lost for one cloud."""
+        patch = yaml.safe_load((self._CHINA / "deployment-china.yaml").read_text())
+        spec = patch["spec"]
+        assert "replicas" not in spec
+        assert "strategy" not in spec
+        labels = spec.get("template", {}).get("metadata", {}).get("labels", {})
+        assert "azure.workload.identity/use" not in labels
+
+    def test_postgres_host_is_the_china_domain(self):
+        cm = yaml.safe_load((self._CHINA / "configmap-china.yaml").read_text())["data"]
+        assert cm["PGHOST"].endswith(".postgres.database.chinacloudapi.cn")
+
+    def test_the_host_drives_the_right_token_audience(self):
+        """The whole point of deriving the audience from PGHOST: this overlay sets
+        no scope variable, and must still get the China audience."""
+        from back.core.postgres.EntraCredential import (
+            OSSRDBMS_SCOPE,
+            resolve_pg_token_scope,
+        )
+
+        cm = yaml.safe_load((self._CHINA / "configmap-china.yaml").read_text())["data"]
+        assert "ONTOBRICKS_PG_TOKEN_SCOPE" not in cm
+        scope = resolve_pg_token_scope(cm["PGHOST"])
+        assert scope != OSSRDBMS_SCOPE
+        assert "chinacloudapi.cn" in scope
+
+    def test_the_host_drives_the_right_auth_mode(self, monkeypatch):
+        cm = yaml.safe_load((self._CHINA / "configmap-china.yaml").read_text())["data"]
+        monkeypatch.setenv("PGHOST", cm["PGHOST"])
+        monkeypatch.delenv("ONTOBRICKS_PG_AUTH", raising=False)
+        from back.core.databricks.lakebase.LakebaseAuth import resolve_pg_auth_mode
+
+        assert resolve_pg_auth_mode() == "entra"
+
+    def test_entra_authority_is_the_china_one(self):
+        cm = yaml.safe_load((self._CHINA / "configmap-china.yaml").read_text())["data"]
+        assert cm["AZURE_AUTHORITY_HOST"] == "https://login.chinacloudapi.cn/"
+
+    def test_registry_is_a_china_registry(self):
+        patch = (self._CHINA / "deployment-china.yaml").read_text()
+        assert ".azurecr.cn/" in patch
+        assert ".azurecr.io/" not in patch
+
+    def test_no_global_cloud_endpoint_is_configured(self):
+        """Checks configured *values*, not prose.
+
+        An earlier version grepped the raw file and failed on a comment that read
+        "Databricks in China is *.databricks.azure.cn, **not**
+        *.azuredatabricks.net" — a comment saying "not X" is exactly what should
+        be there, so matching text was the wrong test.
+        """
+        values: list[str] = []
+        for f in self._CHINA.glob("*.yaml"):
+            for doc in yaml.safe_load_all(f.read_text()):
+                if not doc:
+                    continue
+                if doc.get("kind") == "ConfigMap":
+                    values += [str(v) for v in doc["data"].values()]
+                elif doc.get("kind") == "Deployment":
+                    for c in doc["spec"]["template"]["spec"]["containers"]:
+                        values.append(str(c.get("image", "")))
+
+        assert values, "nothing was inspected; the parse found no values"
+        for global_only in (
+            "postgres.database.azure.com",
+            "login.microsoftonline.com",
+            ".azurecr.io/",
+            "azuredatabricks.net",
+        ):
+            offenders = [v for v in values if global_only in v]
+            assert not offenders, (
+                f"{global_only} is not reachable from Azure China: {offenders}"
+            )
+
+    def test_still_ships_no_secret(self):
+        kinds = [
+            doc.get("kind")
+            for f in self._CHINA.glob("*.yaml")
+            for doc in yaml.safe_load_all(f.read_text())
+            if doc
+        ]
+        assert "Secret" not in kinds

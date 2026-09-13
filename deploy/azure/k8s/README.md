@@ -105,6 +105,13 @@ expose it. Pick one:
   must match whatever hostname you land on, and the Databricks app registration
   must list that exact URI.
 
+## Other Azure clouds
+
+`overlays/china/` deploys the same base to Azure China (portal.azure.cn), which is
+a separate cloud with its own Entra authority and data-plane domains. It patches
+only the endpoints; every structural constraint above is inherited. See its README
+for what needed a code change and what to verify first.
+
 ## Decommissioning the Container Apps deployment
 
 The earlier deployment (`ontobricks-app` in `ontobricks-steve-rg`) is independent.

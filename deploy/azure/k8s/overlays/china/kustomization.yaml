@@ -1,0 +1,17 @@
+# Azure China (portal.azure.cn) — an overlay, not a copy.
+#
+# Everything structural (replicas 1, Recreate, workload identity, probes,
+# security context) comes from ../.. and is shared. Only the endpoints differ,
+# because Azure China is a separate cloud with its own ARM, Entra and data-plane
+# domains.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../..
+
+# The ConfigMap in the base is global-cloud shaped; this replaces just the keys
+# that differ. Values marked REPLACE are yours to fill.
+patches:
+  - path: configmap-china.yaml
+  - path: deployment-china.yaml

@@ -16,6 +16,12 @@ identity** in a deployment and the developer's ``az login`` session locally, so
 one code path covers both and no database secret is ever stored.
 
 Set ``AZURE_CLIENT_ID`` only for a *user-assigned* managed identity.
+
+Sovereign clouds (Azure China, US Gov) need two things and no code change:
+``AZURE_AUTHORITY_HOST``, which ``DefaultAzureCredential`` reads itself, and the
+right token audience — derived from the ``PGHOST`` suffix by
+:func:`resolve_pg_token_scope`, since the audience differs per cloud and is not a
+pattern on the server name.
 """
 
 from __future__ import annotations
@@ -29,8 +35,54 @@ from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Audience for Azure Database for PostgreSQL / MySQL Entra authentication.
-OSSRDBMS_SCOPE = "https://ossrdbms-aad.database.windows.net/.default"
+#: Entra token audience for Azure Database for PostgreSQL / MySQL, per cloud.
+#:
+#: The audience is **not** the same in every Azure cloud, and it is not derivable
+#: from the server name by pattern — it is a fixed per-cloud constant. Getting it
+#: wrong yields an ``AADSTS500011``-style rejection at connection time, which
+#: reads as a credential problem rather than a wrong-cloud one.
+#:
+#: Keyed by the PGHOST suffix so a sovereign deployment needs no extra
+#: configuration: the host already says which cloud it is in.
+PG_SCOPE_BY_HOST_SUFFIX: dict[str, str] = {
+    ".postgres.database.azure.com": (
+        "https://ossrdbms-aad.database.windows.net/.default"
+    ),
+    ".postgres.database.chinacloudapi.cn": (
+        "https://ossrdbms-aad.database.chinacloudapi.cn/.default"
+    ),
+    ".postgres.database.usgovcloudapi.net": (
+        "https://ossrdbms-aad.database.usgovcloudapi.net/.default"
+    ),
+}
+
+#: Audience for the global cloud, and the default when the host is unrecognised.
+OSSRDBMS_SCOPE = PG_SCOPE_BY_HOST_SUFFIX[".postgres.database.azure.com"]
+
+#: Escape hatch. Set it when a cloud is not in the table above, or when the
+#: audience for one changes before this table does.
+ENV_TOKEN_SCOPE = "ONTOBRICKS_PG_TOKEN_SCOPE"
+
+
+def resolve_pg_token_scope(host: str = "") -> str:
+    """The Entra audience to request for *host*.
+
+    Order: an explicit ``ONTOBRICKS_PG_TOKEN_SCOPE``, then the host suffix, then
+    the global default. The default is deliberate rather than an error — an
+    unrecognised host is usually a self-hosted Postgres behind a CNAME, where the
+    caller has set the scope explicitly or is not using Entra at all.
+    """
+    import os
+
+    override = (os.environ.get(ENV_TOKEN_SCOPE) or "").strip()
+    if override:
+        return override
+
+    hostname = (host or os.environ.get("PGHOST") or "").strip().lower()
+    for suffix, scope in PG_SCOPE_BY_HOST_SUFFIX.items():
+        if hostname.endswith(suffix):
+            return scope
+    return OSSRDBMS_SCOPE
 
 #: Re-mint this many seconds before the token's own expiry. Generous, because a
 #: token that expires mid-handshake fails the connection outright.
@@ -40,16 +92,20 @@ REFRESH_MARGIN_S = 300
 class EntraCredential:
     """Mints and caches Entra access tokens for Postgres authentication."""
 
-    def __init__(self, credential: Any | None = None, scope: str = OSSRDBMS_SCOPE):
+    def __init__(self, credential: Any | None = None, scope: str = ""):
         """Args:
         credential: An ``azure.identity`` credential. Defaults to
             ``DefaultAzureCredential``, constructed lazily so that importing
             this module never requires Azure configuration (tests and
             non-Azure deployments import it freely).
-        scope: Token audience. Only overridden in tests.
+
+            ``DefaultAzureCredential`` reads ``AZURE_AUTHORITY_HOST`` itself, so
+            a sovereign cloud needs that variable set but no code change here.
+        scope: Token audience. Resolved from ``PGHOST`` when empty, which is what
+            makes a sovereign deployment work without extra configuration.
         """
         self._credential = credential
-        self._scope = scope
+        self._scope = scope or resolve_pg_token_scope()
         self._token: str = ""
         self._expires_on: float = 0.0
         self._lock = threading.Lock()

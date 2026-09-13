@@ -129,7 +129,8 @@ credential differs.
 | `lakebase` | Short-lived JWT minted from the Databricks Postgres API | Databricks Lakebase. It is a PostgreSQL endpoint like any other; only the credential differs. |
 | `password` | Plain `PGPASSWORD` | Self-hosted, RDS, local, anything else. |
 
-Left unset, the mode is inferred: a `*.postgres.database.azure.com` host implies
+Left unset, the mode is inferred: an Azure Database for PostgreSQL host in any
+Azure cloud (`.azure.com`, `.chinacloudapi.cn`, `.usgovcloudapi.net`) implies
 `entra`, otherwise `lakebase`. Set it explicitly in production.
 
 The retired `LAKEBASE_SCHEMA` / `LAKEBASE_DATABASE` / `LAKEBASE_PROJECT` /

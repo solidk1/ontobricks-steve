@@ -1,0 +1,11 @@
+# Azure China container registries are *.azurecr.cn.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ontobricks
+spec:
+  template:
+    spec:
+      containers:
+        - name: ontobricks
+          image: REPLACE_REGISTRY.azurecr.cn/ontobricks:REPLACE_TAG
