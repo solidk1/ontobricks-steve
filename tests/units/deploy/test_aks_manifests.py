@@ -332,6 +332,25 @@ class TestChinaOverlay:
             "the China overlay should carry a real client id (a GUID)"
         )
 
+    def test_every_patch_names_its_target(self):
+        """Without an explicit target, kustomize matches on kind/name *and
+        namespace*. The base sets `namespace: ontobricks` and these patch files
+        declare none, so matching fails with "no matches for Id ...[noNs]" —
+        a build error, not a silent one, but an obscure one."""
+        kust = yaml.safe_load((self._CHINA / "kustomization.yaml").read_text())
+        for patch in kust["patches"]:
+            assert "target" in patch, f"{patch['path']} has no target"
+            assert {"kind", "name"} <= set(patch["target"])
+
+    def test_base_does_not_inject_into_selectors(self):
+        """`commonLabels` writes into spec.selector, which is immutable after
+        creation — a later edit to the label block would make the Deployment
+        un-updatable. Selectors are declared explicitly in their own files."""
+        kust = yaml.safe_load((_K8S / "kustomization.yaml").read_text())
+        assert "commonLabels" not in kust, "deprecated, and it mutates selectors"
+        for entry in kust.get("labels", []):
+            assert entry.get("includeSelectors") is False
+
     def test_every_overlay_patch_is_listed(self):
         """A patch file on disk but absent from the patch list is silently
         ignored: the deployment comes up with base values and no error."""

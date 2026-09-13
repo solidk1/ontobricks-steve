@@ -13,7 +13,20 @@ resources:
 # The base is global-cloud shaped; these patch only what differs for China —
 # endpoints, the registry domain, and the managed identity, which is
 # per-deployment rather than per-cloud.
+# Each patch names its target explicitly. Without a `target`, kustomize matches on
+# apiVersion/kind/name *and namespace* — and the base sets `namespace: ontobricks`
+# while these patch files declare none, which fails with
+# "no matches for Id ...[noNs]". An explicit target removes that coupling.
 patches:
   - path: configmap-china.yaml
+    target:
+      kind: ConfigMap
+      name: ontobricks
   - path: deployment-china.yaml
+    target:
+      kind: Deployment
+      name: ontobricks
   - path: serviceaccount-china.yaml
+    target:
+      kind: ServiceAccount
+      name: ontobricks

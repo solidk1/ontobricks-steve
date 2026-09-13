@@ -10,5 +10,11 @@ resources:
   - service.yaml
   - deployment.yaml
 
-commonLabels:
-  app.kubernetes.io/name: ontobricks
+# `labels`, not `commonLabels`: the latter is deprecated and, more importantly,
+# injects into `spec.selector` too. Selectors are immutable after creation, so a
+# later change to this block would make the Deployment un-updatable. The pod and
+# Service selectors are declared explicitly in their own files instead.
+labels:
+  - pairs:
+      app.kubernetes.io/name: ontobricks
+    includeSelectors: false
