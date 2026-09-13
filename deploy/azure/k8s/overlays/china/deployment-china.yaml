@@ -8,4 +8,4 @@ spec:
     spec:
       containers:
         - name: ontobricks
-          image: ontobrickscn.azurecr.cn/ontobricks:dbaeafcb
+          image: ontobrickscn.azurecr.cn/ontobricks:ec0edb09
