@@ -30,3 +30,27 @@ data:
   ONTOBRICKS_LLM_BASE_URL: ""
   ONTOBRICKS_LLM_MODEL: ""
   ONTOBRICKS_EMBEDDING_MODEL: ""
+
+  # Reaching the UI
+  # ---------------
+  # ONTOBRICKS_AUTH_ENABLED defaults to **true** and fails closed: with no OIDC
+  # configured above, every request lands on /access-denied. That default is
+  # correct -- a deployment that forgets to configure identity should be locked
+  # rather than wide open -- so it is deliberately NOT set here.
+  #
+  # Two ways forward:
+  #
+  #   1. Configure Databricks China OIDC in the block above
+  #      (hosts under databricks.azure.cn). This is the real answer for any
+  #      deployment more than one person uses.
+  #
+  #   2. For a private smoke test over a port-forward, set
+  #      ONTOBRICKS_AUTH_ENABLED to false on the running Deployment with
+  #      "kubectl set env", as an explicit operator action rather than a
+  #      committed default. Every request then runs as admin, so never do it on
+  #      anything reachable from outside the cluster. Reverse it by setting the
+  #      value back to true.
+  #
+  # ONTOBRICKS_SECURE_COOKIES is likewise left off, because a port-forward serves
+  # plain HTTP and secure cookies would never be sent. /health reports that as an
+  # error, which is correct guidance: turn it on once the app is behind TLS.
