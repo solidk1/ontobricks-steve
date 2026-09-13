@@ -7,10 +7,10 @@ data:
   # Nothing else needs telling: the Entra token audience is derived from this
   # suffix (back/core/postgres/EntraCredential.py) and so is the auth-mode
   # inference, so both pick the China values automatically.
-  PGHOST: "REPLACE.postgres.database.chinacloudapi.cn"
+  PGHOST: "ontobricks-pg-cn.postgres.database.chinacloudapi.cn"
   PGPORT: "5432"
   PGDATABASE: "ontobricks"
-  PGUSER: "REPLACE_WITH_MANAGED_IDENTITY_NAME"
+  PGUSER: "ontobricks-app-identity"
   PGSSLMODE: "require"
   ONTOBRICKS_PG_AUTH: "entra"
   ONTOBRICKS_PG_SCHEMA: "ontobricks_registry"

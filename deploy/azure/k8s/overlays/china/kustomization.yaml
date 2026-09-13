@@ -10,8 +10,10 @@ kind: Kustomization
 resources:
   - ../..
 
-# The ConfigMap in the base is global-cloud shaped; this replaces just the keys
-# that differ. Values marked REPLACE are yours to fill.
+# The base is global-cloud shaped; these patch only what differs for China —
+# endpoints, the registry domain, and the managed identity, which is
+# per-deployment rather than per-cloud.
 patches:
   - path: configmap-china.yaml
   - path: deployment-china.yaml
+  - path: serviceaccount-china.yaml

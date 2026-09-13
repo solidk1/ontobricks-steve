@@ -12,7 +12,29 @@
 #
 # `az acr build` runs the build inside ACR, so no local Docker daemon is needed.
 
-FROM python:3.11-slim-bookworm
+# ── Base images, parameterised for networks that cannot reach Docker Hub ─────
+# Azure China cannot: registry-1.docker.io times out from both the ACR build
+# agent and ACR's own server-side import (HTTP 424). MCR is mirrored there and
+# carries the Docker Hub library images, so a China build imports the identical
+# base into its own registry first and points these at it:
+#
+#   az acr import -n <acr> -t base/python:3.11-slim-bookworm \
+#       --source mcr.microsoft.com/mirror/docker/library/python:3.11-slim-bookworm
+#   az acr import -n <acr> -t base/uv:0.5.11 --source ghcr.io/astral-sh/uv:0.5.11
+#   az acr build ... --build-arg BASE_IMAGE=<acr>.azurecr.cn/base/python:3.11-slim-bookworm \
+#                    --build-arg UV_IMAGE=<acr>.azurecr.cn/base/uv:0.5.11
+#
+# The defaults are the public images, so nothing changes for a global build.
+ARG BASE_IMAGE=python:3.11-slim-bookworm
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.5.11
+
+# uv arrives via a named stage rather than `COPY --from=${UV_IMAGE}`, because
+# ACR's classic builder does not expand an ARG inside a --from flag: it fails with
+# "invalid from flag value ${UV_IMAGE}". `FROM ${ARG}` is expanded, so naming the
+# stage here and copying from the name works on both builders.
+FROM ${UV_IMAGE} AS uvbin
+
+FROM ${BASE_IMAGE}
 
 # ── OS packages ─────────────────────────────────────────────────────────────
 #  * ca-certificates — TLS to Postgres, Databricks and the LLM provider. Also
@@ -30,7 +52,7 @@ RUN apt-get update \
 
 # uv, pinned. Copied from the official distroless image rather than curl|sh so
 # the build is reproducible and needs no network beyond the registry.
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+COPY --from=uvbin /uv /usr/local/bin/uv
 
 WORKDIR /app
 

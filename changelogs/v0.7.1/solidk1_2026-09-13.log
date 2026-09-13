@@ -105,3 +105,99 @@ audience is a ConfigMap edit, not a code change.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5204 passed, 0 failed,
 306 skipped**.
+
+# Azure China: provisioned, and three real parity gaps found
+
+The wiring in the entry above was untested — no Azure China access. With a China
+account signed in (`Databricks Mooncake Field Test`, chinanorth3), it was
+provisioned for real. Three things the documentation-based guesses got wrong.
+
+## 1. Docker Hub is unreachable from Azure China
+
+`FROM python:3.11-slim-bookworm` fails in the ACR build agent:
+
+    Get "https://registry-1.docker.io/v2/": request canceled while waiting for
+    connection (Client.Timeout exceeded while awaiting headers)
+
+And ACR's own **server-side** `az acr import` from Docker Hub fails too, with
+HTTP 424 Failed Dependency — so the usual "import it into your registry first"
+workaround does not work either, at least not from Docker Hub.
+
+What does work: **MCR's Docker Hub mirror**,
+`mcr.microsoft.com/mirror/docker/library/python:3.11-slim-bookworm`, which is the
+*identical* image, and `ghcr.io/astral-sh/uv` imports fine.
+
+`deploy/azure/Dockerfile` gained `BASE_IMAGE` and `UV_IMAGE` build args defaulting
+to the public images, so a global build is unchanged and China passes its ACR-local
+imports. Verified: the build succeeds in 2m33s, which also proves the build agent
+*can* reach Debian's apt mirrors and `files.pythonhosted.org`.
+
+A second issue surfaced doing this: `COPY --from=${UV_IMAGE}` fails on ACR's
+classic builder with *"invalid from flag value ${UV_IMAGE}"* — it does not expand
+an ARG inside a `--from` flag, though `FROM ${ARG}` is expanded. uv now arrives via
+a named stage (`FROM ${UV_IMAGE} AS uvbin`), which works on both builders.
+
+## 2. Entra-only PostgreSQL is rejected
+
+`--microsoft-entra-auth Enabled --password-auth Disabled` fails:
+
+    (MissingRequiredParameter) Parameter 'AdministratorLoginPassword' must be
+    specified.
+
+Azure China still demands a password admin even when disabling password auth. The
+server was created with both enabled and a random unused admin password (the app
+authenticates with an Entra token; the password is never used and is not recorded).
+The China README now documents this rather than the Entra-only form that works
+globally.
+
+## 3. CLI flag parity
+
+`az postgres flexible-server db create` takes `--name`, not `-d`, and
+`firewall-rule create` needs `--server-name`. Same class of drift as the global
+deployment hit earlier this release.
+
+## What the code changes bought
+
+The suffix-derived audience worked exactly as intended. Against the real server:
+
+    PGHOST=ontobricks-pg-cn.postgres.database.chinacloudapi.cn
+    audience  -> https://ossrdbms-aad.database.chinacloudapi.cn/.default
+    auth mode -> entra
+
+and a `psql` connection with a token for that audience **succeeded** —
+`connected as steve.shao@DatabricksTest.partner.onmschina.cn`, server 16.15. So the
+audience value guessed from documentation was right, and no configuration beyond
+`PGHOST` was needed.
+
+## Provisioned in ontobricks-cn-rg / chinanorth3
+
+| Resource | Name |
+|---|---|
+| Registry | `ontobrickscn.azurecr.cn` |
+| PostgreSQL 16 | `ontobricks-pg-cn.postgres.database.chinacloudapi.cn`, Entra + password auth, db `ontobricks` |
+| AKS | `ontobricks-aks-cn`, OIDC issuer + workload identity **both supported** |
+| Managed identity | `ontobricks-app-identity`, federated to `system:serviceaccount:ontobricks:ontobricks` |
+| Image | `ontobricks:dbaeafcb` |
+
+The identity is a Postgres principal via `pgaadauth_create_principal` with
+`CREATE ON DATABASE` (verified `true`), so the app can create its registry and
+graph schemas.
+
+## A design mistake I made and corrected
+
+I filled the real client id into the **shared** `serviceaccount.yaml`. That base is
+used by every overlay, so a global-cloud deploy from it would have authenticated as
+the China identity. Moved to `overlays/china/serviceaccount-china.yaml`; the base
+keeps a placeholder, and two tests now enforce the split — one that the base
+contains `REPLACE`, one that the overlay carries a real GUID.
+
+## Not done
+
+`kubectl apply -k` was not run. A hook blocks this agent from invoking `kubectl` at
+all, including `kustomize` and `--dry-run=client`, and I did not route around it.
+The overlay is filled in with real values and the command is in the README.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5207 passed, 0 failed,
+306 skipped**. 37 of those are the manifest suite.

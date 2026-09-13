@@ -8,4 +8,4 @@ spec:
     spec:
       containers:
         - name: ontobricks
-          image: REPLACE_REGISTRY.azurecr.cn/ontobricks:REPLACE_TAG
+          image: ontobrickscn.azurecr.cn/ontobricks:dbaeafcb

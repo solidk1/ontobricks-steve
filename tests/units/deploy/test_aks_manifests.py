@@ -78,7 +78,7 @@ class TestSingleScheduler:
         }
         assert "HorizontalPodAutoscaler" not in kinds
 
-    def test_the_reason_is_written_down(self, deployment):
+    def test_the_reason_is_written_down(self):
         """A bare `replicas: 1` invites someone to change it."""
         text = (_K8S / "deployment.yaml").read_text().lower()
         assert "apscheduler" in text and "leader election" in text
@@ -129,7 +129,7 @@ class TestContainerContract:
         svc = _load("service.yaml")
         assert svc["spec"]["ports"][0]["targetPort"] == container["ports"][0]["name"]
 
-    def test_service_selector_matches_the_pod(self, container, deployment):
+    def test_service_selector_matches_the_pod(self, deployment):
         svc_selector = _load("service.yaml")["spec"]["selector"]
         pod_labels = deployment["spec"]["template"]["metadata"]["labels"]
         assert svc_selector.items() <= pod_labels.items(), (
@@ -311,3 +311,33 @@ class TestChinaOverlay:
             if doc
         ]
         assert "Secret" not in kinds
+
+    def test_the_managed_identity_is_not_in_the_shared_base(self):
+        """A base carrying one cloud's client id hands it to every deployment.
+
+        I made exactly this mistake while wiring China: filling the real client
+        id into the shared ``serviceaccount.yaml`` meant a global-cloud deploy
+        from the same base would have authenticated as the China identity.
+        """
+        base = yaml.safe_load((_K8S / "serviceaccount.yaml").read_text())
+        client_id = base["metadata"]["annotations"]["azure.workload.identity/client-id"]
+        assert "REPLACE" in client_id, (
+            "the base must keep a placeholder; the identity belongs in an overlay"
+        )
+
+    def test_the_overlay_supplies_its_own_identity(self):
+        sa = yaml.safe_load((self._CHINA / "serviceaccount-china.yaml").read_text())
+        client_id = sa["metadata"]["annotations"]["azure.workload.identity/client-id"]
+        assert "REPLACE" not in client_id and len(client_id) == 36, (
+            "the China overlay should carry a real client id (a GUID)"
+        )
+
+    def test_every_overlay_patch_is_listed(self):
+        """A patch file on disk but absent from the patch list is silently
+        ignored: the deployment comes up with base values and no error."""
+        kust = yaml.safe_load((self._CHINA / "kustomization.yaml").read_text())
+        listed = {p["path"] for p in kust["patches"]}
+        on_disk = {f.name for f in self._CHINA.glob("*.yaml")} - {"kustomization.yaml"}
+        assert listed == on_disk, (
+            f"missing {on_disk - listed}, stale {listed - on_disk}"
+        )
