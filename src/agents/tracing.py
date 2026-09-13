@@ -43,6 +43,25 @@ def setup_tracing(experiment_name: Optional[str] = None) -> bool:
     run without tracing).
     """
     global _TRACING_READY
+
+    # No destination, no tracing. MLflow otherwise falls back to a local store and
+    # tries to open a SQLite file, which on a container with a read-only root
+    # filesystem fails inside MLflow's *own* retry loop — ~100s of exponential
+    # backoff (1.5s, 3.1s, 6.3s … 51s) before the exception reaches the handler
+    # below. uvicorn does not serve until this returns, so it looked like a slow
+    # start and cost an AKS deployment seven SIGKILLs against its startup probe.
+    #
+    # Skipping is also the honest behaviour rather than a workaround: traces
+    # written to a file inside an ephemeral pod are discarded with the pod, so
+    # there was never anything to gain by continuing.
+    if not os.getenv("MLFLOW_TRACKING_URI", "").strip():
+        logger.info(
+            "MLFLOW_TRACKING_URI is not set — agent tracing disabled. Set it to "
+            "'databricks' or a tracking server URI to enable."
+        )
+        _TRACING_READY = False
+        return False
+
     try:
         import mlflow
 

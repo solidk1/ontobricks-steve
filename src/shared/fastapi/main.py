@@ -139,6 +139,7 @@ _PERM_BYPASS_PREFIXES = (
     # You cannot require a login in order to log in.
     "/auth/",
     "/health",
+    "/livez",
     "/docs",
     "/redoc",
     "/openapi.json",

@@ -1639,6 +1639,26 @@ def run_readiness_checks(settings: Settings | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/livez")
+async def liveness_check():
+    """Liveness probe — is this process serving? Touches nothing else.
+
+    Deliberately separate from ``/health``, which runs every dependency check
+    including live PostgreSQL and Databricks probes and can take many seconds.
+    Pointing a Kubernetes liveness probe at that endpoint means a slow *external*
+    dependency restarts a perfectly healthy app, and a restart cannot fix a
+    database that is far away — it makes the outage worse by adding cold starts.
+
+    This is also what a probe's default ``timeoutSeconds: 1`` can actually meet.
+    An AKS startup probe against ``/health`` failed with ``context deadline
+    exceeded`` and killed the container seven times before this existed.
+
+    ``/health`` remains the endpoint for operators and monitoring, where the
+    dependency detail is the point.
+    """
+    return {"status": "ok"}
+
+
 @router.get("/health")
 async def health_check(settings: Settings = Depends(get_settings)):
     """Readiness probe — returns ``200`` even when individual checks fail.

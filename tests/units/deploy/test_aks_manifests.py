@@ -140,16 +140,59 @@ class TestContainerContract:
 
 
 class TestProbes:
-    @pytest.mark.parametrize("probe", ["startupProbe", "livenessProbe", "readinessProbe"])
-    def test_probe_hits_health(self, container, probe):
-        assert container[probe]["httpGet"]["path"] == "/health"
+    """Probes must not depend on a database.
+
+    They pointed at ``/health``, which runs all 15 dependency checks including live
+    PostgreSQL and Databricks probes. On AKS the startup probe failed with
+    ``context deadline exceeded`` and the container was SIGKILLed seven times,
+    because a probe's ``timeoutSeconds`` defaults to **1 second** and that endpoint
+    cannot answer in one. Even with a longer timeout it is the wrong signal: a slow
+    database would restart a healthy app, and a restart cannot fix a distant
+    database.
+    """
+
+    _PROBES = ["startupProbe", "livenessProbe", "readinessProbe"]
+
+    @pytest.mark.parametrize("probe", _PROBES)
+    def test_probe_hits_the_dependency_free_endpoint(self, container, probe):
+        assert container[probe]["httpGet"]["path"] == "/livez", (
+            "/health runs live dependency checks and is not a probe target"
+        )
+
+    @pytest.mark.parametrize("probe", _PROBES)
+    def test_probe_sets_an_explicit_timeout(self, container, probe):
+        """The default is 1s. Inheriting it is how this broke."""
+        assert container[probe].get("timeoutSeconds", 1) > 1
+
+    def test_livez_exists_and_touches_nothing(self):
+        """A probe path that is not routed fails closed, restarting forever."""
+        from pathlib import Path
+
+        health = Path("src/shared/fastapi/health.py").read_text()
+        assert '@router.get("/livez")' in health
+        body = health[health.index('@router.get("/livez")'):]
+        body = body[: body.index('@router.get("/health")')]
+        for forbidden in ("Depends(", "run_blocking", "postgres", "databricks"):
+            assert forbidden not in body, (
+                f"/livez must not reference {forbidden}; it has to answer in <1s"
+            )
+
+    @pytest.mark.parametrize(
+        "module", ["main.py", "csrf.py", "timing.py"]
+    )
+    def test_livez_is_exempt_like_health(self, module):
+        """Unexempted, the probe gets a 302 to login or a CSRF rejection."""
+        from pathlib import Path
+
+        assert "/livez" in Path(f"src/shared/fastapi/{module}").read_text()
 
     def test_startup_probe_gives_the_app_time(self, container):
         p = container["startupProbe"]
         budget = p["periodSeconds"] * p["failureThreshold"]
-        assert budget >= 90, (
-            f"only {budget}s to start; the graph stack import is slow and liveness "
-            "would restart it into a loop"
+        assert budget >= 150, (
+            f"only {budget}s to start. MLflow's tracing setup retries a SQLite "
+            "connection with exponential backoff for ~100s when MLFLOW_TRACKING_URI "
+            "is unset, and uvicorn does not serve until that finishes"
         )
 
     def test_no_cpu_limit(self, container):

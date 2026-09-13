@@ -107,6 +107,11 @@ class TestSafeResult:
 
 class TestSetupTracing:
     def test_success(self, monkeypatch):
+        # A tracking URI is now required: without one, setup returns early rather
+        # than letting MLflow fall back to a local SQLite store, which on a
+        # read-only container filesystem burned ~100s in MLflow's own retry loop
+        # before failing. This test relied on the unconditional call.
+        monkeypatch.setenv("MLFLOW_TRACKING_URI", "databricks")
         tracing_mod._TRACING_READY = False
         mock_mlflow = MagicMock()
 

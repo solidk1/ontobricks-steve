@@ -16,7 +16,7 @@ from back.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_SKIP_PREFIXES = ("/static/", "/health", "/favicon.ico")
+_SKIP_PREFIXES = ("/static/", "/health", "/livez", "/favicon.ico")
 
 
 class RequestTimingMiddleware(BaseHTTPMiddleware):

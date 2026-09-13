@@ -27,6 +27,7 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _BYPASS_PREFIXES = (
     "/static/",
     "/health",
+    "/livez",
     "/docs",
     "/redoc",
     "/openapi.json",

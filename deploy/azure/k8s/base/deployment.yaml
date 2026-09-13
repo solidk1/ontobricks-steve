@@ -69,29 +69,40 @@ spec:
               # them turns a slow build into a timed-out one. Memory is capped
               # because a runaway graph should be killed, not swap the node.
               memory: 2Gi
-          # /health is anonymous by design (bypassed by PermissionMiddleware and
-          # CSRF) and always returns 200 -- the JSON `status` carries the detail.
-          # That is the right shape for a probe: one degraded dependency, such as
-          # an uninitialized registry, must not pull the pod out of rotation.
+          # Probes hit /livez, which answers without touching any dependency.
+          #
+          # They pointed at /health, which runs all 15 dependency checks including
+          # live PostgreSQL and Databricks probes. Two things went wrong: a probe's
+          # timeoutSeconds defaults to **1 second**, which that endpoint can never
+          # meet, so the startup probe failed with "context deadline exceeded" and
+          # the container was SIGKILLed seven times; and even with a longer timeout
+          # it is the wrong signal, because a slow database would restart a healthy
+          # app and a restart cannot fix a distant database.
+          #
+          # /health stays the endpoint for operators and monitoring, where the
+          # dependency detail is the whole point. Every probe below sets
+          # timeoutSeconds explicitly rather than inheriting the 1s default.
           startupProbe:
             httpGet:
-              path: /health
+              path: /livez
               port: http
-            # Generous: first start imports rdflib and the graph stack. Liveness
-            # does not begin until this passes, so a slow boot is not a restart
-            # loop.
+            # MLflow's tracing setup retries a SQLite connection with exponential
+            # backoff before giving up (~100s observed) when no MLFLOW_TRACKING_URI
+            # is set, and uvicorn does not serve until that finishes. This budget
+            # (5s x 40 = 200s) covers it; liveness does not start until it passes.
             periodSeconds: 5
-            failureThreshold: 30
+            timeoutSeconds: 5
+            failureThreshold: 40
           livenessProbe:
             httpGet:
-              path: /health
+              path: /livez
               port: http
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /health
+              path: /livez
               port: http
             periodSeconds: 10
             timeoutSeconds: 5
