@@ -116,7 +116,7 @@ markdown from it at runtime) and, for `PGSSLMODE=verify-full`, the Azure root CA
 > build; scaling to zero stops the scheduler entirely. On Azure Container Apps
 > that means `minReplicas: 1, maxReplicas: 1`; on Kubernetes, `replicas: 1` and
 > `strategy: Recreate` — the defaults of both violate this. See
-> `deploy/azure/k8s/` for AKS manifests that encode it.
+> `deploy/azure/k8s/base/` (plus `overlays/` per cloud) for AKS manifests that encode it.
 
 ### Authentication
 

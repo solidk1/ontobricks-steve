@@ -7,8 +7,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# ../../base, not ../.. — kustomize refuses a base whose directory *contains*
+# the overlay ("cycle detected: candidate root ... contains visited root ..."),
+# which is why base/ is a sibling of overlays/ rather than its parent.
 resources:
-  - ../..
+  - ../../base
 
 # The base is global-cloud shaped; these patch only what differs for China —
 # endpoints, the registry domain, and the managed identity, which is

@@ -76,7 +76,7 @@ More than one instance duplicates every scheduled build; scaling to zero stops
 the scheduler entirely. On Azure Container Apps that means
 `minReplicas: 1, maxReplicas: 1`; on Kubernetes, `replicas: 1` **and**
 `strategy: Recreate` (a `RollingUpdate` briefly runs two pods). The defaults of
-both violate this. `deploy/azure/k8s/` holds AKS manifests that encode it, guarded
+both violate this. `deploy/azure/k8s/base/` (plus `overlays/` per cloud) holds AKS manifests that encode it, guarded
 by `tests/units/deploy/test_aks_manifests.py`.
 
 **Lockfile, before any build.** `uv.lock` must reference

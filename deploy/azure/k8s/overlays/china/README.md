@@ -126,7 +126,6 @@ GRANT CREATE ON DATABASE ontobricks TO "ontobricks-app-identity";
 TAG=$(git rev-parse --short HEAD)
 az acr build -r $ACR -t ontobricks:$TAG -f deploy/azure/Dockerfile .
 
-# Fill in PGHOST, PGUSER and the image, and the client id in the base SA.
 cd deploy/azure/k8s/overlays/china
 kubectl --context $CLUSTER apply -k .
 kubectl --context $CLUSTER -n $NS create secret generic ontobricks \

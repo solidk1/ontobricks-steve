@@ -32,7 +32,9 @@ yaml = pytest.importorskip("yaml")
 
 pytestmark = pytest.mark.unit
 
-_K8S = Path(__file__).resolve().parents[3] / "deploy" / "azure" / "k8s"
+_K8S_ROOT = Path(__file__).resolve().parents[3] / "deploy" / "azure" / "k8s"
+_K8S = _K8S_ROOT / "base"
+_OVERLAYS = _K8S_ROOT / "overlays"
 
 
 def _load(name: str) -> dict:
@@ -187,6 +189,41 @@ class TestSecretsAreNotInTheRepo:
             ), f"{key} looks like a credential and belongs in the Secret"
 
 
+class TestLayout:
+    """The base must not contain the overlays.
+
+    Kustomize refuses a base whose directory contains the overlay root:
+
+        cycle detected: candidate root .../k8s contains visited root
+        .../k8s/overlays/china
+
+    The base lived at ``k8s/`` with overlays at ``k8s/overlays/`` for exactly one
+    commit, and every apply failed. It is a layout rule, not a style preference,
+    and nothing else catches it — the manifests are individually valid, and only
+    `kustomize build` sees the cycle.
+    """
+
+    def test_base_is_a_sibling_of_overlays_not_a_parent(self):
+        assert _K8S.name == "base"
+        assert _OVERLAYS.parent == _K8S.parent
+        assert _OVERLAYS not in _K8S.parents
+        assert _K8S not in _OVERLAYS.parents
+
+    def test_no_overlay_lives_inside_the_base(self):
+        assert not list(_K8S.rglob("kustomization.yaml"))[1:], (
+            "the base directory must hold exactly one kustomization.yaml"
+        )
+
+    def test_overlays_reference_the_base_by_its_real_path(self):
+        for kust in _OVERLAYS.glob("*/kustomization.yaml"):
+            resources = yaml.safe_load(kust.read_text())["resources"]
+            for r in resources:
+                resolved = (kust.parent / r).resolve()
+                assert resolved == _K8S.resolve(), (
+                    f"{kust.parent.name} points at {resolved}, not the base"
+                )
+
+
 class TestKustomization:
     def test_every_manifest_is_included(self):
         kust = _load("kustomization.yaml")
@@ -214,12 +251,13 @@ class TestChinaOverlay:
     one of those has two places to fix and will find one.
     """
 
-    _CHINA = _K8S / "overlays" / "china"
+    _CHINA = _OVERLAYS / "china"
 
     def test_the_overlay_builds_on_the_base(self):
         kust = yaml.safe_load((self._CHINA / "kustomization.yaml").read_text())
-        assert kust["resources"] == ["../.."], (
-            "the overlay must reference the base, not restate it"
+        assert kust["resources"] == ["../../base"], (
+            "the overlay must reference the base, not restate it — and by "
+            "../../base, since a base that contains the overlay is a cycle"
         )
 
     def test_it_patches_rather_than_replaces(self):

@@ -201,3 +201,68 @@ The overlay is filled in with real values and the command is in the README.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5207 passed, 0 failed,
 306 skipped**. 37 of those are the manifest suite.
+
+# Fix the kustomize cycle: base must be a sibling of overlays
+
+## The error
+
+    error: accumulating resources: accumulation err='accumulating resources from
+    '../..': '.../deploy/azure/k8s' must resolve to a file': cycle detected:
+    candidate root '.../deploy/azure/k8s' contains visited root
+    '.../deploy/azure/k8s/overlays/china'
+
+Kustomize refuses a base whose directory *contains* the overlay root. The base was
+at `k8s/` with the overlay at `k8s/overlays/china/`, so `../..` from the overlay
+resolved to a root containing the overlay itself.
+
+I noticed the nesting when writing the overlay, thought "kustomize handles that",
+and moved on. It does not. Every `apply -k` failed, and because the failed apply
+never created the namespace, the three follow-up commands failed too — one root
+cause, four errors.
+
+## Changes
+
+1. `deploy/azure/k8s/base/` — the six base manifests moved there via `git mv`, so
+   `base/` is a **sibling** of `overlays/` rather than its parent. The overlay
+   references `../../base`.
+2. `tests/units/deploy/test_aks_manifests.py` — `TestLayout` (3): the base is named
+   `base` and is a sibling of `overlays`, the base holds exactly one
+   `kustomization.yaml`, and every overlay's `resources` entry resolves to the base
+   path rather than an ancestor of itself. That last one is the actual invariant.
+   **Control: pointing the overlay back at `../..` fails 2.**
+3. Paths updated in both READMEs, `documentation/deployment.md`, `README.md` and the
+   `deploy` skill. The base README gained a layout section explaining *why* the
+   nesting cannot work, since it looks like an arbitrary convention otherwise.
+
+## Also, from the same investigation
+
+Two problems found while ruling out infrastructure, either of which would have bitten
+after the cycle was fixed:
+
+* **Patch targeting.** The base sets `namespace: ontobricks`, so its resources carry
+  that namespace, while the overlay's patch files declared none — and kustomize
+  matches patches on kind/name *and namespace*, failing with
+  `no matches for Id ...[noNs]`. Each patch now names its target explicitly.
+* **`commonLabels`.** Deprecated, and it injects into `spec.selector`, which is
+  immutable after creation, so a later edit to that block would leave the Deployment
+  un-updatable. Replaced with `labels` and `includeSelectors: false`; the pod and
+  Service selectors are already declared explicitly.
+
+## Ruled out, for the record
+
+The failure was not infrastructure. Verified: the kubeconfig context exists and is
+current, the API server resolves and answers 401 in 0.1s, authorized IP ranges are
+open, local accounts are enabled, Entra RBAC is not gating, and the node is Ready.
+
+## A note on my negative controls
+
+The first control for the cycle test copied a stray `kustomization.yaml` into
+`k8s/` and reported 42 passed — I had simulated the wrong thing. The bug was the
+*overlay's `resources` path*, not a stray file. Re-run against `../..` it fails 2.
+Third time this release a control tested something other than the change; worth
+stating the shape being simulated before trusting the result.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5212 passed, 0 failed,
+306 skipped**. 42 of those are the manifest suite.

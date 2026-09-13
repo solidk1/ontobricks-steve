@@ -84,19 +84,31 @@ Every key is optional except `SECRET_KEY`; the Deployment marks them
 TAG=$(git rev-parse --short HEAD)
 az acr build -r $ACR -t ontobricks:$TAG -f deploy/azure/Dockerfile .
 
-cd deploy/azure/k8s
-kubectl apply -k .                      # namespace, SA, ConfigMap, Service, Deployment
+kubectl apply -k deploy/azure/k8s/base   # namespace, SA, ConfigMap, Service, Deployment
 kubectl -n $NS set image deployment/ontobricks \
     ontobricks=$ACR.azurecr.io/ontobricks:$TAG
 kubectl -n $NS rollout status deployment/ontobricks
 ```
 
-Edit `configmap.yaml` for your `PGHOST` and the workload-identity client id in
-`serviceaccount.yaml` before the first apply.
+Edit `base/configmap.yaml` for your `PGHOST` and the workload-identity client id
+in `base/serviceaccount.yaml` before the first apply.
+
+## Layout
+
+```
+k8s/
+  base/            the manifests; apply this directly for a global-cloud deploy
+  overlays/china/  Azure China, patching only endpoints
+```
+
+`base/` is a **sibling** of `overlays/`, not its parent. Kustomize refuses a base
+whose directory contains the overlay root — *"cycle detected: candidate root
+.../k8s contains visited root .../k8s/overlays/china"* — so a flat `k8s/` holding
+both cannot work.
 
 ## Exposure
 
-`service.yaml` is a `ClusterIP`, so nothing is public until you choose how to
+`base/service.yaml` is a `ClusterIP`, so nothing is public until you choose how to
 expose it. Pick one:
 
 * `kubectl -n $NS port-forward svc/ontobricks 8000:80` — verify before exposing.
