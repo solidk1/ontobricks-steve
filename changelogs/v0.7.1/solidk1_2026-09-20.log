@@ -1,0 +1,90 @@
+# Incorporate upstream fixes that apply to the decoupled fork
+
+## Context
+
+The fork diverged from `databrickslabs/ontobricks` at `7b272092` (the 0.7.1 merge).
+Upstream `master` is **143 commits** ahead; this fork is **55** ahead, and those 55
+are the Databricks Apps / Lakebase decoupling. A merge would reintroduce exactly
+what was removed, so upstream work was triaged commit by commit instead.
+
+No upstream remote existed; one was added fetch-only (`git remote set-url --push
+upstream DISABLED`).
+
+## Taken: four undefined names (upstream 362e40af)
+
+All four were present here. Two are live `NameError`s:
+
+1. `src/api/routers/digitaltwin.py` — `if be == "view"` where `be` is never
+   assigned; the variable is `backend`. Reached on every triples query that takes
+   that branch.
+2. `src/back/core/graphdb/delta/DeltaBase.py` — `resolve_warehouse_id(...)` is not
+   imported; only `resolve_delta_warehouse_id` is, which is also the semantically
+   correct warehouse for a Delta build. Reached by every Delta build that passes
+   `settings`.
+
+Two are annotation-only, so they never raised at runtime but do fail a type check:
+
+3. `src/api/routers/internal/ontology.py` — `added: Dict[str, int]` with `Dict`
+   unimported. A local annotation is not evaluated, hence no `NameError`; the
+   builtin generic is correct on 3.10+ anyway.
+4. `src/back/core/external/pitfalls/runner.py` — `SentimentIntensityAnalyzer` used
+   in a signature while imported lazily at the call site. Now under
+   `TYPE_CHECKING`.
+
+## Taken: the CI gate that would have caught them
+
+`.github/workflows/ci.yml` gained upstream's blocking, repo-wide
+`ruff check --select F821`. Our existing ruff step is advisory (`|| true`) and
+report-only on changed files, so it could never have blocked these. F821 is an
+undefined name — a `NameError` waiting for the line to run — so it needs no
+burn-down period. Verified clean across `src/` and `tests/` before enabling.
+
+### It immediately caught a rule of mine that was wrong
+
+Porting fix 4 made `test_no_unguarded_nltk_import_in_the_runner` fail. That test
+scanned raw lines for `from nltk` without a preceding `ensure_nltk_resource`, and
+the new import is inside `if TYPE_CHECKING:` — it never executes, so it cannot
+raise a corpus error. A true positive for the rule as written, and the rule was
+wrong. Rewritten to parse the module and skip `TYPE_CHECKING` blocks; a control
+that strips a real `ensure_nltk_resource` call still fails it.
+
+## Taken: security floors (upstream a32e6971)
+
+| dependency | was | now | why |
+|---|---|---|---|
+| mlflow | >=3.11.1 | **>=3.15.0** | critical advisory |
+| gitpython | >=3.1.55 | **>=3.1.58** | high — path/config injection series |
+| sqlparse | *(absent)* | **>=0.6.0** | high — ReDoS, transitive via mlflow/sqlglot |
+| aiohttp | >=3.14.1 | **>=3.14.3** | high + medium |
+
+Resolved to mlflow 3.16.0, gitpython 3.1.62, sqlparse 0.6.0, aiohttp 3.14.3.
+Upstream's note that `cryptography>=50` cannot be applied while mlflow pins
+`<50` is recorded in place, since the constraint is ours too.
+
+`uv.lock` was regenerated, host-rewritten off this machine's mirror, and verified
+8/8 by sha256 against real PyPI downloads. Test collection is **identical** before
+and after (5522/5527), so the bumps changed no test surface.
+
+## Not taken, and why
+
+Upstream's 143 commits include substantial work that cannot apply here:
+
+* **DAB / deploy config** (`00791215`, `40f17e92`, `c15d9387`, `85b8ad84`,
+  `97bd42ad`, `b8673e67`) — `databricks.yml`, `app.yaml.template` and
+  `scripts/deploy*` were removed in this fork's v0.7.1.
+* **`5595e92d` "Keep Lakebase digest() reachable by pinning pgcrypto to public"** —
+  directly contrary to this fork, which replaced `pgcrypto` with an in-schema
+  `sha256_utf8()` precisely because `CREATE EXTENSION` is database-scoped and
+  survives `DROP SCHEMA … CASCADE`.
+* **`1a50e38a` / `107f6450`** — `documentation/` → `docs/` rename and GitHub Pages
+  removal. A large mechanical move that would conflict with the Help Center path
+  handling and the doc-link test added here; no functional gain.
+* **UI redesigns** (`a4415784`, `fa108fc3`, `f881659f`, `44d5d568`, `569db074`,
+  `3af692e0`) — the "Clarity card language" rework, sidebar geometry and tab
+  rails. Large, cosmetic, and heavily overlapping the frontend changes this fork
+  made to the Settings and Registry panels.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5226 passed, 0 failed,
+306 skipped**.

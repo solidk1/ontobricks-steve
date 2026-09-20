@@ -101,13 +101,39 @@ class TestEveryWordnetUserEnsuresFirst:
     """A missing ensure_nltk_resource call is how the opaque error came back."""
 
     def test_no_unguarded_nltk_import_in_the_runner(self):
+        """Every *runtime* nltk import must be preceded by an ensure call.
+
+        Parsed rather than line-scanned, and ``if TYPE_CHECKING:`` blocks are
+        skipped: those imports never execute, so they cannot raise a corpus
+        error. The first version of this test scanned raw lines and flagged the
+        annotation-only ``SentimentIntensityAnalyzer`` import that upstream
+        362e40af added to satisfy F821 — a true positive for the rule as written,
+        and the rule was wrong.
+        """
+        import ast
         from pathlib import Path
 
-        lines = Path("src/back/core/external/pitfalls/runner.py").read_text().splitlines()
+        src = Path("src/back/core/external/pitfalls/runner.py").read_text()
+        tree = ast.parse(src)
+
+        type_checking_lines: set[int] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If):
+                test = node.test
+                name = getattr(test, "id", None) or getattr(test, "attr", None)
+                if name == "TYPE_CHECKING":
+                    for child in ast.walk(node):
+                        if hasattr(child, "lineno"):
+                            type_checking_lines.add(child.lineno)
+
+        lines = src.splitlines()
         unguarded = [
-            i + 1
-            for i, l in enumerate(lines)
-            if "from nltk" in l
-            and "ensure_nltk_resource" not in "\n".join(lines[max(0, i - 6):i])
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module or "").startswith("nltk")
+            and node.lineno not in type_checking_lines
+            and "ensure_nltk_resource"
+            not in "\n".join(lines[max(0, node.lineno - 7) : node.lineno - 1])
         ]
         assert not unguarded, f"nltk imported without ensuring the corpus at {unguarded}"

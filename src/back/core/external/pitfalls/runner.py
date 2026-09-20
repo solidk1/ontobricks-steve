@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tuple
+
+if TYPE_CHECKING:  # annotation-only — nltk is imported lazily at the call site.
+    from nltk.sentiment import SentimentIntensityAnalyzer
 
 from back.core.logging import get_logger
 
