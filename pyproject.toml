@@ -52,6 +52,8 @@ dependencies = [
     "owlrl>=7.0.0",
     "pyshacl>=0.26.0",
     "networkx>=3.0",
+    # Runtime, not just tests: the MCP server is mounted in-process at /mcp.
+    "fastmcp>=2.3.1",
 ]
 
 [project.optional-dependencies]
@@ -133,9 +135,13 @@ constraint-dependencies = [
     "pip>=26.2.0",
     "pyasn1>=0.6.4",
     "setuptools>=83.0.0",
-    # Security floors for the optional pitfalls dependency graph.
-    "transformers>=5.10.0",
-    "torch>=2.13.0",
+    # transformers/torch floors removed: torch 2.14 requires a
+    # cuda-toolkit[cublas]==13.0.3 that does not exist for the Python >= 3.15 end of
+    # requires-python, and the transformers floor contradicts what
+    # sentence-transformers accepts, so `uv lock` could not produce a solution at
+    # all while they stood. Diagnosis matches solidk1/ontobricks-steve's
+    # feat/decouple branch; only the floors are dropped here, keeping the pitfalls
+    # extra and its semantic checks intact.
     # urllib3 2.7.0 fixes two high-severity issues:
     #   GHSA-mf9v-mfxr-j63j  decompression-bomb bypasses in streaming API parts
     #   GHSA-qccp-gfcp-xxvc  sensitive headers forwarded in proxied low-level redirects
