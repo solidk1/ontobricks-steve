@@ -594,6 +594,10 @@ if ! $NO_RUN; then
         || die "failed to start app '${APP_NAME}'. Inspect the logs: databricks apps logs ${APP_NAME}"
     ok "app start requested"
 
+    # The MCP server is mounted in-process at /mcp by the UI app, so there is no
+    # separate companion app to start. Kept conditional rather than deleted so an
+    # unmodified bundle that still defines mcp_ontobricks_app keeps working.
+    if grep -qE '^\s+mcp_ontobricks_app:' databricks.yml 2>/dev/null; then
     begin_step "Start $MCP_APP_NAME"
     # The MCP companion start step is observed to fail transiently with
     # "App deployment failed unexpectedly" on the very first deploy of a
@@ -614,6 +618,10 @@ if ! $NO_RUN; then
         sleep 15
         _mcp_attempt=$((_mcp_attempt + 1))
     done
+    else
+        begin_step "Start MCP companion (skipped)"
+        info "MCP is mounted in-process at /mcp — no separate app"
+    fi
 else
     begin_step "Start apps (skipped)"
     info "skipped per --no-run"

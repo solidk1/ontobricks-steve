@@ -127,7 +127,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Could not start build scheduler: %s", e)
 
-    yield
+    # FastMCP's http_app carries its own lifespan (session manager). Routes merged
+    # into a parent app do not get their lifespan run, so enter it explicitly.
+    mcp_app = getattr(app.state, "mcp_app", None)
+    mcp_lifespan = getattr(mcp_app, "lifespan", None) if mcp_app is not None else None
+    if mcp_lifespan is not None:
+        async with mcp_lifespan(app):
+            yield
+    else:
+        yield
 
     if build_scheduler is not None:
         build_scheduler.stop()
@@ -135,6 +143,7 @@ async def lifespan(app: FastAPI):
 
 
 _PERM_BYPASS_PREFIXES = (
+    "/mcp",
     "/static/",
     "/health",
     "/docs",
@@ -658,7 +667,44 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
 
+    _mount_mcp_server(app)
+
     return app
+
+
+def _mount_mcp_server(app: FastAPI) -> None:
+    """Serve the MCP server in-process at /mcp instead of as a second App.
+
+    Upstream ships create_mcp_server(mode="mounted") for exactly this but never
+    wires it up, shipping the MCP server as its own Databricks App that calls back
+    over HTTP. One App is cheaper and removes the cross-app hop.
+
+    Two wrinkles. The package lives in src/mcp-server, whose hyphen means `server`
+    cannot be imported without a path insert (the standalone entry point does the
+    same). And its routes are merged rather than mounted, mirroring upstream's own
+    create_databricks_app, so the MCP endpoint keeps its canonical /mcp path
+    instead of landing at /mcp/mcp.
+    """
+    import sys
+
+    # src/ — this file is src/shared/fastapi/main.py. Recomputed rather than
+    # borrowed from create_app, where it is a local.
+    src_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    mcp_dir = os.path.join(src_dir, "mcp-server")
+    if mcp_dir not in sys.path:
+        sys.path.insert(0, mcp_dir)
+
+    try:
+        from server.app import create_mcp_server
+
+        mcp_app = create_mcp_server(mode="mounted").http_app()
+    except Exception:
+        logger.exception("Could not mount the MCP server; continuing without it")
+        return
+
+    app.state.mcp_app = mcp_app
+    app.router.routes.extend(mcp_app.routes)
+    logger.info("Mounted MCP server in-process (%d route(s))", len(mcp_app.routes))
 
 
 def _register_routers(app: FastAPI):
