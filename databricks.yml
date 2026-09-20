@@ -1,12 +1,17 @@
 # OntoBricks Dev Sandbox — Databricks Asset Bundle
 #
-# This bundle deploys two apps:
+# This bundle deploys one app:
 #
 # - ``ontobricks_dev_app`` → app name ``ontobricks-030`` (FastAPI UI,
 #   ``source_code_path: .``). Uses the repository root as source.
-# - ``mcp_ontobricks_app`` → app name ``mcp-ontobricks`` (FastMCP
-#   server, ``source_code_path: src/mcp-server``). Calls back to
-#   the main app over HTTP.
+#
+# The FastMCP server runs inside that app, mounted at ``/mcp`` (see
+# ``_mount_mcp_server`` in ``src/shared/fastapi/main.py``). It used to be a
+# second app, ``mcp_ontobricks_app``, that called back to the UI over HTTP;
+# in-process it reaches the same REST surface over loopback instead. The
+# ``mcp_app_name`` variable below is retained so an out-of-tree overlay can
+# still declare the companion resource, and ``scripts/deploy.sh`` detects
+# whether it is declared.
 #
 # The bundle is intentionally separate from any previous
 # ``ontobricks_bundle`` deployment:
@@ -21,23 +26,25 @@
 # from a different bundle (e.g. ``ontobricks_bundle``), DAB requires
 # a one-time bind step:
 #
-#   databricks bundle deployment bind mcp_ontobricks_app mcp-ontobricks --auto-approve
+#   databricks bundle deployment bind ontobricks_dev_app ontobricks-030 --auto-approve
 #
-# ``scripts/deploy.sh --bind`` does both binds in one go.
+# ``scripts/deploy.sh --bind`` performs the bind.
 #
 # Source code paths:
 # - The main app is shipped from the repository root. The
 #   sandbox auto-detects its app name (``ontobricks-030``) from the
 #   Databricks-Apps-injected ``DATABRICKS_APP_NAME`` env var — see
 #   ``Settings.ontobricks_app_name`` for the alias-chain logic.
-# - The MCP server is shipped from ``src/mcp-server`` (its own
-#   ``pyproject.toml`` + ``app.yaml`` + ``server/`` package live there).
+# - The MCP server lives in ``src/mcp-server`` and is imported by the main
+#   app rather than shipped separately. Its ``pyproject.toml`` / ``app.yaml``
+#   remain there for standalone and local-stdio use; the mounted path depends
+#   only on the ``server/`` package, and ``fastmcp`` is a runtime dependency
+#   of the root project for that reason.
 #
 # Usage:
 #   databricks bundle validate -t dev-lakebase                  # validate
-#   databricks bundle deploy   -t dev-lakebase                  # deploy both apps + Lakebase binding
-#   databricks bundle run ontobricks_dev_app -t dev-lakebase    # start the UI
-#   databricks bundle run mcp_ontobricks_app -t dev-lakebase    # start the MCP server
+#   databricks bundle deploy   -t dev-lakebase                  # deploy the app + Lakebase binding
+#   databricks bundle run ontobricks_dev_app -t dev-lakebase    # start the UI (serves /mcp too)
 #   databricks bundle deploy   -t dev                           # Volume-only fallback (no postgres)
 
 bundle:
@@ -267,29 +274,6 @@ resources:
     # principal needs ``CAN_USE`` on ``ontobricks-030`` so it can call
     # back into the UI's REST API — ``scripts/deploy.sh`` grants this
     # automatically after every deploy.
-    mcp_ontobricks_app:
-      name: "${var.mcp_app_name}"
-      description: "OntoBricks MCP companion server (FastMCP)"
-      source_code_path: ./src/mcp-server
-      # App ACL (not top-level bundle permissions — those reject CAN_USE; see #134).
-      permissions:
-        - level: CAN_MANAGE
-          user_name: ${workspace.current_user.userName}
-        - level: CAN_USE
-          group_name: users
-      resources:
-        - name: sql-warehouse
-          description: "SQL Warehouse for executing queries and metadata operations"
-          sql_warehouse:
-            id: ${var.warehouse_id}
-            permission: CAN_USE
-        - name: volume
-          description: "Unity Catalog Volume for the OntoBricks domain registry"
-          uc_securable:
-            securable_type: "VOLUME"
-            securable_full_name: "${var.registry_catalog}.${var.registry_schema}.${var.registry_volume}"
-            permission: WRITE_VOLUME
-
 targets:
   # Legacy unsuffixed targets — still valid via
   # ``DAB_TARGET=dev-lakebase make deploy``. New instances use
@@ -331,11 +315,3 @@ targets:
             # ``neo4j-password`` declaration in ``app.yaml.template`` remains
             # for legacy ``NEO4J_PASSWORD`` / Apps UI binding only.
             # See docs/pr47-neo4j-demo/secret-configuration.md.
-        mcp_ontobricks_app:
-          resources:
-            - name: postgres
-              description: "Lakebase Autoscaling Postgres database for the OntoBricks registry"
-              postgres:
-                branch: projects/${var.lakebase_project}/branches/${var.lakebase_branch}
-                database: projects/${var.lakebase_project}/branches/${var.lakebase_branch}/databases/${var.lakebase_database_resource_segment}
-                permission: "CAN_CONNECT_AND_CREATE"

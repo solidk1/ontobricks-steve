@@ -169,6 +169,26 @@ _dab_var_overrides=(
     "--var=lakebase_registry_schema=${LAKEBASE_SCHEMA}"
 )
 
+# Is there a separate MCP companion app to deploy?
+#
+# The MCP server is mounted in-process at /mcp by the UI app, so the companion is
+# optional. A bundle that still declares the resource gets it deployed, started,
+# verified and granted exactly as before; once the resource is gone there is no
+# second app to name, so every step that would have addressed one is driven off
+# this single flag. APP_NAMES is what the bootstrap scripts consume — both take a
+# variadic app list, so they need no changes either way.
+#
+# Set before the banner below, which is the first consumer.
+if grep -qE '^[[:space:]]+mcp_ontobricks_app:' databricks.yml 2>/dev/null; then
+    HAS_MCP_APP=true
+else
+    HAS_MCP_APP=false
+fi
+APP_NAMES=("$APP_NAME")
+if $HAS_MCP_APP; then
+    APP_NAMES+=("$MCP_APP_NAME")
+fi
+
 EXPECTED_VOLUME_FQN="${REGISTRY_CATALOG}.${REGISTRY_SCHEMA}.${REGISTRY_VOLUME}"
 EXPECTED_PG_BRANCH_PATH="projects/${LAKEBASE_PROJECT}/branches/${LAKEBASE_BRANCH}"
 EXPECTED_PG_DATABASE_PATH="${EXPECTED_PG_BRANCH_PATH}/databases/${LAKEBASE_DATABASE_RESOURCE_SEGMENT}"
@@ -179,7 +199,11 @@ echo "Config  : $CONFIG_FILE"
 echo "Instance: ${INSTANCE_ID:-?}"
 echo "Target  : $TARGET"
 echo "App     : $APP_NAME ($APP_RESOURCE_KEY)"
-echo "MCP app : $MCP_APP_NAME ($MCP_APP_RESOURCE_KEY)"
+if $HAS_MCP_APP; then
+    echo "MCP app : $MCP_APP_NAME ($MCP_APP_RESOURCE_KEY)"
+else
+    echo "MCP     : mounted in-process at /mcp (no companion app)"
+fi
 echo "Registry: ${REGISTRY_CATALOG}.${REGISTRY_SCHEMA}.${REGISTRY_VOLUME}"
 if $IS_LAKEBASE; then
     echo "Lakebase: projects/${LAKEBASE_PROJECT}/branches/${LAKEBASE_BRANCH}/databases/${LAKEBASE_DATABASE_RESOURCE_SEGMENT}"
@@ -259,6 +283,8 @@ fi
 ok "required files present"
 
 # 1c. Required config values (fail fast with a precise name).
+# MCP_APP_NAME stays required even with no companion app: databricks.yml still
+# declares the mcp_app_name variable, so --var= below still needs a value.
 require_var APP_NAME; require_var MCP_APP_NAME
 require_var APP_RESOURCE_KEY; require_var MCP_APP_RESOURCE_KEY
 require_var TARGET
@@ -359,8 +385,7 @@ if $IS_LAKEBASE && $DO_BOOTSTRAP; then
             "$LAKEBASE_BRANCH" \
             "$LAKEBASE_DATABASE" \
             "$LAKEBASE_SCHEMA" \
-            "$APP_NAME" \
-            "$MCP_APP_NAME"; then
+            "${APP_NAMES[@]}"; then
         if $DRY_RUN; then
             die "Lakebase bootstrap preflight failed — fix the issues above before deploying (see docs/DEPLOY_CHECKLIST.md)."
         fi
@@ -594,30 +619,27 @@ if ! $NO_RUN; then
         || die "failed to start app '${APP_NAME}'. Inspect the logs: databricks apps logs ${APP_NAME}"
     ok "app start requested"
 
-    # The MCP server is mounted in-process at /mcp by the UI app, so there is no
-    # separate companion app to start. Kept conditional rather than deleted so an
-    # unmodified bundle that still defines mcp_ontobricks_app keeps working.
-    if grep -qE '^\s+mcp_ontobricks_app:' databricks.yml 2>/dev/null; then
-    begin_step "Start $MCP_APP_NAME"
-    # The MCP companion start step is observed to fail transiently with
-    # "App deployment failed unexpectedly" on the very first deploy of a
-    # fresh app — likely a race between the Apps platform reconciling
-    # the freshly-created `mcp_ontobricks_app` resource and the bundle
-    # run call. A second attempt 15 seconds later always succeeds.
-    _mcp_attempt=1
-    _mcp_max_attempts=2
-    while true; do
-        if databricks bundle run "$MCP_APP_RESOURCE_KEY" -t "$TARGET" "${_dab_var_overrides[@]}"; then
-            ok "MCP app start requested"
-            break
-        fi
-        if [ "$_mcp_attempt" -ge "$_mcp_max_attempts" ]; then
-            die "failed to start app '${MCP_APP_NAME}' after ${_mcp_max_attempts} attempts. Inspect: databricks apps logs ${MCP_APP_NAME}"
-        fi
-        info "MCP start failed (attempt $_mcp_attempt) — retrying in 15s (Apps platform race on first-deploy)..."
-        sleep 15
-        _mcp_attempt=$((_mcp_attempt + 1))
-    done
+    if $HAS_MCP_APP; then
+        begin_step "Start $MCP_APP_NAME"
+        # The MCP companion start step is observed to fail transiently with
+        # "App deployment failed unexpectedly" on the very first deploy of a
+        # fresh app — likely a race between the Apps platform reconciling
+        # the freshly-created `mcp_ontobricks_app` resource and the bundle
+        # run call. A second attempt 15 seconds later always succeeds.
+        _mcp_attempt=1
+        _mcp_max_attempts=2
+        while true; do
+            if databricks bundle run "$MCP_APP_RESOURCE_KEY" -t "$TARGET" "${_dab_var_overrides[@]}"; then
+                ok "MCP app start requested"
+                break
+            fi
+            if [ "$_mcp_attempt" -ge "$_mcp_max_attempts" ]; then
+                die "failed to start app '${MCP_APP_NAME}' after ${_mcp_max_attempts} attempts. Inspect: databricks apps logs ${MCP_APP_NAME}"
+            fi
+            info "MCP start failed (attempt $_mcp_attempt) — retrying in 15s (Apps platform race on first-deploy)..."
+            sleep 15
+            _mcp_attempt=$((_mcp_attempt + 1))
+        done
     else
         begin_step "Start MCP companion (skipped)"
         info "MCP is mounted in-process at /mcp — no separate app"
@@ -638,14 +660,18 @@ print(f'{state}  {url}')
 " 2>/dev/null || echo "NOT DEPLOYED")
 printf "  %-20s %s\n" "$APP_NAME" "$STATUS"
 
-MCP_STATUS=$(databricks apps get "$MCP_APP_NAME" -o json 2>/dev/null | python3 -c "
+if $HAS_MCP_APP; then
+    MCP_STATUS=$(databricks apps get "$MCP_APP_NAME" -o json 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 state = d.get('app_status',{}).get('state','UNKNOWN')
 url   = d.get('url','')
 print(f'{state}  {url}')
 " 2>/dev/null || echo "NOT DEPLOYED")
-printf "  %-20s %s\n" "$MCP_APP_NAME" "$MCP_STATUS"
+    printf "  %-20s %s\n" "$MCP_APP_NAME" "$MCP_STATUS"
+else
+    printf "  %-20s %s\n" "/mcp" "mounted in-process on $APP_NAME"
+fi
 
 verify_app_resources() {
     local app_name="$1"
@@ -716,12 +742,11 @@ PY
 echo ""
 info "Resource binding check:"
 VERIFY_FAILED=0
-if ! verify_app_resources "$APP_NAME" "$IS_LAKEBASE"; then
-    VERIFY_FAILED=$((VERIFY_FAILED + 1))
-fi
-if ! verify_app_resources "$MCP_APP_NAME" "$IS_LAKEBASE"; then
-    VERIFY_FAILED=$((VERIFY_FAILED + 1))
-fi
+for _verify_app in "${APP_NAMES[@]}"; do
+    if ! verify_app_resources "$_verify_app" "$IS_LAKEBASE"; then
+        VERIFY_FAILED=$((VERIFY_FAILED + 1))
+    fi
+done
 if [[ $VERIFY_FAILED -gt 0 ]]; then
     warn "$VERIFY_FAILED app(s) have resources that do not match deploy.config values — bind them in the Databricks Apps UI (see reminders below)."
 fi
@@ -746,7 +771,7 @@ fi
 # MCP_APP_NAME from the env we exported via deploy.config.sh.
 begin_step "App self-permissions"
 chmod +x scripts/bootstrap/app-permissions.sh
-if scripts/bootstrap/app-permissions.sh "$APP_NAME" "$MCP_APP_NAME"; then
+if scripts/bootstrap/app-permissions.sh "${APP_NAMES[@]}"; then
     ok "app self-permissions applied"
 else
     warn "app self-permission bootstrap returned non-zero — the app may not yet be reachable; re-run \`make bootstrap-perms\` once it is RUNNING."
@@ -779,14 +804,19 @@ if $IS_LAKEBASE; then
         _UC_CATALOG_ARG=(-c "$REGISTRY_CATALOG")
     fi
 
+    # -a is repeatable; one per app that needs schema grants.
+    _LAKEBASE_APP_ARGS=()
+    for _lb_app in "${APP_NAMES[@]}"; do
+        _LAKEBASE_APP_ARGS+=(-a "$_lb_app")
+    done
+
     if ! scripts/bootstrap/lakebase-perms.sh \
             -i "$LAKEBASE_PROJECT" \
             -b "$LAKEBASE_BRANCH" \
             -d "$LAKEBASE_DATABASE" \
             -s "$LAKEBASE_SCHEMA" \
             "${_UC_CATALOG_ARG[@]}" \
-            -a "$APP_NAME" \
-            -a "$MCP_APP_NAME"; then
+            "${_LAKEBASE_APP_ARGS[@]}"; then
         echo ""
         echo "  ⚠ Lakebase permission bootstrap did not complete cleanly."
         _lakebase_print_diag_hints \
@@ -801,7 +831,7 @@ if $IS_LAKEBASE; then
         echo "        -d $LAKEBASE_DATABASE \\"
         echo "        -s $LAKEBASE_SCHEMA \\"
         echo "        ${_UC_CATALOG_ARG[*]:+-c $REGISTRY_CATALOG \\}"
-        echo "        -a $APP_NAME -a $MCP_APP_NAME"
+        echo "        ${_LAKEBASE_APP_ARGS[*]}"
     fi
 fi
 
