@@ -88,3 +88,46 @@ Upstream's 143 commits include substantial work that cannot apply here:
 
 `uv run --frozen pytest -q -m "not scenario"` → **5226 passed, 0 failed,
 306 skipped**.
+
+## Second pass: two more upstream fixes that apply
+
+Nine app-logic fixes were checked with `git apply --check`, which touches nothing.
+Four failed only on a `changelogs/v0.8.0/…` path this fork has no directory for;
+re-checked without it, they still conflicted in `ontology-design.js` /
+`mapping-design.js`, because upstream's UI redesign moved those files
+substantially. Their fixes sit on a base this fork does not share, so porting them
+means reading the intent and reimplementing — worth doing, not worth guessing at.
+
+Two applied.
+
+### `21016df3` — R2RML mappings with missing columns
+
+`R2RMLGenerator` guarded only on `property_uri`, so a relationship mapping with no
+`source_column` or `target_column` was still emitted. The guard now covers all
+three. The frontend half makes the manual-mapping panel refresh its ID/Label
+status live rather than only on reload.
+
+Brought upstream's `test_manual_mapping_column_state.py` (new) and its
+`test_r2rml_generator.py` additions. **Control: reverting the guard fails 1.**
+
+Excluded `tests/units/front/test_manual_mapping_panel_host.py` — upstream
+*modifies* it, and it arrived in an earlier commit this fork does not have.
+
+### `22cd474f` — Unity Catalog names starting with a digit
+
+`UC_IDENTIFIER_RE` required a leading letter or underscore, so a real table named
+`5_g_subscribers` was rejected with `Invalid UC table` and Data Sources would not
+load. UC permits digit-leading names when backtick-quoted, which this code already
+does. Reproduced here before fixing.
+
+Verified the relaxation did not open the injection guard it exists for: `5_g_subscribers`,
+`a-b` and `9` are accepted, while `a;drop`, `a--b`, `a b`, `a"b`, `a'b`, `a.b`,
+a backtick and empty are all still rejected.
+
+Upstream's second file, `graphdb/lakebase/_sync_uc_schema.py`, was excluded — it
+went with the `managed_synced` mode removed in this fork's v0.7.1.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5232 passed, 0 failed,
+306 skipped**. `ruff check --select F821` clean.
