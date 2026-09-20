@@ -33,6 +33,10 @@ _SESSION_BYPASS_PREFIXES = (
     "/api/redoc",
     "/api/openapi.json",
     "/favicon.ico",
+    # The in-process MCP server keeps its own protocol session, keyed by the
+    # Mcp-Session-Id header, and reads nothing from the UI session. Left in, every
+    # JSON-RPC call minted a fresh throwaway session and logged a failed touch.
+    "/mcp",
 )
 
 # A session ID becomes a filename under ``session_dir``, so a value arriving in

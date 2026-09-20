@@ -31,6 +31,14 @@ _BYPASS_PREFIXES = (
     "/openapi.json",
     "/api/",
     "/graphql/",
+    # The in-process MCP server. Machine-to-machine JSON-RPC authenticated by
+    # the Apps proxy through a bearer token, deriving no authority from cookies,
+    # so the confused-deputy attack this middleware defends against cannot
+    # apply — the same reason /api/ and /graphql/ are exempt. Exemption is
+    # required, not cosmetic: an MCP client keeps a cookie jar, so it replays
+    # the csrf_token cookie set on the handshake response without ever sending
+    # the X-CSRF-Token header, and every request after `initialize` gets a 403.
+    "/mcp",
 )
 
 
