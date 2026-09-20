@@ -131,3 +131,102 @@ went with the `managed_synced` mode removed in this fork's v0.7.1.
 
 `uv run --frozen pytest -q -m "not scenario"` → **5232 passed, 0 failed,
 306 skipped**. `ruff check --select F821` clean.
+
+## Third pass: the four frontend fixes, reimplemented from intent
+
+These were the four that `git apply` could not place because upstream's UI redesign
+moved `mapping-design.js` / `ontology-map.js`. Reading each one's intent produced a
+different answer than "port the patch" in every case.
+
+### `5b7d4a3d` — deleted attribute resurrects. **Applied; my triage was wrong.**
+
+I had filed this as frontend-only. It is not: the substantive fix is **209 lines in
+`src/back/objects/ontology/Ontology.py`** and it applied cleanly. Only the
+presentation bits were in the conflicting JS.
+
+The root cause is a mirrored write. A datatype attribute lives in
+`classes[].dataProperties` *and* as a `DatatypeProperty` in `config['properties']`
+carrying a `domain`. Deleting it in the editor removed only the first, so
+`sync_class_data_properties` resurrected it on the next load. Reproduced here
+before applying — `customerid` came back — and gone after.
+
+`prune_orphaned_datatype_properties` is the inverse of that sync, and
+`_sync_design_layout_with_ontology` reconciles the per-view copies in
+`design_layout`. Both are wired into `save_ontology_config_from_editor`, the
+editor's save path. Brought upstream's 8 tests, all of which exercise that path.
+**Controls: dropping the prune call fails 1; dropping the design-layout sync fails 5.**
+
+### `0754053a` — Apply disabled after a column assignment. **Reimplemented.**
+
+Upstream hooks `claimMappingPanel`, which belongs to the redesign. Our equivalent
+gap is narrower and the cause is clearer: `MappingManual.setupSaveButton` binds
+Apply to `input` events on the panel's **SQL text fields only**, so assigning an ID
+or Label column — a dropdown click — could never enable it. Users had to touch the
+SQL, and applying without that saved empty values: entity TriplesMaps were omitted
+from R2RML and relationships rendered `{None}` (upstream #158 / #159).
+
+`enableManualApplyAfterColumnChange()` is called from the assignment handler
+itself, which is a closer cause than upstream's hook. It no-ops when the panel is
+closed or the version is read-only, matching `setupSaveButton`'s guard.
+**Control: removing the call fails 2.**
+
+Note the data-integrity half was already covered here by the earlier `21016df3`
+port, which refuses to save without an ID column, plus its R2RML guard.
+
+### `793fec2d` — skip save when closing an unchanged panel. **Not applicable.**
+
+The bug does not exist here. `closeMappingPanel()` clears the panel, invalidates
+in-flight queries and clears selections; it does not save and does not rebuild the
+designer. There are no `saveMapping` or refresh calls on any close path —
+`mapping-design.js` contains none at all, since saves live in `mapping-manual.js`
+behind the explicit Apply button. Our close path already *is* the fixed behaviour.
+
+### `80d096a7` — re-running unchanged previews. **Reimplemented.**
+
+This waste does exist: `runEntityPanelQuery` always fetched, so switching between
+already-mapped entities re-queried and showed a spinner for a result that could not
+have changed.
+
+`EntityPreviewCache` keys on entity URI + SQL + row limit, so any edit misses
+naturally. Two properties matter more than the caching:
+
+* **Only the automatic panel-open load is served.** An explicit Run or Refresh
+  bypasses it — that is the user asking for fresh data, and it is why a stale
+  preview is not a correctness risk. Our existing `options.autoLoad` flag already
+  distinguished the two, so no new plumbing was needed.
+* **Only successes are cached**; a failed query must be retried, not remembered.
+
+The hit returns *before* the spinner, since the spinner was the complaint. Both the
+hit and the fetch go through one `applyEntityPreviewResult`, so they cannot drift.
+The cache is bounded at 40 entries with LRU eviction.
+**Controls: serving the cache regardless of `autoLoad` fails 1; caching failures fails 2.**
+
+### `f6f3f8cc` — incremental map refresh. **Deliberately not ported.**
+
+Saving from the Ontology Designer calls `initOntologyMap()` unconditionally from
+five sites, so a metadata-only edit (label, emoji, direction, badge) resets the
+layout. The waste is real and upstream's fix is sound: have saves describe whether
+topology changed, and patch the D3 node or link in place when it did not.
+
+It is not portable as intent here. Our panel tracks a single boolean *dirty* flag —
+`onSave` knows that something changed, not what — so classifying "metadata-only"
+means inventing the determination against our save paths. Getting it wrong
+displays a **stale map**, which is worse than a reset layout, and this is a UX
+optimisation rather than a bug. Upstream's badge-helper extraction exists only to
+support the in-place refresh, so taking it alone would add indirection for no gain.
+
+Worth doing with the panel taught to report what changed. Not worth guessing at,
+which is the same standard applied to the rest of this triage.
+
+## A test bug of mine
+
+Six of the preview-cache tests failed on first run. My `_function_body` helper took
+the first `{` after the function name — and `runEntityPanelQuery(options = {})` has
+braces in a default argument, so it returned a two-character body. The helper
+anchors on `) {` now. Fourth time this release a check of mine measured something
+other than the change.
+
+## Test result
+
+`uv run --frozen pytest -q -m "not scenario"` → **5257 passed, 0 failed,
+306 skipped**. `ruff --select F821` clean; both mapping JS files parse.

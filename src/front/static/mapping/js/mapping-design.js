@@ -1503,6 +1503,84 @@ function initEntityPanel(classUri, className, existingMapping, classInfo) {
     }
 }
 
+/**
+ * Successful entity previews, keyed by entity URI + SQL + row limit.
+ *
+ * Switching between already-mapped entities reran the preview query every time,
+ * showing a spinner for a result that could not have changed. Reimplemented from
+ * upstream 80d096a7, which caches in a Mapping Designer redesign this fork does
+ * not carry.
+ *
+ * Only the automatic load on panel open is served from here. An explicit Run or
+ * Refresh click bypasses it, because that is the user asking for fresh data —
+ * that is also why a stale preview is not a correctness problem: the SQL and limit
+ * are part of the key, so any edit misses, and Refresh always re-queries.
+ */
+const EntityPreviewCache = {
+    _entries: new Map(),
+    //: Bounded so a long session over many entities cannot grow without limit.
+    _MAX: 40,
+
+    key(uri, sql, limit) {
+        return `${uri || ''}\u0000${sql}\u0000${limit}`;
+    },
+
+    get(uri, sql, limit) {
+        return this._entries.get(this.key(uri, sql, limit)) || null;
+    },
+
+    set(uri, sql, limit, columns, rows, rowCount) {
+        const k = this.key(uri, sql, limit);
+        // Re-insert to make this the most recently used entry.
+        this._entries.delete(k);
+        this._entries.set(k, { columns, rows, rowCount });
+        while (this._entries.size > this._MAX) {
+            this._entries.delete(this._entries.keys().next().value);
+        }
+    },
+
+    clear() {
+        this._entries.clear();
+    }
+};
+
+/**
+ * Apply a preview result to the panel. Shared by the fetch path and the cache
+ * hit so both land in exactly the same state -- the reason this is a function
+ * rather than duplicated inline.
+ */
+function applyEntityPreviewResult(columns, rows, rowCount, options, statusEl) {
+    EntityPanelState.columns = columns;
+    EntityPanelState.rows = rows || [];
+
+    if (!EntityPanelState.idColumn || !columns.includes(EntityPanelState.idColumn)) {
+        EntityPanelState.idColumn = null;
+    }
+    if (EntityPanelState.labelColumn && !columns.includes(EntityPanelState.labelColumn)) {
+        EntityPanelState.labelColumn = null;
+    }
+
+    autoMapEntityColumns(columns);
+    renderEntityPanelGrid();
+    const epSummary = document.getElementById('epMappingSummary');
+    if (epSummary) epSummary.style.display = 'none';
+    const epLoading = document.getElementById('epMappingLoading');
+    if (epLoading) epLoading.style.display = 'none';
+    const epGrid = document.getElementById('epMappingGrid');
+    if (epGrid) epGrid.style.display = 'flex';
+
+    const epTab = document.getElementById('ep-mapping-tab');
+    if (epTab) {
+        epTab.disabled = false;
+        if (!options.autoLoad) bootstrap.Tab.getOrCreateInstance(epTab).show();
+    }
+
+    if (statusEl) {
+        statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> '
+            + rowCount + ' rows</span>';
+    }
+}
+
 async function runEntityPanelQuery(options = {}) {
     const sqlEl = document.getElementById('epSqlQuery');
     if (!sqlEl) return;
@@ -1518,6 +1596,20 @@ async function runEntityPanelQuery(options = {}) {
     const previewLimit = parseInt(document.getElementById('epPreviewLimit')?.value) || 10;
     const btn = document.getElementById('epRunQueryBtn');
     const statusEl = document.getElementById('epQueryStatus');
+
+    // Only the automatic load on panel open reuses a cached preview; an explicit
+    // Run or Refresh means the user wants a fresh query. Returning before the
+    // spinner is the point -- the complaint was the spinner, not the latency.
+    if (options.autoLoad) {
+        const cached = EntityPreviewCache.get(currentPanelUri, sql, previewLimit);
+        if (cached) {
+            applyEntityPreviewResult(
+                cached.columns, cached.rows, cached.rowCount, options, statusEl
+            );
+            return;
+        }
+    }
+
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Refreshing...'; }
     if (statusEl) statusEl.textContent = 'Executing...';
     
@@ -1534,32 +1626,14 @@ async function runEntityPanelQuery(options = {}) {
         if (currentPanelType !== 'entity' || capturedGeneration !== EntityPanelState._generation) return;
         
         if (result.success) {
-            EntityPanelState.columns = result.columns;
-            EntityPanelState.rows = result.rows || [];
-            
-            if (!EntityPanelState.idColumn || !result.columns.includes(EntityPanelState.idColumn)) {
-                EntityPanelState.idColumn = null;
-            }
-            if (EntityPanelState.labelColumn && !result.columns.includes(EntityPanelState.labelColumn)) {
-                EntityPanelState.labelColumn = null;
-            }
-            
-            autoMapEntityColumns(result.columns);
-            renderEntityPanelGrid();
-            const epSummary = document.getElementById('epMappingSummary');
-            if (epSummary) epSummary.style.display = 'none';
-            const epLoading = document.getElementById('epMappingLoading');
-            if (epLoading) epLoading.style.display = 'none';
-            const epGrid = document.getElementById('epMappingGrid');
-            if (epGrid) epGrid.style.display = 'flex';
-            
-            const epTab = document.getElementById('ep-mapping-tab');
-            if (epTab) {
-                epTab.disabled = false;
-                if (!options.autoLoad) bootstrap.Tab.getOrCreateInstance(epTab).show();
-            }
-            
-            if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + result.row_count + ' rows</span>';
+            // Cache only successes: a failed query must be retried, not remembered.
+            EntityPreviewCache.set(
+                currentPanelUri, sql, previewLimit,
+                result.columns, result.rows || [], result.row_count
+            );
+            applyEntityPreviewResult(
+                result.columns, result.rows || [], result.row_count, options, statusEl
+            );
         } else {
             const epLoading = document.getElementById('epMappingLoading');
             if (epLoading) epLoading.style.display = 'none';
@@ -1671,6 +1745,7 @@ function showEntityColumnMenu(th, column) {
 
             menu.remove();
             renderEntityPanelGrid();
+            enableManualApplyAfterColumnChange();
         });
     });
     
@@ -1682,6 +1757,30 @@ function showEntityColumnMenu(th, column) {
             }
         });
     }, 10);
+}
+
+/**
+ * Enable Manual Apply after a column assignment changes.
+ *
+ * `MappingManual.setupSaveButton` only listens to the SQL text inputs, so
+ * assigning an ID or Label column -- a dropdown click, not a text edit -- left
+ * Apply disabled. Users had to touch the SQL to enable it, and applying without
+ * that produced empty id/label assignments: entity TriplesMaps were then omitted
+ * from R2RML exports and relationships rendered `{None}` templates (upstream
+ * GitHub #158 / #159).
+ *
+ * Reimplemented from upstream 0754053a rather than applied: that fix hooks
+ * `claimMappingPanel`, which belongs to a Mapping Designer redesign this fork does
+ * not carry. Hooking the assignment itself is the same intent and a closer cause.
+ *
+ * No-ops when the manual panel is not open (the button is absent) or the version
+ * is read-only, matching the guard `setupSaveButton` uses.
+ */
+function enableManualApplyAfterColumnChange() {
+    const saveBtn = document.getElementById('manualSavePanelBtn');
+    if (!saveBtn) return;
+    if (window.isActiveVersion === false) return;
+    saveBtn.disabled = false;
 }
 
 function autoMapEntityColumns(columns) {
