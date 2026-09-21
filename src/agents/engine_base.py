@@ -9,6 +9,7 @@ and focuses exclusively on its own ``AgentResult``, system prompt, and
 """
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -16,10 +17,24 @@ from typing import Any, Callable, Dict, List, Optional
 import requests
 
 from back.core.logging import get_logger
+from agents import responses_api
 from agents.llm_utils import call_llm_with_retry
 from agents.tracing import trace_llm
 
 logger = get_logger(__name__)
+
+# Which OpenAI API to speak. Reasoning models reject function tools on
+# chat-completions (see agents/responses_api), and every engine here reads that
+# 400 as "no tool support" and falls back to tool-less generation, quietly
+# disabling the agent loop. Responses avoids the whole problem, so it is the
+# default; set ONTOBRICKS_LLM_API=chat to force the old path for an endpoint
+# that only speaks chat-completions.
+_LLM_API = os.getenv("ONTOBRICKS_LLM_API", "responses").strip().lower()
+
+
+def _use_responses_api() -> bool:
+    """Read at call time, not import time, so a redeploy's env takes effect."""
+    return os.getenv("ONTOBRICKS_LLM_API", _LLM_API).strip().lower() != "chat"
 
 # Endpoints (e.g. databricks-claude-opus-4-7) sometimes reject optional
 # OpenAI-style parameters with a 400 message like:
@@ -81,12 +96,24 @@ def call_serving_endpoint(
     Args:
         trace_name: Used for MLflow span naming via ``@trace_llm``.
     """
-    url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
+    if _use_responses_api():
+        return _call_responses_api(
+            host,
+            headers,
+            endpoint_name,
+            messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            trace_name=trace_name,
+        )
+
+    url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
     banned = _unsupported_params(endpoint_name)
     payload: Dict[str, Any] = {
         "messages": messages,
@@ -132,6 +159,64 @@ def call_serving_endpoint(
         )
         resp = call_llm_with_retry(url, headers, payload, timeout=timeout)
         return resp.json()
+
+
+def _call_responses_api(
+    host: str,
+    headers: Dict[str, str],
+    endpoint_name: str,
+    messages: List[dict],
+    *,
+    tools: Optional[List[dict]] = None,
+    max_tokens: int = 2048,
+    timeout: int = 180,
+    trace_name: str = "agent:llm",
+) -> dict:
+    """Call the Responses API and return a chat-completions-shaped reply.
+
+    Not separately traced: its only caller, ``call_serving_endpoint``, already
+    carries the ``agent:llm`` span, so the span still covers this request.
+
+    Callers are unaware: the reply is translated back into
+    ``choices[0].message`` so the engines' existing parsing and their chat-shaped
+    ``messages`` history keep working untouched. See ``agents/responses_api``
+    for the four shape differences and what was verified on the live endpoint.
+
+    No temperature is sent — the Responses API rejects it for these models — so
+    the ``_unsupported_params`` learning this function's chat sibling needs has
+    no work to do here.
+    """
+    url = f"{host.rstrip('/')}{responses_api.RESPONSES_PATH}"
+    payload = responses_api.build_payload(
+        model=endpoint_name,
+        messages=messages,
+        tools=tools,
+        max_tokens=max_tokens,
+    )
+
+    logger.info(
+        "%s: POST %s (responses) — %d input items %s, %d tool defs, max_output_tokens=%d",
+        trace_name,
+        endpoint_name,
+        len(payload.get("input") or []),
+        responses_api.describe_payload(payload),
+        len(payload.get("tools") or []),
+        max_tokens,
+    )
+
+    try:
+        resp = call_llm_with_retry(url, headers, payload, timeout=timeout)
+    except requests.exceptions.HTTPError as exc:
+        response = exc.response
+        status = response.status_code if response is not None else None
+        logger.error(
+            "%s: responses API call failed (status=%s): %.500s",
+            trace_name,
+            status,
+            response.text if response is not None else "N/A",
+        )
+        raise
+    return responses_api.to_chat_response(resp.json())
 
 
 # =====================================================

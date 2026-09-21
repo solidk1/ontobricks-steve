@@ -36,6 +36,19 @@ class TestAgentStep:
 
 
 class TestCallServingEndpoint:
+    """The chat-completions transport.
+
+    ``call_serving_endpoint`` now defaults to the Responses API, because
+    reasoning models reject function tools on chat-completions. These tests
+    describe the chat path specifically, so they pin it rather than inherit
+    whatever the default happens to be. ``TestCallServingEndpointResponses``
+    below covers the default.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _force_chat_api(self, monkeypatch):
+        monkeypatch.setenv("ONTOBRICKS_LLM_API", "chat")
+
     @patch("agents.engine_base.call_llm_with_retry")
     def test_builds_url_and_calls(self, mock_retry):
         mock_resp = MagicMock()
@@ -92,6 +105,109 @@ class TestCallServingEndpoint:
         call_serving_endpoint("https://host.com/", "t", "ep", [])
         url = mock_retry.call_args[0][0]
         assert "//serving" not in url
+
+
+class TestCallServingEndpointResponses:
+    """The Responses transport, which is the default.
+
+    Reasoning models such as databricks-gpt-5-6-sol answer a chat-completions
+    request carrying ``tools`` with HTTP 400, and each engine reads that as "no
+    tool support" and retries without tools -- disabling the agent loop. These
+    tests lock in the request shape that avoids it, and that callers still
+    receive the chat-completions reply shape they parse.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _default_api(self, monkeypatch):
+        monkeypatch.delenv("ONTOBRICKS_LLM_API", raising=False)
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_posts_to_gateway_responses_path_with_model_in_body(self, mock_retry):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"output": []}
+        mock_retry.return_value = mock_resp
+
+        call_serving_endpoint(
+            "https://host.databricks.com",
+            "tok",
+            "my-endpoint",
+            [{"role": "user", "content": "hello"}],
+        )
+
+        url, headers, payload = mock_retry.call_args[0][:3]
+        assert url == "https://host.databricks.com/ai-gateway/mlflow/v1/responses"
+        # The endpoint name moves out of the path and into the body.
+        assert "my-endpoint" not in url
+        assert payload["model"] == "my-endpoint"
+        assert headers["Authorization"] == "Bearer tok"
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_sends_input_not_messages_and_never_temperature(self, mock_retry):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"output": []}
+        mock_retry.return_value = mock_resp
+
+        call_serving_endpoint(
+            "https://h", "t", "ep", [{"role": "user", "content": "hi"}], temperature=0.1
+        )
+
+        payload = mock_retry.call_args[0][2]
+        assert "messages" not in payload
+        assert payload["input"] == [
+            {"role": "user", "content": [{"type": "input_text", "text": "hi"}]}
+        ]
+        # Rejected by the Responses API for these models -- sending it would
+        # reintroduce the 400 this transport exists to avoid.
+        assert "temperature" not in payload
+        assert "max_tokens" not in payload
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_tools_are_flattened(self, mock_retry):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"output": []}
+        mock_retry.return_value = mock_resp
+
+        call_serving_endpoint(
+            "https://h", "t", "ep", [],
+            tools=[{"type": "function", "function": {"name": "get_data", "parameters": {}}}],
+        )
+
+        payload = mock_retry.call_args[0][2]
+        # An empty/absent parameters schema is normalised to a valid empty object
+        # schema rather than passed through as {}.
+        assert payload["tools"] == [
+            {
+                "type": "function",
+                "name": "get_data",
+                "description": "",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ]
+
+    @patch("agents.engine_base.call_llm_with_retry")
+    def test_reply_is_translated_to_chat_shape(self, mock_retry):
+        """Engines read choices[0].message.tool_calls; they must keep working."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "output": [
+                {"type": "reasoning", "id": "rs_1"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "get_data",
+                    "arguments": "{}",
+                },
+            ],
+            "usage": {"input_tokens": 7, "output_tokens": 2},
+        }
+        mock_retry.return_value = mock_resp
+
+        result = call_serving_endpoint("https://h", "t", "ep", [])
+
+        message = result["choices"][0]["message"]
+        assert message["tool_calls"][0]["function"]["name"] == "get_data"
+        assert result["choices"][0]["finish_reason"] == "tool_calls"
+        assert result["usage"]["prompt_tokens"] == 7
 
 
 class TestDispatchTool:
