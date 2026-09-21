@@ -19,6 +19,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tupl
 # rdflib is always available (core dep)
 from rdflib import Graph, OWL, RDF, RDFS, URIRef
 
+from back.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 if TYPE_CHECKING:  # annotation-only — nltk is imported lazily at the call site.
     from nltk.sentiment import SentimentIntensityAnalyzer
 
@@ -33,6 +37,36 @@ except ImportError:
     SentenceTransformer = None  # type: ignore[assignment,misc]
     cosine_similarity = None  # type: ignore[assignment]
     _DEPS_AVAILABLE = False
+
+class MissingPitfallDependency(ImportError):
+    """A check needed the optional ``pitfalls`` extra, which is not installed.
+
+    An ImportError subclass so ``run_pattern`` can treat it exactly like the
+    ModuleNotFoundError that nltk raises at its call site, and so a caller that
+    already handles ImportError keeps working.
+    """
+
+
+def _require_ml_deps(what: str) -> None:
+    """Fail loudly and catchably before touching a None'd optional symbol.
+
+    Without this the module-level shims (``SentenceTransformer = None``) surface
+    as ``TypeError: 'NoneType' object is not callable`` deep inside a check —
+    not an ImportError, so it read as a bug rather than a missing extra, and it
+    aborted the whole analysis.
+
+    Most of the 19 pitfalls need nothing but rdflib. Which ones need the extra is
+    deliberately *not* hardcoded: P2.3, for one, only reaches the embedding path
+    when the graph actually has candidate pairs, so it succeeds on most
+    ontologies. Raising from the helpers lets each check be skipped exactly when
+    it truly cannot run, and keeps the list from drifting as checks change.
+    """
+    if not _DEPS_AVAILABLE:
+        raise MissingPitfallDependency(
+            f"{what} requires the optional 'pitfalls' extra "
+            "(sentence-transformers, scikit-learn, numpy). "
+            "Install with: pip install .[pitfalls]"
+        )
 
 from .utils import (
     camel_case_split,
@@ -284,10 +318,15 @@ class OntologyPatternToolkit:
     PATTERN_METHODS = dict(PITFALL_RUN_METHODS)
 
     def __init__(self, ontology_path: str, model_name: str = "all-MiniLM-L6-v2") -> None:
+        # No dependency gate here. The toolkit is built from an rdflib graph and
+        # most of its 19 checks need nothing else, so refusing to construct made
+        # the entire analysis unavailable for the sake of the few that do. Those
+        # report themselves as skipped from run_pattern().
         if not _DEPS_AVAILABLE:
-            raise ImportError(
-                "Pitfall detection requires optional dependencies. "
-                "Install with: pip install .[pitfalls]"
+            logger.info(
+                "Pitfalls: optional 'pitfalls' extra not installed — checks that "
+                "need embeddings or WordNet will be reported as skipped; the rest "
+                "run normally."
             )
 
         self.ontology_path = Path(ontology_path).expanduser().resolve()
@@ -355,6 +394,10 @@ class OntologyPatternToolkit:
         }
 
     def _get_model(self) -> SentenceTransformer:
+        # The single gate for every embedding path: _build_text_embedding_cache,
+        # _embedding_for, _text_similarity and both *_similarity_context helpers
+        # all come through here before touching numpy or cosine_similarity.
+        _require_ml_deps("Embedding-based pitfall detection")
         if self._model is None:
             self._model = SentenceTransformer(self.model_name)
         return self._model
@@ -559,6 +602,22 @@ class OntologyPatternToolkit:
             "polarity_distance": polarity_dist,
         }
 
+    @staticmethod
+    def _skipped_result(pitfall_id: str, reason: str) -> Dict[str, Any]:
+        """A well-formed empty result for a check that could not run.
+
+        Shaped like a real result — ``count`` / ``items`` — so every consumer
+        (the agent tool, the UI, the scoring in the OWL generator's eval rounds)
+        keeps working without special-casing, and carries ``skipped`` so a
+        caller that wants to distinguish "clean" from "not checked" can.
+        """
+        return {
+            "count": 0,
+            "items": [],
+            "skipped": True,
+            "warning": f"{pitfall_id} skipped: {reason}",
+        }
+
     def run_pattern(self, pattern_id: str) -> Dict[str, Any]:
         pitfall_id = self.normalize_pitfall_id(pattern_id)
         if pitfall_id == "ALL":
@@ -569,7 +628,18 @@ class OntologyPatternToolkit:
             available = ", ".join(self.available_patterns())
             raise ValueError(f"Unknown pitfall '{pattern_id}'. Available: {available}")
 
-        return getattr(self, method_name)()
+        try:
+            return getattr(self, method_name)()
+        except ImportError as exc:
+            # Reactive rather than a curated list of "ML pitfalls", because the
+            # dependency is conditional: P2.3 only reaches the embedding path when
+            # the graph has candidate pairs, so it succeeds on most ontologies and
+            # a static list would needlessly skip it. Covers both sources —
+            # MissingPitfallDependency from _get_model, and the
+            # ModuleNotFoundError nltk raises at its own call site. Skipping one
+            # check must never abort the rest.
+            logger.info("Pitfall %s skipped: %s", pitfall_id, exc)
+            return self._skipped_result(pitfall_id, str(exc))
 
     def run_patterns(self, pattern_ids: Sequence[str]) -> Dict[str, Dict[str, Any]]:
         selected_pitfalls = parse_pattern_selection(

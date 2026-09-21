@@ -17,13 +17,16 @@ from agents.tools.context import ToolContext
 
 logger = get_logger(__name__)
 
-# ── Pitfall patterns that don't require ML / SentenceTransformer ─────────────
-NON_ML_PATTERNS: List[str] = [
-    "P1.1", "P1.2", "P1.3",
-    "P2.1", "P2.2", "P2.3", "P2.4", "P2.5", "P2.6",
-    "P3.1", "P3.2", "P3.3",
-    "P4.1",
-]
+# Ask for every pitfall and let the runner skip what it cannot do.
+#
+# This used to be a hand-maintained "non-ML" list, and it was wrong in both
+# directions: it named P2.3 and P4.1 (which do need the optional extra) while
+# omitting P4.2 and P4.4-P4.7 (which need nothing), so five usable structural
+# checks never ran. Which checks need the extra is also not static -- P2.3 only
+# reaches the embedding path when the graph has candidate pairs -- so the runner
+# decides per call and returns a skipped result. Those carry count 0 and are
+# filtered out below with every other clean check.
+ALL_PATTERNS: List[str] = ["all"]
 
 # ── Generic rule reminder per pattern (shown above the per-item list) ─────────
 _PATTERN_RULES: Dict[str, str] = {
@@ -182,7 +185,7 @@ def tool_check_owl_pitfalls(
         }
 
         svc = PitfallsService()
-        result = svc.run_analysis(graph, patterns=NON_ML_PATTERNS)
+        result = svc.run_analysis(graph, patterns=ALL_PATTERNS)
 
         issues = {
             pid: r

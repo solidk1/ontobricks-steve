@@ -686,22 +686,23 @@ _SET_INHERITANCE_DEF = {
 # Pitfall check tool
 # =====================================================
 
-# Pitfalls that do not require ML (sentence-transformers) — fast and safe to
-# run inside the agent loop after every mutation.
-_NON_ML_PATTERNS = [
-    "P1.1", "P1.2", "P1.3",
-    "P2.1", "P2.2", "P2.3", "P2.4", "P2.5", "P2.6",
-    "P3.1", "P3.2", "P3.3",
-    "P4.1",
-]
+# Ask for every pitfall. The runner skips any check whose optional dependency is
+# missing and returns a skipped result in its place, so this is safe inside the
+# agent loop whether or not the `pitfalls` extra is installed.
+#
+# This replaces a hand-maintained "non-ML" list that was wrong in both
+# directions: it named P2.3 and P4.1, which do need the extra, and omitted P4.2
+# and P4.4-P4.7, which need nothing. The identical stale list also lived in
+# agents/tools/pitfalls.py.
+_DEFAULT_PATTERNS = ["all"]
 
 
 def tool_check_pitfalls(ctx: ToolContext, *, patterns: list = None, **_kwargs) -> str:
     """Build a temporary OWL graph from the current ontology and run pitfall checks.
 
-    Defaults to the non-ML subset (P1.x, P2.x, P3.x, P4.1).  Pass
-    patterns=["all"] to include semantic/ML checks (P4.2–P4.7), which are
-    slower and require the ``pitfalls`` optional extra.
+    Runs every pitfall by default. Checks needing the ``pitfalls`` optional extra
+    (embeddings or WordNet) come back marked ``skipped`` when it is not installed,
+    rather than failing the call.
     """
     try:
         from back.core.w3c.owl import OntologyGenerator
@@ -710,7 +711,7 @@ def tool_check_pitfalls(ctx: ToolContext, *, patterns: list = None, **_kwargs) -
         return json.dumps({"error": f"Required modules not available: {exc}"})
 
     if patterns is None:
-        patterns = _NON_ML_PATTERNS
+        patterns = _DEFAULT_PATTERNS
 
     try:
         gen = OntologyGenerator(

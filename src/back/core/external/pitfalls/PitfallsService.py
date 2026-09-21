@@ -111,17 +111,13 @@ class PitfallsService:
         """Serialize *graph* to a temp TTL file then run pitfall analysis.
 
         Returns a dict with keys: metadata, selected_pitfalls, results, grouped_results.
-        Raises ImportError if the pitfalls optional deps are missing.
         Raises ValueError for unknown pattern IDs.
+
+        Runs whether or not the optional ``pitfalls`` extra is installed. Without
+        it, the three checks that need sentence-transformers or nltk come back
+        marked ``skipped`` and the other 16 run normally; previously this raised
+        and no analysis happened at all.
         """
-        from back.core.external.pitfalls.runner import OntologyPatternToolkit, _DEPS_AVAILABLE
-
-        if not _DEPS_AVAILABLE:
-            raise ImportError(
-                "Pitfall detection requires optional dependencies. "
-                "Install with: pip install .[pitfalls]"
-            )
-
         if patterns is None:
             patterns = ["all"]
 
@@ -146,12 +142,20 @@ class PitfallsService:
             meta = toolkit.metadata()
             precision_score = compute_precision_score(results, meta)
 
+            # A skipped check contributes no penalty, which is indistinguishable
+            # from a clean one in the score. Report it separately so "not checked"
+            # is never read as "nothing found" — the score alone cannot say so.
+            skipped = sorted(
+                pid for pid, res in results.items() if isinstance(res, dict) and res.get("skipped")
+            )
+
             return {
                 "metadata": meta,
                 "selected_pitfalls": list(results.keys()),
                 "results": results,
                 "grouped_results": grouped,
                 "precision_score": precision_score,
+                "skipped_pitfalls": skipped,
             }
         finally:
             import os
