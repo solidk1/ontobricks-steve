@@ -193,10 +193,18 @@ class TestAppPermissionsInBundle:
         )
 
     def test_each_app_declares_can_use_for_users(self):
+        """Every declared app needs the grants — whichever apps those are.
+
+        This named ``ontobricks_dev_app`` and ``mcp_ontobricks_app`` literally.
+        The MCP companion is retired (its server is mounted in-process at
+        ``/mcp``), so the set is derived from the bundle instead. That also means
+        an app added later cannot escape this invariant.
+        """
         data = yaml.safe_load((REPO_ROOT / "databricks.yml").read_text())
         apps = data["resources"]["apps"]
-        for key in ("ontobricks_dev_app", "mcp_ontobricks_app"):
-            perms = apps[key].get("permissions") or []
+        assert "ontobricks_dev_app" in apps, "the UI app must always be declared"
+        for key, app in apps.items():
+            perms = app.get("permissions") or []
             levels = {p.get("level") for p in perms}
             assert "CAN_MANAGE" in levels, f"{key} missing CAN_MANAGE"
             assert "CAN_USE" in levels, f"{key} missing CAN_USE"
@@ -233,6 +241,16 @@ class TestAnalyticsJobPermissionBootstrap:
         assert "_MAIN_APP=" in bootstrap_script
 
     def test_deploy_invokes_app_permissions_bootstrap(self):
+        """The bootstrap must run over every app the deploy manages.
+
+        The invocation was ``app-permissions.sh "$APP_NAME" "$MCP_APP_NAME"``.
+        With the MCP companion retired there is no fixed second app, so deploy.sh
+        expands the APP_NAMES array — which still carries the companion when a
+        bundle declares it. Asserting the array keeps the real requirement (all
+        managed apps get bootstrapped) without pinning the app count.
+        """
         deploy = (REPO_ROOT / "scripts/deploy.sh").read_text()
         assert "scripts/bootstrap/app-permissions.sh" in deploy
-        assert 'app-permissions.sh "$APP_NAME" "$MCP_APP_NAME"' in deploy
+        assert 'app-permissions.sh "${APP_NAMES[@]}"' in deploy
+        # APP_NAMES must always contain the UI app, whatever else is declared.
+        assert 'APP_NAMES=("$APP_NAME")' in deploy
