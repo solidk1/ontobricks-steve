@@ -43,16 +43,103 @@ class SQLWizardService:
         self.client = databricks_client
         self._schema_cache: Dict[str, SchemaContext] = {}
 
-    def get_model_serving_endpoints(self) -> List[Dict[str, str]]:
-        """Get list of text-capable model serving endpoints from the workspace.
+    #: Substrings in a model service's ``supported_api_types`` that mean it can serve
+    #: conversational traffic. Anything matching none of these — an embeddings-only
+    #: service such as ``system.ai.bge-large-en`` — is not a model you can chat with.
+    _CHAT_API_TYPE_HINTS = (
+        "chat/completions",
+        "responses",
+        "messages",
+        "generateContent",
+    )
 
-        Returns:
-            List of dicts with 'name' and 'state' keys
+    def get_ai_gateway_model_services(self) -> List[Dict[str, str]]:
+        """Chat-capable Unity Catalog model services from the AI Gateway.
+
+        A model service is a *different object* from a serving endpoint: it is a
+        governed Unity Catalog securable named ``catalog.schema.name``, and it does
+        not appear in ``/api/2.0/serving-endpoints`` at all. So a workspace can be
+        full of usable models while the endpoint list is either empty or — worse —
+        full of names that every request rejects with
+
+            403 PERMISSION_DENIED: '…' is no longer available.
+                                   Use Unity Catalog model services.
+
+        which is what happens once the pay-per-token routes are retired in their
+        favour. Offering only endpoints there is a menu where every item fails.
+
+        Returns the same ``{name, state, endpoint_type}`` shape as its serving-endpoint
+        sibling so callers and the UI need no special case.
         """
         import requests
 
         if not self.client.host or not self.client.has_valid_auth():
             return []
+
+        try:
+            host = self.client.host.rstrip("/")
+            response = requests.get(
+                f"{host}/api/2.1/unity-catalog/model-services",
+                headers=self.client.get_auth_headers(),
+                timeout=30,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:  # noqa: BLE001 - absence is normal, not fatal
+            # Beta API: a workspace without it should fall back to serving endpoints
+            # rather than show the operator an error.
+            logger.debug("[SQLWizard] AI Gateway model services unavailable: %s", exc)
+            return []
+
+        services = []
+        for service in payload.get("model_services", []):
+            # "model-services/<catalog>.<schema>.<name>" → the name callers pass as
+            # the endpoint.
+            name = (service.get("name") or "").rsplit("/", 1)[-1]
+            if not name:
+                continue
+
+            api_types = service.get("supported_api_types")
+            if api_types is not None and not any(
+                hint in api_type
+                for api_type in api_types
+                for hint in self._CHAT_API_TYPE_HINTS
+            ):
+                continue
+
+            services.append(
+                {
+                    "name": name,
+                    # Model services carry no readiness field; they are routes rather
+                    # than provisioned compute, so there is nothing to wait for.
+                    "state": "READY",
+                    "endpoint_type": "AI Gateway model service",
+                }
+            )
+
+        logger.info("[SQLWizard] Found %d AI Gateway model services", len(services))
+        return services
+
+    def get_model_serving_endpoints(self) -> List[Dict[str, str]]:
+        """Models the operator can choose from, for SQL generation and Graph Chat.
+
+        Prefers AI Gateway model services and falls back to serving endpoints only
+        when the workspace has none. Not a union, deliberately: where both exist the
+        same model appears twice under two names (``system.ai.claude-opus-5`` and
+        ``databricks-claude-opus-5``), and on a workspace that has moved to model
+        services the endpoint half of that list is names that 403 on every request.
+        One coherent menu beats a longer one where half the entries fail.
+
+        Returns:
+            List of dicts with 'name', 'state' and 'endpoint_type' keys
+        """
+        import requests
+
+        if not self.client.host or not self.client.has_valid_auth():
+            return []
+
+        if services := self.get_ai_gateway_model_services():
+            return services
 
         try:
             host = self.client.host.rstrip("/")

@@ -164,5 +164,17 @@ export APP_LAKEBASE_BRANCH="${APP_LAKEBASE_BRANCH:-$LAKEBASE_BRANCH}"
 # Intentionally NOT using :- so stale exports never bleed through.
 export APP_SYNC_UC_CATALOG=""
 
+# Pin the LLM used when a domain has no llm_endpoint of its own.
+#
+# Empty keeps auto-discovery, which is the right default — it asks the workspace what
+# it has. Set it to force one model, and note that a Unity Catalog model service
+# (`catalog.schema.name`, e.g. `system.ai.claude-opus-5`) is a valid value here, not
+# only a serving endpoint name.
+#
+# Exported even when empty: app.yaml.template is rendered with
+# string.Template.substitute, which raises KeyError on a name it cannot resolve rather
+# than substituting a blank.
+export APP_LLM_ENDPOINT="${APP_LLM_ENDPOINT:-}"
+
 # MLflow tracking URI.
 export APP_MLFLOW_TRACKING_URI="${APP_MLFLOW_TRACKING_URI:-$DEFAULT_APP_MLFLOW_TRACKING_URI}"

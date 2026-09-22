@@ -113,12 +113,21 @@ def call_serving_endpoint(
             trace_name=trace_name,
         )
 
-    url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
+    # A UC model service has no /serving-endpoints/<name>/invocations route — that
+    # returns 404 ENDPOINT_NOT_FOUND — so it goes through the gateway with the name
+    # in the body. Only a serving endpoint carries its name in the URL.
+    if responses_api.is_model_service(endpoint_name):
+        url = f"{host.rstrip('/')}/ai-gateway/mlflow/v1/chat/completions"
+    else:
+        url = f"{host.rstrip('/')}/serving-endpoints/{endpoint_name}/invocations"
+
     banned = _unsupported_params(endpoint_name)
     payload: Dict[str, Any] = {
         "messages": messages,
         "max_tokens": max_tokens,
     }
+    if responses_api.is_model_service(endpoint_name):
+        payload["model"] = endpoint_name
     if "temperature" not in banned and temperature is not None:
         payload["temperature"] = temperature
     if tools:
@@ -186,7 +195,7 @@ def _call_responses_api(
     the ``_unsupported_params`` learning this function's chat sibling needs has
     no work to do here.
     """
-    url = f"{host.rstrip('/')}{responses_api.RESPONSES_PATH}"
+    url = f"{host.rstrip('/')}{responses_api.responses_path(endpoint_name)}"
     payload = responses_api.build_payload(
         model=endpoint_name,
         messages=messages,

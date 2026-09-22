@@ -2299,12 +2299,25 @@ def _auto_discover_llm_endpoint(domain, settings) -> str:
     Walks the workspace's serving endpoints and returns the first one
     that looks ready to serve chat completions.  Preference order:
 
-    1. Databricks hosted foundation models (pay-per-token), matched by
+    1. ``ONTOBRICKS_LLM_ENDPOINT``, when set. This short-circuits discovery, and it
+       is the only way to select a Unity Catalog *model service*: those are named
+       ``catalog.schema.name``, are not serving endpoints, and so never appear in the
+       list this function walks. On a workspace whose pay-per-token routes have been
+       retired in favour of model services, discovery confidently returns a
+       ``databricks-`` name that then answers every request with
+       ``403 … is no longer available. Use Unity Catalog model services.``
+    2. Databricks hosted foundation models (pay-per-token), matched by
        the ``databricks-`` prefix (e.g. ``databricks-meta-llama-*``).
-    2. Any other ``READY`` endpoint.
+    3. Any other ``READY`` entry — which is the case that now picks up AI Gateway
+       model services, since those are named ``catalog.schema.name`` and so never
+       match the ``databricks-`` prefix above.
 
     Returns an empty string if nothing usable can be found.
     """
+    configured = (os.environ.get("ONTOBRICKS_LLM_ENDPOINT") or "").strip()
+    if configured:
+        return configured
+
     try:
         from back.core.sqlwizard import SQLWizardService
 

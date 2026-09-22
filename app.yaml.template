@@ -83,6 +83,19 @@ env:
   # graph permission grants resolve the right service principal (#137).
   - name: MCP_APP_NAME
     value: "${MCP_APP_NAME}"
+  # ── LLM endpoint ──────────────────────────────────────────────
+  # Overrides the auto-discovery fallback used when a domain has no llm_endpoint set
+  # in Domain Settings. Empty keeps the previous behaviour: walk the workspace's
+  # serving endpoints and take the first ready ``databricks-`` one.
+  #
+  # It has to be settable because discovery cannot see Unity Catalog *model
+  # services*. Those are named ``catalog.schema.name``, are not serving endpoints and
+  # never appear in the endpoint list — so on a workspace whose pay-per-token routes
+  # have been retired in their favour, discovery returns a ``databricks-`` name that
+  # answers every request with
+  #   403 … is no longer available. Use Unity Catalog model services.
+  - name: ONTOBRICKS_LLM_ENDPOINT
+    value: "${APP_LLM_ENDPOINT}"
   # ── Lakebase (optional) ───────────────────────────────────────
   # When the bundle is deployed to a *-lakebase target the DAB binds
   # a `database` resource to this app. Databricks Apps then

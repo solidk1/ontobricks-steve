@@ -55,6 +55,37 @@ from typing import Any, Dict, Iterable, List, Optional
 # the payload's `model` field.
 RESPONSES_PATH = "/ai-gateway/mlflow/v1/responses"
 
+#: Unity Catalog model services take the ``openai/v1`` gateway route instead. The
+#: ``mlflow/v1`` one rejects them outright::
+#:
+#:     400 Unsupported combination of api_type=mlflow/v1/responses and
+#:         native_api_types=[openai/v1/chat/completions,openai/v1/responses]
+#:         for direct egress
+#:
+#: Request and reply shapes are identical, so only the path changes.
+MODEL_SERVICE_RESPONSES_PATH = "/ai-gateway/openai/v1/responses"
+
+
+def is_model_service(endpoint_name: str) -> bool:
+    """Whether a name refers to a UC model service rather than a serving endpoint.
+
+    Model services are Unity Catalog securables, so they are named
+    ``catalog.schema.name``; serving endpoint names cannot contain dots. That makes
+    the three-part shape an unambiguous discriminator, and it is the only signal
+    available without an extra API call on every request.
+    """
+    return endpoint_name.count(".") == 2
+
+
+def responses_path(endpoint_name: str) -> str:
+    """The Responses URL path for whichever kind of model this name refers to."""
+    return (
+        MODEL_SERVICE_RESPONSES_PATH
+        if is_model_service(endpoint_name)
+        else RESPONSES_PATH
+    )
+
+
 _TEXT_PART_TYPES = ("input_text", "output_text", "text")
 
 
